@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Admin;
 use App\Models\Customer;
 
 return [
@@ -42,6 +43,13 @@ return [
             'driver' => 'session',
             'provider' => 'customers',
         ],
+
+        // The Filament admin panel authenticates against this guard only, fully
+        // isolated from the customer/Sanctum surface. See AdminPanelProvider.
+        'admin' => [
+            'driver' => 'session',
+            'provider' => 'admins',
+        ],
     ],
 
     /*
@@ -67,10 +75,10 @@ return [
             'model' => env('AUTH_MODEL', Customer::class),
         ],
 
-        // 'customers' => [
-        //     'driver' => 'database',
-        //     'table' => 'customers',
-        // ],
+        'admins' => [
+            'driver' => 'eloquent',
+            'model' => Admin::class,
+        ],
     ],
 
     /*
