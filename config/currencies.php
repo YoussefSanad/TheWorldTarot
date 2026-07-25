@@ -20,10 +20,11 @@ return [
     | Available currencies
     |--------------------------------------------------------------------------
     |
-    | Prices are fixed per currency and typed in by hand, so adding a currency
-    | here is not enough on its own. Every priceable thing needs a real price
-    | row in the new currency before it can be sold in it. There is no base
-    | price and no exchange rate anywhere in this system.
+    | Prices are fixed per currency and typed in by hand. Adding a currency here
+    | is not enough on its own: prices live as NOT NULL columns on `products`,
+    | so a new currency also needs a migration adding its column and a price for
+    | every existing product. That cost is deliberate, see .claude/database.md.
+    | There is no base price and no exchange rate anywhere in this system.
     |
     */
 

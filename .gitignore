@@ -2,6 +2,7 @@
 .DS_Store
 .env
 /.claude
+/docs
 CLAUDE.md
 .env.backup
 .env.production
