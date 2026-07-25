@@ -7,6 +7,9 @@
     "license": "MIT",
     "require": {
         "php": "^8.4.1",
+        "ext-intl": "*",
+        "ext-pdo": "*",
+        "ext-pdo_pgsql": "*",
         "dedoc/scramble": "^0.13.35",
         "filament/filament": "^4.0",
         "lara-zeus/spatie-translatable": "^1.0",
