@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ResolveRequestContext;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -13,7 +14,23 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Cookie based Sanctum auth for the Next.js frontend. Without this the
+        // API has no session at all, only token auth works, and an
+        // authenticated admin cannot preview a non-public locale.
+        $middleware->statefulApi();
+
+        // The currency override cookie is written by the Next.js frontend in
+        // plain text, so Laravel must not try to decrypt it. Without this
+        // exception the cookie is silently discarded and a customer's explicit
+        // currency choice is lost on every request.
+        $middleware->encryptCookies(except: [
+            'currency',
+        ]);
+
+        // Locale and currency for every API request, resolved once and bound.
+        $middleware->api(append: [
+            ResolveRequestContext::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
