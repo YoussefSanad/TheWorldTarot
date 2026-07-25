@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\V1\CurrencyController;
+use App\Http\Controllers\Api\V1\LanguageController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -8,6 +10,11 @@ use Illuminate\Support\Facades\Route;
 | See .claude/api.md.
 */
 Route::prefix('v1')->group(function () {
+    // The frontend contract. These two shapes are agreed with the frontend
+    // partner: adding a field is safe, renaming or removing one is not.
+    Route::get('/languages', LanguageController::class);
+    Route::get('/currencies', CurrencyController::class);
+
     Route::get('/user', function (Request $request) {
         return $request->user();
     })->middleware('auth:sanctum');
