@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\Customer;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -12,14 +11,17 @@ class DatabaseSeeder extends Seeder
 
     /**
      * Seed the application's database.
+     *
+     * Only seeders that are safe to run on production belong here. It runs on
+     * every deploy, so anything listed must be idempotent and must never
+     * overwrite something the client has edited.
+     *
+     * Test fixtures do not belong here. Use factories in tests instead.
      */
     public function run(): void
     {
-        // Customer::factory(10)->create();
-
-        Customer::factory()->create([
-            'name' => 'Test Customer',
-            'email' => 'test@example.com',
+        $this->call([
+            ProductSeeder::class,
         ]);
     }
 }

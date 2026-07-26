@@ -9,6 +9,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use InvalidArgumentException;
 
 /**
  * Deliberately absent: key, type and fulfilment. They are structure rather than
@@ -103,6 +104,35 @@ class ProductForm
     }
 
     /**
+     * A seeded product starts at zero in every currency, which is deliberately
+     * wrong rather than plausibly wrong. The database can only insist a price
+     * exists, not that it means anything, so this is what stops a reading going
+     * on sale for nothing.
+     *
+     * Only applies when the product is being published, so an unfinished one
+     * can still be saved.
+     */
+    private static function priceSetBeforePublishingRule(): Closure
+    {
+        return fn ($get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get) {
+            if (! $get('is_published')) {
+                return;
+            }
+
+            try {
+                $minor = Money::toMinor((string) $value);
+            } catch (InvalidArgumentException) {
+                // Not a number at all. The regex rule reports that itself.
+                return;
+            }
+
+            if ($minor < 1) {
+                $fail('Set a price above zero before showing this on the website.');
+            }
+        };
+    }
+
+    /**
      * One field per configured currency, so the form follows
      * config/currencies.php rather than hardcoding three inputs.
      *
@@ -122,6 +152,7 @@ class ProductForm
                 ->validationMessages([
                     'regex' => 'Enter an amount like 19.00.',
                 ])
+                ->rule(self::priceSetBeforePublishingRule())
                 ->formatStateUsing(fn (?int $state): ?string => $state === null ? null : Money::toMajor($state))
                 ->dehydrateStateUsing(fn (?string $state): ?int => $state === null ? null : Money::toMinor($state))
             )

@@ -105,6 +105,75 @@ it('refuses an amount that is not a price', function () {
         ->assertHasFormErrors(['price_gbp']);
 });
 
+it('refuses to publish a reading that has no real price', function () {
+    // Seeded products start at zero in every currency. The database can only
+    // insist a price exists, not that it means anything, so this is what stops
+    // a reading going on sale for nothing.
+    $product = Product::factory()->unpublished()->create([
+        'price_usd' => 0,
+        'price_eur' => 0,
+        'price_gbp' => 0,
+    ]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm(['is_published' => true])
+        ->call('save')
+        ->assertHasFormErrors(['price_usd', 'price_eur', 'price_gbp']);
+
+    expect($product->refresh()->is_published)->toBeFalse();
+});
+
+it('allows a zero price while the reading stays off the website', function () {
+    // An unfinished product must still be saveable, or the seeded state cannot
+    // be worked on at all.
+    $product = Product::factory()->unpublished()->create([
+        'price_usd' => 0,
+        'price_eur' => 0,
+        'price_gbp' => 0,
+    ]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm(['name' => 'Still being written'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+});
+
+it('publishes once every price is set', function () {
+    $product = Product::factory()->unpublished()->create([
+        'price_usd' => 0,
+        'price_eur' => 0,
+        'price_gbp' => 0,
+    ]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm([
+            'price_usd' => '25.00',
+            'price_eur' => '23.00',
+            'price_gbp' => '19.00',
+            'is_published' => true,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($product->refresh()->is_published)->toBeTrue()
+        ->and($product->price_gbp)->toBe(1900);
+});
+
+it('refuses to publish when only one currency is missing a price', function () {
+    $product = Product::factory()->unpublished()->create([
+        'price_usd' => 2500,
+        'price_eur' => 2300,
+        'price_gbp' => 0,
+    ]);
+
+    // A British visitor would otherwise reach a reading priced at nothing.
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm(['is_published' => true])
+        ->call('save')
+        ->assertHasFormErrors(['price_gbp'])
+        ->assertHasNoFormErrors(['price_usd', 'price_eur']);
+});
+
 it('refuses a web address that would not work in a link', function () {
     $product = Product::factory()->create();
 
