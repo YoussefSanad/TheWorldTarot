@@ -222,15 +222,68 @@ it('allows a translation to be saved one field at a time', function () {
     expect($product->refresh()->getTranslation('name', 'it'))->toBe('Una Carta');
 });
 
-it('still requires the copy in the default language', function () {
+it('saves a draft with copy still missing', function () {
+    $product = Product::factory()->unpublished()->create();
+
+    // Writing is incremental. A half finished reading has to be saveable, in
+    // any language, or the panel is useless for the job it exists to do.
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm(['name' => 'One Card', 'short_description' => '', 'long_description' => ''])
+        ->call('save')
+        ->assertHasNoFormErrors();
+});
+
+it('refuses to publish a reading with copy still missing', function () {
+    $product = Product::factory()->unpublished()->create();
+
+    // Completeness is demanded at the moment it goes on sale, not before.
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm([
+            'short_description' => '',
+            'long_description' => '',
+            'is_published' => true,
+        ])
+        ->call('save')
+        ->assertHasFormErrors(['short_description', 'long_description']);
+
+    expect($product->refresh()->is_published)->toBeFalse();
+});
+
+it('switches language back and forth without complaining', function () {
+    config()->set('localization.available', [
+        'en' => ['label' => 'English', 'native' => 'English'],
+        'es' => ['label' => 'Spanish', 'native' => 'Español'],
+    ]);
+
     $product = Product::factory()->create();
 
-    // The default language is the one everything falls back to, so it is never
-    // allowed to be empty.
+    // Looking at an untranslated language and changing your mind must not be
+    // treated as an attempt to empty the record. A field level `required` fires
+    // here, because the switcher validates the tab it is leaving against the
+    // language it is arriving at.
     Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm(['name' => '', 'short_description' => ''])
-        ->call('save')
-        ->assertHasFormErrors(['name', 'short_description']);
+        ->set('activeLocale', 'es')
+        ->assertHasNoErrors()
+        ->set('activeLocale', 'en')
+        ->assertHasNoErrors()
+        ->set('activeLocale', 'es')
+        ->assertHasNoErrors();
+});
+
+it('only offers publishing in the default language', function () {
+    config()->set('localization.available', [
+        'en' => ['label' => 'English', 'native' => 'English'],
+        'es' => ['label' => 'Spanish', 'native' => 'Español'],
+    ]);
+
+    $product = Product::factory()->create();
+
+    // A reading is on sale or it is not. Publishing per language would be a
+    // different meaning entirely, and one nobody asked for.
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->assertFormFieldIsEnabled('is_published')
+        ->set('activeLocale', 'es')
+        ->assertFormFieldIsDisabled('is_published');
 });
 
 it('drives the resource translatable locales from config', function () {
