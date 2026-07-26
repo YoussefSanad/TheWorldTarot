@@ -33,6 +33,7 @@ return [
 
     'available' => [
         'en' => ['label' => 'English', 'native' => 'English'],
+        'es' => ['label' => 'Spanish', 'native' => 'Español'],
     ],
 
 ];
