@@ -1,0 +1,59 @@
+<?php
+
+namespace App\Http\Resources\Api\V1;
+
+use App\Models\Product;
+use App\Support\RequestContext;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * @mixin Product
+ */
+class ProductResource extends JsonResource
+{
+    public static $wrap = null;
+
+    /**
+     * Translatable values come out in the locale the middleware resolved, since
+     * it has already set the application locale for this request.
+     *
+     * Never exposed: `key` and `fulfilment`. Both are internal structure, and a
+     * customer has no business knowing how their reading gets written.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        $currency = app(RequestContext::class)->currency;
+
+        // Cast explicitly to string. A translatable attribute is an array of
+        // locales underneath, and while the accessor already returns the active
+        // locale's value, the cast is what stops the generated specification
+        // describing these as arrays to the frontend.
+        return [
+            'slug' => (string) $this->slug,
+            'type' => $this->type->value,
+            'name' => (string) $this->name,
+            'short_description' => (string) $this->short_description,
+
+            // Only on the single product endpoint. A listing does not need the
+            // long copy, and sending it would bloat every card on the page.
+            'long_description' => $this->when(
+                $request->routeIs('products.show'),
+                fn (): string => (string) $this->long_description,
+            ),
+
+            // Whether the customer may attach a question when buying. Always
+            // optional, never required.
+            'allows_question' => $this->allows_question,
+
+            // Exactly one price, in the currency this request resolved to, in
+            // integer minor units. Never all three, and never converted.
+            'price' => [
+                'currency' => $currency,
+                'amount' => $this->priceIn($currency),
+            ],
+        ];
+    }
+}
