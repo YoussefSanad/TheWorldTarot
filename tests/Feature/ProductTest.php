@@ -32,6 +32,17 @@ it('stores and returns copy per locale', function () {
         ->and($product->getTranslation('name', 'it'))->toBe('Una Carta');
 });
 
+it('falls back to the default locale when a translation is missing', function () {
+    $product = Product::factory()->create([
+        'name' => ['en' => 'One Card'],
+    ]);
+
+    // The safety net in .claude/translation.md section 7, not a designed
+    // behaviour: a live locale is complete by definition, so this should never
+    // fire in production.
+    expect($product->getTranslation('name', 'it'))->toBe('One Card');
+});
+
 it('refuses a product with any price missing', function (string $missing) {
     // The whole reason prices are columns rather than a related table. This is
     // enforced by the database, so a seeder, a queued job or a direct write
