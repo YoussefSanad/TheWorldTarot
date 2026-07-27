@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\Products\Schemas;
 
 use App\Support\Money;
-use Closure;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -39,11 +38,6 @@ class ProductForm
                             ->helperText('The longer text on the reading\'s own page.')
                             ->rows(10),
 
-                        TextInput::make('slug')
-                            ->label('Web address')
-                            ->helperText('The short name used in the page link, for example one-card. Lowercase letters, numbers and dashes only. Changing it changes the link, and the old link stops working.')
-                            ->maxLength(255)
-                            ->rule(self::webAddressRule()),
                     ]),
 
                 Section::make('Price')
@@ -77,19 +71,6 @@ class ProductForm
     {
         return ($livewire->activeLocale ?? config('localization.default'))
             === config('localization.default');
-    }
-
-    /**
-     * Validates the web address only when one has been typed, so a language
-     * still being worked on can be saved with the field left empty.
-     */
-    private static function webAddressRule(): Closure
-    {
-        return fn (): Closure => function (string $attribute, mixed $value, Closure $fail) {
-            if (filled($value) && ! preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/', $value)) {
-                $fail('Use lowercase letters, numbers and dashes only, for example one-card.');
-            }
-        };
     }
 
     /**

@@ -17,7 +17,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/currencies', CurrencyController::class);
 
     Route::get('/products', [ProductController::class, 'index'])->name('products.index');
-    Route::get('/products/{slug}', [ProductController::class, 'show'])->name('products.show');
+    Route::get('/products/{key}', [ProductController::class, 'show'])->name('products.show');
 
     Route::get('/user', function (Request $request) {
         return $request->user();

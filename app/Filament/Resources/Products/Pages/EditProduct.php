@@ -23,7 +23,6 @@ class EditProduct extends EditRecord
         'name' => 'Add a name before showing this on the website.',
         'short_description' => 'Add a short description before showing this on the website.',
         'long_description' => 'Add the full description before showing this on the website.',
-        'slug' => 'Add a web address before showing this on the website.',
     ];
 
     /**

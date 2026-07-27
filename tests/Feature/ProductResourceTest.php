@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Filament\Resources\Products\Pages\EditProduct;
 use App\Filament\Resources\Products\Pages\ListProducts;
@@ -174,15 +175,6 @@ it('refuses to publish when only one currency is missing a price', function () {
         ->assertHasNoFormErrors(['price_usd', 'price_eur']);
 });
 
-it('refuses a web address that would not work in a link', function () {
-    $product = Product::factory()->create();
-
-    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm(['slug' => 'One Card Reading!'])
-        ->call('save')
-        ->assertHasFormErrors(['slug']);
-});
-
 it('persists a translation against the active language', function () {
     config()->set('localization.available', [
         'en' => ['label' => 'English', 'native' => 'English'],
@@ -303,16 +295,16 @@ it('does not show structural fields to the client', function () {
 });
 
 it('lists products in their configured order', function () {
-    Product::factory()->create(['key' => 'second', 'name' => ['en' => 'Second'], 'sort_order' => 2]);
-    Product::factory()->create(['key' => 'first', 'name' => ['en' => 'First'], 'sort_order' => 1]);
+    Product::factory()->create(['key' => ProductKey::ThreeCard, 'sort_order' => 2]);
+    Product::factory()->create(['key' => ProductKey::OneCard, 'sort_order' => 1]);
 
     Livewire::test(ListProducts::class)
         ->assertCanSeeTableRecords(Product::orderBy('sort_order')->get(), inOrder: true);
 });
 
 it('keeps the pass out of nobody\'s way, listing every type together', function () {
-    Product::factory()->create(['key' => 'a-reading']);
-    Product::factory()->pass()->create(['key' => 'viewing-room-pass']);
+    Product::factory()->create(['key' => ProductKey::OneCard]);
+    Product::factory()->pass()->create();
 
     // One resource covers everything sellable, since they share every field
     // the client edits.

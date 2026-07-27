@@ -3,10 +3,10 @@
 namespace Database\Factories;
 
 use App\Enums\Fulfilment;
+use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Product;
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Illuminate\Support\Str;
 
 /**
  * @extends Factory<Product>
@@ -14,32 +14,42 @@ use Illuminate\Support\Str;
 class ProductFactory extends Factory
 {
     /**
+     * Which reading the next factory call uses.
+     *
+     * Keys come from a fixed catalogue, so they cannot be invented per test.
+     * Cycling through the readings means a test can make several products
+     * without naming each one, and asking for a fifth reading fails on the
+     * unique key, which is correct: there is no fifth reading.
+     */
+    private static int $nextReading = 0;
+
+    /**
      * Define the model's default state.
      *
      * Every price is set, because the database will not accept a row without
-     * all three. That is the rule this factory exists to respect rather than
-     * work around.
+     * all three.
      *
      * @return array<string, mixed>
      */
     public function definition(): array
     {
-        $name = fake()->unique()->words(3, true);
+        $readings = ProductKey::readings();
+        $key = $readings[self::$nextReading % count($readings)];
+        self::$nextReading++;
 
         return [
-            'key' => Str::slug($name),
+            'key' => $key,
             'type' => ProductType::Reading,
             'fulfilment' => Fulfilment::ManualPdf,
             'allows_question' => true,
-            'slug' => ['en' => Str::slug($name)],
-            'name' => ['en' => Str::title($name)],
+            'name' => ['en' => $key->defaultName()],
             'short_description' => ['en' => fake()->sentence()],
             'long_description' => ['en' => fake()->paragraph()],
             'price_usd' => 2500,
             'price_eur' => 2300,
             'price_gbp' => 1900,
             'is_published' => true,
-            'sort_order' => 0,
+            'sort_order' => $key->defaultSortOrder(),
         ];
     }
 
@@ -51,24 +61,21 @@ class ProductFactory extends Factory
     public function pass(): static
     {
         return $this->state(fn () => [
+            'key' => ProductKey::ViewingRoomPass,
             'type' => ProductType::Pass,
             'fulfilment' => Fulfilment::AccessGrant,
             'allows_question' => false,
+            'name' => ['en' => ProductKey::ViewingRoomPass->defaultName()],
         ]);
     }
 
-    /**
-     * An add-on has no page, so it has no slug.
-     */
     public function addon(): static
     {
         return $this->state(fn () => [
+            'key' => ProductKey::Rush24h,
             'type' => ProductType::Addon,
             'allows_question' => false,
-            // No translations at all, rather than null. Assigning null to a
-            // translatable attribute stores {"en": null}, which is a slug entry
-            // holding nothing rather than an absent slug.
-            'slug' => [],
+            'name' => ['en' => ProductKey::Rush24h->defaultName()],
         ]);
     }
 }

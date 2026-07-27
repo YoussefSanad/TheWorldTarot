@@ -32,8 +32,12 @@ class ProductResource extends JsonResource
         // locale's value, the cast is what stops the generated specification
         // describing these as arrays to the frontend.
         return [
-            'slug' => (string) $this->slug,
-            'type' => $this->type->value,
+            // The enums themselves, not their values. Both serialise to the
+            // same string, and returning the enum is what makes the generated
+            // specification describe them as a fixed set rather than "string",
+            // so the frontend gets a union type it can switch on exhaustively.
+            'key' => $this->key,
+            'type' => $this->type,
             'name' => (string) $this->name,
             'short_description' => (string) $this->short_description,
 

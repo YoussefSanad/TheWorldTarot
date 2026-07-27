@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\Fulfilment;
+use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Product;
 use Database\Seeders\ProductSeeder;
@@ -16,14 +17,13 @@ function seedProducts(): void
 it('creates the four readings', function () {
     seedProducts();
 
-    expect(Product::pluck('key')->all())
-        ->toBe(['one-card', 'three-card', 'month-ahead', 'in-depth']);
+    expect(Product::pluck('key')->all())->toBe(ProductKey::readings());
 });
 
 it('creates them unpublished, with no price set', function () {
     seedProducts();
 
-    $product = Product::firstWhere('key', 'one-card');
+    $product = Product::firstWhere('key', ProductKey::OneCard);
 
     // Zero is deliberately wrong rather than plausibly wrong. A made-up
     // placeholder price is the kind of thing that reaches production unnoticed.
@@ -55,7 +55,7 @@ it('can be run repeatedly without duplicating anything', function () {
 it('never overwrites copy or prices the client has edited', function () {
     seedProducts();
 
-    Product::firstWhere('key', 'one-card')->update([
+    Product::firstWhere('key', ProductKey::OneCard)->update([
         'name' => ['en' => 'A Single Card'],
         'price_gbp' => 1900,
         'is_published' => true,
@@ -64,7 +64,7 @@ it('never overwrites copy or prices the client has edited', function () {
 
     seedProducts();
 
-    $product = Product::firstWhere('key', 'one-card');
+    $product = Product::firstWhere('key', ProductKey::OneCard);
 
     // Values belong to the client. A deploy must never trample them.
     expect($product->getTranslation('name', 'en'))->toBe('A Single Card')
@@ -77,7 +77,7 @@ it('re-applies structure that a developer has corrected', function () {
     seedProducts();
 
     // Something changed it by hand or by an older seed.
-    Product::firstWhere('key', 'one-card')->update([
+    Product::firstWhere('key', ProductKey::OneCard)->update([
         'fulfilment' => Fulfilment::AccessGrant,
         'allows_question' => false,
     ]);
@@ -85,7 +85,7 @@ it('re-applies structure that a developer has corrected', function () {
     seedProducts();
 
     // Structure belongs to code, so the next deploy puts it back.
-    $product = Product::firstWhere('key', 'one-card');
+    $product = Product::firstWhere('key', ProductKey::OneCard);
 
     expect($product->fulfilment)->toBe(Fulfilment::ManualPdf)
         ->and($product->allows_question)->toBeTrue();
@@ -94,13 +94,13 @@ it('re-applies structure that a developer has corrected', function () {
 it('does not resurrect a reading that was soft deleted', function () {
     seedProducts();
 
-    $product = Product::firstWhere('key', 'one-card');
+    $product = Product::firstWhere('key', ProductKey::OneCard);
     $product->delete();
 
     seedProducts();
 
     // It matches the trashed row rather than creating a second one, which would
     // collide on the unique key anyway.
-    expect(Product::withTrashed()->where('key', 'one-card')->count())->toBe(1)
-        ->and(Product::where('key', 'one-card')->exists())->toBeFalse();
+    expect(Product::withTrashed()->where('key', ProductKey::OneCard)->count())->toBe(1)
+        ->and(Product::where('key', ProductKey::OneCard)->exists())->toBeFalse();
 });

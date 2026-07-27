@@ -1,31 +1,21 @@
 <?php
 
 use App\Enums\LocaleState;
-use App\Support\SlugIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
     /**
-     * Enable Spanish for the admin panel only.
+     * Add Spanish, not yet public.
      *
-     * The config key in config/localization.php is what makes the Spanish tab
-     * appear on every translatable resource, with no migration and no code
-     * change. This migration does the two things config cannot:
+     * The row is what makes the Spanish tab appear in the panel, with no
+     * migration per language. Its status keeps it out of the public site until
+     * every record is flagged finished in it.
      *
-     * 1. Creates the locales row at `available`, which means the tab exists and
-     *    nobody outside the panel is ever served Spanish. Not the public list,
-     *    not ?locale=es, not even for an admin
-     * 2. Adds the per-locale unique slug index, so two products cannot share a
-     *    Spanish web address. Every locale needs its own, since uniqueness is
-     *    per locale rather than global
-     *
-     * To review the real site in Spanish before customers can, move the row to
-     * `preview`, which serves it through an explicit ?locale=es to a signed-in
-     * admin and to nobody else. Going `live` additionally needs lang/es/ in
-     * this repo and Spanish messages in the frontend repo, or the content is
-     * translated while every button is still English.
+     * This originally also created a per-locale unique slug index. Translated
+     * slugs were removed on 27 July 2026 in favour of stable keys, so that part
+     * is gone. See .claude/translation.md section 9.
      */
     public function up(): void
     {
@@ -38,8 +28,6 @@ return new class extends Migration
                 'updated_at' => now(),
             ],
         );
-
-        SlugIndex::createFor('products', 'es');
     }
 
     /**
@@ -47,8 +35,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        SlugIndex::dropFor('products', 'es');
-
         DB::table('locales')->where('code', 'es')->delete();
     }
 };

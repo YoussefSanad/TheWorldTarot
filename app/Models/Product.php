@@ -3,8 +3,8 @@
 namespace App\Models;
 
 use App\Enums\Fulfilment;
+use App\Enums\ProductKey;
 use App\Enums\ProductType;
-use App\Models\Concerns\HasTranslatedSlug;
 use App\Support\CurrencyResolver;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,22 +21,23 @@ use Spatie\Translatable\HasTranslations;
  * price is never derived from another price. See .claude/database.md.
  */
 #[Fillable([
-    'key', 'type', 'fulfilment', 'allows_question', 'slug', 'name',
+    'key', 'type', 'fulfilment', 'allows_question', 'name',
     'short_description', 'long_description', 'price_usd', 'price_eur',
     'price_gbp', 'is_published', 'sort_order',
 ])]
 class Product extends Model
 {
-    use HasFactory, HasTranslatedSlug, HasTranslations, SoftDeletes;
+    use HasFactory, HasTranslations, SoftDeletes;
 
     /**
      * @var array<int, string>
      */
-    public array $translatable = ['slug', 'name', 'short_description', 'long_description'];
+    public array $translatable = ['name', 'short_description', 'long_description'];
 
     protected function casts(): array
     {
         return [
+            'key' => ProductKey::class,
             'type' => ProductType::class,
             'fulfilment' => Fulfilment::class,
             'allows_question' => 'boolean',

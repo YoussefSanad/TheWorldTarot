@@ -1,11 +1,11 @@
 <?php
 
 use App\Enums\LocaleState;
+use App\Enums\ProductKey;
 use App\Models\Admin;
 use App\Models\Locale;
 use App\Models\Product;
 use App\Support\RequestContext;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 
@@ -81,18 +81,19 @@ it('serves spanish to everyone once it goes live', function () {
 it('stores spanish product copy alongside english', function () {
     $product = Product::factory()->create([
         'name' => ['en' => 'One Card', 'es' => 'Una Carta'],
-        'slug' => ['en' => 'one-card', 'es' => 'una-carta'],
     ]);
 
     expect($product->fresh()->getTranslation('name', 'es'))->toBe('Una Carta')
-        ->and(Product::whereSlug('una-carta', 'es')->first()?->id)->toBe($product->id);
+        ->and($product->getTranslation('name', 'en'))->toBe('One Card');
 });
 
-it('enforces slug uniqueness in spanish', function () {
-    Product::factory()->create(['key' => 'first', 'slug' => ['es' => 'una-carta']]);
+it('addresses a product by the same key in every language', function () {
+    $product = Product::factory()->create([
+        'key' => ProductKey::OneCard,
+        'name' => ['en' => 'One Card', 'es' => 'Una Carta'],
+    ]);
 
-    // The index added with the locale has to work like the English one, or two
-    // products end up answering to the same Spanish URL.
-    expect(fn () => Product::factory()->create(['key' => 'second', 'slug' => ['es' => 'una-carta']]))
-        ->toThrow(QueryException::class);
+    // Keys are never translated, so a product has one address rather than one
+    // per language, and renaming it in Spanish cannot break a link.
+    expect(Product::where('key', ProductKey::OneCard)->first()?->id)->toBe($product->id);
 });
