@@ -89,7 +89,42 @@ One product. Same shape, plus `long_description`.
 
 - **404, not 403**, for anything unpublished, any key outside the fixed set, and any product not yet translated into the language you asked for. Whether an unreleased reading exists is not public information
 
-All four endpoints are public and need no authentication.
+### GET /api/v1/{locale}/cards
+
+The Library: every card on the website in that language, in deck order.
+
+```json
+[
+  {
+    "id": 1,
+    "number": 0,
+    "name": "The Fool",
+    "short_description": "A beginning.",
+    "long_description": "The longer meaning of the card."
+  }
+]
+```
+
+- **The listing carries the full copy**, unlike the readings listing. The Library opens a card in a pop-up on a page that already holds the deck, so one request renders everything and opening a card costs no round trip. The whole deck is roughly 25KB of text before compression
+- `number` is the number on the card, and the order the deck is shown in. The Fool is 0
+- `id` is how you fetch a single card. **There is no slug**, because a card is never reached by a URL a person reads. If you need per-card addresses, say so now rather than after launch
+- **A card appears only in the languages it is finished in**, on the same rule as readings
+
+### GET /api/v1/{locale}/cards/{id}
+
+One card, the identical shape. 404 for a card that does not exist, is unpublished, or is not written in the language you asked for.
+
+Worth having even though the listing carries everything: video playback and its access check will hang off this endpoint, so build against it now rather than moving to it later.
+
+### GET /api/v1/{locale}/cards/random
+
+One card drawn at random, for the reveal on the homepage. The identical shape again, so one component renders a card wherever it came from.
+
+- **Never cached. It carries `Cache-Control: no-store`, and you must not cache it either.** A held response reveals the same card to every visitor, which is the one thing the reveal must not do
+- **This endpoint does not remember anyone.** It will hand the same visitor a hundred cards. The rule that a visitor gets one reveal per session is yours, in a cookie or local storage
+- 404 when no card is on the website yet, which is the state of a freshly seeded site
+
+All seven endpoints are public and need no authentication.
 
 ## 3. Locale
 
@@ -175,6 +210,7 @@ On 422, `errors` is keyed by field name with an array of messages per field, and
 
 - `/api/v1/languages` is identical for every visitor and fully cacheable, but **cache it briefly**. It is what tells you a language has been taken down, so a long cache delays the switch you are relying on
 - Content URLs carry the language in the path, so each language caches separately with no configuration at all. Currency is the only remaining variance: sending `?currency=` explicitly makes them cleanly cacheable, relying on country detection does not
+- **`/api/v1/{locale}/cards/random` must never be cached, by you or by anything between us.** It says so in its own headers. Everything else on the cards endpoints is as cacheable as the readings
 - `/api/v1/currencies` contains `detected`, which is per-visitor. It must not be cached at a shared edge on URL alone, or one visitor's currency gets served to the next. The CDN cache key accounts for this
 
 The country header only exists once traffic flows through the CDN. Before DNS cutover, and in local development, detection falls back to USD. That is expected, not a bug.
@@ -183,7 +219,7 @@ The country header only exists once traffic flows through the CDN. Before DNS cu
 
 Nothing here has a shape yet, and we would rather agree them with you before writing them than after.
 
-- Cards and the Library
+- Card artwork. Cards carry their copy today and no image. The artwork arrives with the video, so the Library is renderable as text now and complete after that
 - Video playback and signed URLs
 - The viewing room pass, which is a product you fetch by its key
 - Checkout, orders, member accounts, gift codes
@@ -198,5 +234,6 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 2. **Cookie auth or token auth for the website.** Cookie is our assumption
 3. **Confirmation that your language switcher reads `/api/v1/languages` at runtime**, since that is what makes taking a language down actually work
 4. **Confirmation of the shapes above**, or a counter-proposal
+5. **Whether a card ever needs an address of its own.** Cards are identified by number today, on the assumption that the Library opens them in a pop-up. If any card is ever linkable, shareable or indexed on its own URL, adding a readable identifier is cheap now and awkward once you have built against ids
 
 One question from us: your application can read the visitor's country directly at the edge. If you would rather detect currency yourself and always send `?currency=`, we can drop `detected` and the caching complication with it.
