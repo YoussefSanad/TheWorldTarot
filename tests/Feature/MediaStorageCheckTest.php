@@ -30,6 +30,18 @@ it('fails when a deployed environment is writing to its own filesystem', functio
         ->assertFailed();
 });
 
+it('says the bucket is missing rather than throwing from inside flysystem', function () {
+    config()->set('filesystems.media', 's3');
+    config()->set('filesystems.disks.s3.bucket', null);
+
+    // Building an s3 disk with no bucket is a type error out of Flysystem,
+    // which is a poor way to be told an environment variable did not arrive.
+    $this->artisan('media:check')
+        ->expectsOutputToContain('no bucket configured')
+        ->expectsOutputToContain('AWS_BUCKET')
+        ->assertFailed();
+});
+
 it('accepts a local disk on a developer machine', function () {
     Storage::fake('public');
     app()->detectEnvironment(fn (): string => 'local');
