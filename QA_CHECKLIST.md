@@ -18,7 +18,7 @@ API=https://staging-api.theworldtarot.com
 | Push a commit to `main` | A deploy starts and finishes without manual steps |
 | Deploy log | Migrations applied, `ProductSeeder` and `CardSeeder` ran |
 | Laravel Cloud, Queues tab | The managed queue exists, workers at zero, nothing failed |
-| Environment variables | `APP_DEBUG` is **false**, and `MEDIA_DISK` is **`s3`**, not `public` |
+| Environment variables | `APP_DEBUG` is **false**. `MEDIA_DISK` is not set at all: the attached bucket replaces the disk it names |
 | `php artisan media:check` from the environment's console | Passes, names the bucket, and prints a public URL |
 | `php artisan config:cache`, then `media:check`, then `config:clear` | It says the cache is hiding everything, rather than listing variables as missing. This branch cannot be covered by an automated test |
 | That URL, opened in a browser | Loads. A **403** means the bucket is not publicly readable |

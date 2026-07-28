@@ -1,5 +1,51 @@
 <?php
 
+/*
+ * The buckets Laravel Cloud has attached to this environment.
+ *
+ * The platform publishes them as one JSON blob rather than as AWS_ variables,
+ * and each entry names the disk it is meant to replace. Nothing reads it by
+ * itself, so an attached bucket is invisible to the application until this runs
+ * and the disk it names quietly stays a local directory.
+ *
+ * Found on 29 July 2026, after a long hunt for AWS_BUCKET in an environment
+ * that was never going to have one. Empty everywhere except Laravel Cloud.
+ */
+$attachedBuckets = (function (): array {
+    $raw = env('LARAVEL_CLOUD_DISK_CONFIG');
+
+    if (blank($raw)) {
+        return [];
+    }
+
+    $decoded = json_decode((string) $raw, true);
+
+    // Never fail here. A malformed blob must not take the application down at
+    // boot, and `php artisan media:check` reports the consequence in words.
+    if (! is_array($decoded)) {
+        return [];
+    }
+
+    return collect($decoded)
+        ->filter(fn ($bucket): bool => is_array($bucket) && filled($bucket['disk'] ?? null))
+        ->mapWithKeys(fn (array $bucket): array => [$bucket['disk'] => [
+            'driver' => 's3',
+            'key' => $bucket['access_key_id'] ?? null,
+            'secret' => $bucket['access_key_secret'] ?? null,
+            'region' => $bucket['default_region'] ?? 'auto',
+            'bucket' => $bucket['bucket'] ?? null,
+
+            // What the pictures are read from, which is not the endpoint they
+            // are written to.
+            'url' => $bucket['url'] ?? null,
+            'endpoint' => $bucket['endpoint'] ?? null,
+            'use_path_style_endpoint' => $bucket['use_path_style_endpoint'] ?? false,
+            'throw' => false,
+            'report' => false,
+        ]])
+        ->all();
+})();
+
 return [
 
     /*
@@ -25,10 +71,10 @@ return [
     | moves all of it, and so no upload can quietly land on the application's
     | own filesystem.
     |
-    | That matters on Laravel Cloud, where the filesystem is ephemeral. The
-    | "public" disk works locally and loses every upload on the next deploy in a
-    | deployed environment, so both deployed environments set this to "s3",
-    | which reads the managed bucket's credentials that the platform injects.
+    | That matters on Laravel Cloud, where the filesystem is ephemeral. There,
+    | the attached bucket replaces whichever disk it names, "public" today, so
+    | this setting can stay as it is in every environment: locally it is a
+    | directory, deployed it is the bucket.
     |
     | Run `php artisan media:check` in any environment to prove which disk is
     | actually in use and that it can be written to.
@@ -90,6 +136,11 @@ return [
             'throw' => false,
             'report' => false,
         ],
+
+        // Last, so an attached bucket replaces the disk it names. On Laravel
+        // Cloud that is "public", which is why nothing above needed changing
+        // and why the same MEDIA_DISK setting is right in every environment.
+        ...$attachedBuckets,
 
     ],
 
