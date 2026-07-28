@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Products\Schemas;
 
-use App\Support\Locales;
 use App\Support\Money;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -54,11 +53,6 @@ class ProductForm
                             ->required(),
                     ]),
             ]);
-    }
-
-    public static function editingDefaultLocale(mixed $livewire): bool
-    {
-        return ($livewire->activeLocale ?? Locales::default()) === Locales::default();
     }
 
     /**

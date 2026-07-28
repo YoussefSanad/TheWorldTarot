@@ -17,6 +17,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Media Disk
+    |--------------------------------------------------------------------------
+    |
+    | Where anything the client uploads lives: card pictures now, video
+    | thumbnails from M4. Named separately from the default disk so one setting
+    | moves all of it, and so no upload can quietly land on the application's
+    | own filesystem.
+    |
+    | That matters on Laravel Cloud, where the filesystem is ephemeral. The
+    | "public" disk works locally and loses every upload on the next deploy in a
+    | deployed environment, so both deployed environments set this to "s3",
+    | which reads the managed bucket's credentials that the platform injects.
+    |
+    | Run `php artisan media:check` in any environment to prove which disk is
+    | actually in use and that it can be written to.
+    |
+    */
+
+    'media' => env('MEDIA_DISK', 'public'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Filesystem Disks
     |--------------------------------------------------------------------------
     |

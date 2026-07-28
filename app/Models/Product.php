@@ -127,15 +127,7 @@ class Product extends Model
      */
     public function whatIsMissing(string $locale): array
     {
-        $missing = array_map(
-            fn (string $field): string => match ($field) {
-                'name' => 'a name',
-                'short_description' => 'a short description',
-                'long_description' => 'a full description',
-                default => str_replace('_', ' ', $field),
-            },
-            $this->missingTranslations($locale),
-        );
+        $missing = $this->missingCopy($locale);
 
         if (! $this->isPriced()) {
             $missing[] = 'a price in every currency';
