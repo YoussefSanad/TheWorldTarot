@@ -18,7 +18,9 @@ API=https://staging-api.theworldtarot.com
 | Push a commit to `main` | A deploy starts and finishes without manual steps |
 | Deploy log | Migrations applied, `ProductSeeder` and `CardSeeder` ran |
 | Laravel Cloud, Queues tab | The managed queue exists, workers at zero, nothing failed |
-| Environment variables | `APP_DEBUG` is **false**, and `MEDIA_DISK` is **`r2`**, not `public` |
+| Environment variables | `APP_DEBUG` is **false**, and `MEDIA_DISK` is **`s3`**, not `public` |
+| `php artisan media:check` from the environment's console | Passes, names the bucket, and prints a public URL |
+| That URL, opened in a browser | Loads. A **403** means the bucket is not publicly readable |
 | Visit `$API` in a browser | No stack trace, no environment variables on screen |
 
 **Cold start.** Leave staging idle 15 minutes, then run three times and record all three:
