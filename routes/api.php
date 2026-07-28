@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\CardController;
 use App\Http\Controllers\Api\V1\CurrencyController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\ProductController;
@@ -33,5 +34,15 @@ Route::prefix('v1')->group(function () {
     Route::prefix('{locale}')->group(function () {
         Route::get('/products', [ProductController::class, 'index'])->name('products.index');
         Route::get('/products/{key}', [ProductController::class, 'show'])->name('products.show');
+
+        Route::get('/cards', [CardController::class, 'index'])->name('cards.index');
+
+        // Above the single card route, and the id is constrained to digits.
+        // Either alone would keep the reveal from being read as a card called
+        // "random". Both together mean changing one later cannot break it.
+        Route::get('/cards/random', [CardController::class, 'random'])->name('cards.random');
+        Route::get('/cards/{card}', [CardController::class, 'show'])
+            ->whereNumber('card')
+            ->name('cards.show');
     });
 });

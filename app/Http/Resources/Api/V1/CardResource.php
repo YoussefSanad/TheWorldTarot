@@ -1,0 +1,47 @@
+<?php
+
+namespace App\Http\Resources\Api\V1;
+
+use App\Models\Card;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * @mixin Card
+ */
+class CardResource extends JsonResource
+{
+    public static $wrap = null;
+
+    /**
+     * The same shape from every card endpoint, long copy included.
+     *
+     * Readings split their copy, so a listing does not carry four long
+     * descriptions nobody asked for. Cards do not, because the Library opens a
+     * card in a pop-up on a page that already holds the whole deck: splitting
+     * it would save a few kilobytes and cost a round trip every time somebody
+     * opens a card.
+     *
+     * Translatable values come out in the locale the middleware resolved, since
+     * it has already set the application locale for this request. Cast to
+     * string, or the generated specification describes them as arrays.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            // The address of a single card. There is no slug: a card is never
+            // reached by a URL a person reads.
+            'id' => $this->id,
+
+            // The number on the card, which is also the order the deck is
+            // shown in. The Fool is 0.
+            'number' => $this->number,
+
+            'name' => (string) $this->name,
+            'short_description' => (string) $this->short_description,
+            'long_description' => (string) $this->long_description,
+        ];
+    }
+}
