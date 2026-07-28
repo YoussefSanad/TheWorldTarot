@@ -1,0 +1,92 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  # A new push to the same branch cancels the run already in flight.
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Pest
+    runs-on: ubuntu-latest
+
+    services:
+      # Postgres, never SQLite. The schema uses jsonb and the tests assert
+      # column types, so a different engine would prove nothing.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: the_world_tarot_testing
+          POSTGRES_USER: postgres
+          # phpunit.xml connects with an empty password, so the container has
+          # to accept one.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          # Matches the floor in composer.json and the platform pin. Local
+          # development runs 8.5, so this is the only place 8.4 is exercised.
+          php-version: '8.4'
+          extensions: intl, pdo, pdo_pgsql
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run the test suite
+        run: ./vendor/bin/pest --colors=always
+
+  code-style:
+    name: Pint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Check formatting
+        run: ./vendor/bin/pint --test

@@ -5,9 +5,9 @@ namespace App\Console\Commands;
 use App\Models\Admin;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
-use Illuminate\Support\Facades\Validator;
 
 use function Laravel\Prompts\password as promptPassword;
 use function Laravel\Prompts\text;
