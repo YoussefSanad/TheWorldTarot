@@ -34,7 +34,11 @@ The API and the website share a root domain deliberately. Section 6 explains why
 
 - A single-item array until a second language goes live. Use the length to decide whether to render a language selector at all
 - **Only public languages appear.** A language being translated, or under internal review, is absent. There is no `enabled` flag, because presence in this list is what enabled means
-- `code` is what you send back as `?locale=`
+- `code` is the segment you put in the URL, `/api/v1/en/...`
+
+**Build your language switcher from this endpoint, never from a hardcoded list.** A language can be taken down at any moment, and that takes effect on the next request with no deploy on our side. If your switcher is hardcoded, taking one down leaves a dead link on your site and a 404 behind it. This is the one requirement in this document that we cannot enforce for you.
+
+This endpoint has no language segment, since it is what tells you which languages there are.
 
 ### GET /api/v1/currencies
 
@@ -52,14 +56,14 @@ The API and the website share a root domain deliberately. Section 6 explains why
 - `available` is the full list the site sells in. Stable and safe to cache
 - `detected` is what this particular request resolved to. It varies by visitor
 
-### GET /api/v1/products
+### GET /api/v1/{locale}/products
 
 The readings on sale, in the order the client arranged them.
 
 ```json
 [
   {
-    "slug": "one-card",
+    "key": "one-card",
     "type": "reading",
     "name": "One Card Reading",
     "short_description": "A single card.",
@@ -70,39 +74,42 @@ The readings on sale, in the order the client arranged them.
 ```
 
 - **Published readings only.** Anything unpublished is absent
-- `type` is `reading`, `pass` or `addon`. It exists so you can map presentation to it. Today this list only ever contains `reading`
+- **`key` is the product's permanent identifier and its URL segment.** It is the same in every language, it is never edited, and it is a fixed set: `one-card`, `three-card`, `month-ahead`, `in-depth`, later `viewing-room-pass` and `rush-24h`. The generated specification carries it as an enum, so you can build an exhaustive switch over it and let your compiler tell you when we add one
+- `type` is `reading`, `pass` or `addon`, so you can map presentation to it. This list only ever contains `reading`
 - `allows_question` means the customer may attach a question when buying. It is never required of them
 - `price` is exactly one price, in the currency this request resolved to. See section 5
-- `slug` is the slug **in the requested language**, and is what you put in the URL
 
-The viewing room pass is deliberately not in this list. It has a page of its own rather than sitting among the readings, and is fetched by slug once it exists.
+**A product appears only in the languages it is finished in.** If a reading is added after Spanish goes live, it is in the English list immediately and joins the Spanish list when its Spanish copy is written. So the two lists can legitimately differ in length, and a language switcher on a product page should hide any language that product is not available in.
 
-### GET /api/v1/products/{slug}
+The viewing room pass is deliberately not in this list. It has a page of its own rather than sitting among the readings, and is fetched by its key once it exists.
+
+### GET /api/v1/{locale}/products/{key}
 
 One product. Same shape, plus `long_description`.
 
-- The slug is matched **against the requested language only**. An English slug asked for in Spanish is a 404, not a fallback
-- Anything unpublished is a **404, not a 403**. Whether an unreleased reading exists is not public information
+- **404, not 403**, for anything unpublished, any key outside the fixed set, and any product not yet translated into the language you asked for. Whether an unreleased reading exists is not public information
 
 All four endpoints are public and need no authentication.
 
 ## 3. Locale
 
-**Locale travels as a query parameter, `?locale=es`. Never as a header.**
+**Language is a path segment: `/api/v1/es/products`. Every language is prefixed, English included.** Never a header.
 
-The backend never guesses. It takes what the request states, validates it, and falls back to the default. **Negotiation is yours**, since you route on locale in the path for SEO and therefore already know the answer definitively. We do not read `Accept-Language`, and sending it has no effect.
+The backend never guesses. **Negotiation is yours**, since you route on language in the path for SEO and therefore already know the answer definitively. We do not read `Accept-Language`, and sending it has no effect.
 
-Resolution order:
+| You ask for | Public visitor | Signed-in admin |
+|---|---|---|
+| A public language | Served | Served |
+| A language under internal review | **404** | Served |
+| A language being translated, or one that does not exist | **404** | **404** |
 
-1. A public language is served
-2. A language under internal review is served **only** to a signed-in admin, and treated as absent for everyone else
-3. Anything else, including absent, unknown, misspelled, or still being translated, falls back to English
+**A language that is not public is a 404, not a fallback to English.** A path segment is an address, not a hint. If we answered in English, the same content would sit at as many URLs as anyone cared to invent, which is bad for you and worse for search.
 
-An invalid locale is never an error. You get the default language and a 200.
+So: only ever send a code you received from `/api/v1/languages`, and treat a 404 on a language you thought was live as that language having been taken down rather than as an outage.
 
-**Spanish exists today but is not public.** Translations are being entered, and `?locale=es` currently returns English to everyone. Nothing changes for you when it goes live except that it starts appearing in `/languages`. Content will be complete before that happens: a language ships whole or not at all.
+**Spanish exists today but is not public.** `/api/v1/es/...` currently 404s for everyone. When it goes live it starts appearing in `/languages` and its URLs start answering. Content is complete before that happens: a language ships whole or not at all.
 
-Why a query parameter: these responses sit behind a CDN and cache keys are built from URLs. A header-based locale would mean either varying on a header browsers fill with long weighted strings, or no edge caching at all.
+Why a path segment rather than a header: these responses sit behind a CDN and cache keys are built from URLs, so each language caches cleanly and separately.
 
 ## 4. Currency
 
@@ -166,8 +173,8 @@ On 422, `errors` is keyed by field name with an array of messages per field, and
 
 ## 8. Caching
 
-- `/api/v1/languages` is identical for every visitor and fully cacheable
-- `/api/v1/products` and a single product vary by locale and currency, both of which are in the URL when you send them explicitly. Sending `?currency=` makes them cleanly cacheable, relying on country detection does not
+- `/api/v1/languages` is identical for every visitor and fully cacheable, but **cache it briefly**. It is what tells you a language has been taken down, so a long cache delays the switch you are relying on
+- Content URLs carry the language in the path, so each language caches separately with no configuration at all. Currency is the only remaining variance: sending `?currency=` explicitly makes them cleanly cacheable, relying on country detection does not
 - `/api/v1/currencies` contains `detected`, which is per-visitor. It must not be cached at a shared edge on URL alone, or one visitor's currency gets served to the next. The CDN cache key accounts for this
 
 The country header only exists once traffic flows through the CDN. Before DNS cutover, and in local development, detection falls back to USD. That is expected, not a bug.
@@ -176,9 +183,9 @@ The country header only exists once traffic flows through the CDN. Before DNS cu
 
 Nothing here has a shape yet, and we would rather agree them with you before writing them than after.
 
-- Cards, the Library, and their translated slugs
+- Cards and the Library
 - Video playback and signed URLs
-- The viewing room pass, which is a product row you fetch by slug
+- The viewing room pass, which is a product you fetch by its key
 - Checkout, orders, member accounts, gift codes
 - FAQ and legal content, newsletter signup
 - Editable page copy, delivered as named blocks per page
@@ -189,7 +196,7 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 
 1. **Your exact origins**, all of them: production, the preview URL pattern, and the local dev origin including port. Without these your requests are blocked by CORS and cookie auth cannot work at all
 2. **Cookie auth or token auth for the website.** Cookie is our assumption
-3. **Your locale routing plan**, so the `?locale=` values you send match the paths you route on
+3. **Confirmation that your language switcher reads `/api/v1/languages` at runtime**, since that is what makes taking a language down actually work
 4. **Confirmation of the shapes above**, or a counter-proposal
 
 One question from us: your application can read the visitor's country directly at the edge. If you would rather detect currency yourself and always send `?currency=`, we can drop `detected` and the caching complication with it.

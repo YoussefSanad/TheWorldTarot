@@ -2,6 +2,9 @@
 
 namespace App\Filament\Resources\Products\Tables;
 
+use App\Models\Locale;
+use App\Models\Product;
+use App\Support\Locales;
 use App\Support\Money;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
@@ -27,6 +30,19 @@ class ProductsTable
                     ->boolean(),
 
                 ...self::priceColumns(),
+
+                // Which languages this reading is finished in, worked out from
+                // the copy rather than from a flag someone remembered to tick.
+                TextColumn::make('translations')
+                    ->label('Translated into')
+                    ->badge()
+                    ->color('success')
+                    ->placeholder('English only')
+                    ->state(fn (Product $record): array => Locales::all()
+                        ->reject(fn (Locale $locale): bool => $locale->code === Locales::default())
+                        ->filter(fn (Locale $locale): bool => $record->isCompleteIn($locale->code))
+                        ->pluck('english_name')
+                        ->all()),
 
                 TextColumn::make('sort_order')
                     ->label('Position')

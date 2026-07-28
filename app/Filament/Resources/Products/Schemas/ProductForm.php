@@ -2,11 +2,10 @@
 
 namespace App\Filament\Resources\Products\Schemas;
 
+use App\Support\Locales;
 use App\Support\Money;
-use Closure;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -39,11 +38,6 @@ class ProductForm
                             ->helperText('The longer text on the reading\'s own page.')
                             ->rows(10),
 
-                        TextInput::make('slug')
-                            ->label('Web address')
-                            ->helperText('The short name used in the page link, for example one-card. Lowercase letters, numbers and dashes only. Changing it changes the link, and the old link stops working.')
-                            ->maxLength(255)
-                            ->rule(self::webAddressRule()),
                     ]),
 
                 Section::make('Price')
@@ -51,45 +45,20 @@ class ProductForm
                     ->schema(self::priceFields())
                     ->columns(3),
 
-                Section::make('Availability')
+                Section::make('Order')
                     ->schema([
-                        Toggle::make('is_published')
-                            ->label('Show on the website')
-                            ->helperText(fn ($livewire): string => self::editingDefaultLocale($livewire)
-                                ? 'Turn this off to take the reading off sale. Nothing is deleted and past orders are unaffected.'
-                                : 'Switch to '.config('localization.available.'.config('localization.default').'.label').' to change this.')
-                            // Publishing is decided once, in the default
-                            // language, rather than differently per language. A
-                            // reading is on sale or it is not.
-                            ->disabled(fn ($livewire): bool => ! self::editingDefaultLocale($livewire)),
-
                         TextInput::make('sort_order')
                             ->label('Position in the list')
                             ->helperText('Lower numbers appear first.')
                             ->numeric()
                             ->required(),
-                    ])
-                    ->columns(2),
+                    ]),
             ]);
     }
 
     public static function editingDefaultLocale(mixed $livewire): bool
     {
-        return ($livewire->activeLocale ?? config('localization.default'))
-            === config('localization.default');
-    }
-
-    /**
-     * Validates the web address only when one has been typed, so a language
-     * still being worked on can be saved with the field left empty.
-     */
-    private static function webAddressRule(): Closure
-    {
-        return fn (): Closure => function (string $attribute, mixed $value, Closure $fail) {
-            if (filled($value) && ! preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/', $value)) {
-                $fail('Use lowercase letters, numbers and dashes only, for example one-card.');
-            }
-        };
+        return ($livewire->activeLocale ?? Locales::default()) === Locales::default();
     }
 
     /**

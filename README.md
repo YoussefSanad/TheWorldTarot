@@ -69,3 +69,7 @@ The generated reference describes shapes. The contract explains the rules behind
 
 Changing a documented response shape is a coordination event, not a unilateral change. Adding a field is safe.
 
+## Manual QA
+
+**[QA_CHECKLIST.md](QA_CHECKLIST.md)** is the pass to run against a deployed environment after each milestone: every check paired with what should happen, and a section on what looks broken but is not. Extend it per milestone rather than starting a new one.
+

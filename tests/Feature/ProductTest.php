@@ -1,11 +1,13 @@
 <?php
 
 use App\Enums\Fulfilment;
+use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Product;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 uses(RefreshDatabase::class);
 
@@ -14,13 +16,25 @@ it('stores translatable columns as jsonb, not json', function () {
         "select column_name, data_type
          from information_schema.columns
          where table_name = 'products'
-           and column_name in ('name', 'slug', 'short_description', 'long_description')"
+           and column_name in ('name', 'short_description', 'long_description')"
     ))->pluck('data_type', 'column_name');
 
-    // json is not usefully indexable on Postgres, and the per-locale slug
-    // indexes in the next step require jsonb. See .claude/translation.md.
+    // json is not usefully indexable on Postgres. See .claude/translation.md.
     expect($types)->each->toBe('jsonb')
-        ->and($types)->toHaveCount(4);
+        ->and($types)->toHaveCount(3);
+});
+
+it('has no slug column, since a product is addressed by its key', function () {
+    expect(Schema::hasColumn('products', 'slug'))->toBeFalse()
+        ->and(Schema::hasTable('slug_history'))->toBeFalse();
+});
+
+it('casts the key to the product catalogue enum', function () {
+    $product = Product::factory()->create(['key' => ProductKey::OneCard]);
+
+    expect($product->key)->toBe(ProductKey::OneCard)
+        ->and($product->fresh()->key)->toBe(ProductKey::OneCard)
+        ->and(DB::table('products')->value('key'))->toBe('one-card');
 });
 
 it('stores and returns copy per locale', function () {
@@ -103,32 +117,20 @@ it('keeps a soft deleted product so an order can still reference it', function (
 });
 
 it('refuses two products with the same key', function () {
-    Product::factory()->create(['key' => 'one-card']);
+    Product::factory()->create(['key' => ProductKey::OneCard]);
 
-    expect(fn () => Product::factory()->create(['key' => 'one-card']))
+    expect(fn () => Product::factory()->create(['key' => ProductKey::OneCard]))
         ->toThrow(QueryException::class);
 });
 
-it('allows an add-on with no slug, since it has no page', function () {
-    $addon = Product::factory()->addon()->create();
-
-    // No slug in any locale. Note that the translatable accessor reports an
-    // empty string rather than null for a missing translation, so anything
-    // deciding whether a product has a page must ask for the translations
-    // rather than leaning on `$product->slug === null`.
-    expect($addon->type)->toBe(ProductType::Addon)
-        ->and($addon->getTranslations('slug'))->toBe([])
-        ->and($addon->fresh()->getTranslations('slug'))->toBe([]);
-});
-
 it('scopes to published products of a type', function () {
-    Product::factory()->create(['key' => 'published-reading']);
-    Product::factory()->unpublished()->create(['key' => 'draft-reading']);
-    Product::factory()->pass()->create(['key' => 'the-pass']);
+    Product::factory()->create(['key' => ProductKey::OneCard]);
+    Product::factory()->unpublished()->create(['key' => ProductKey::ThreeCard]);
+    Product::factory()->pass()->create();
 
     $keys = Product::published()->ofType(ProductType::Reading)->pluck('key');
 
-    expect($keys)->toContain('published-reading')
-        ->and($keys)->not->toContain('draft-reading')
-        ->and($keys)->not->toContain('the-pass');
+    expect($keys)->toContain(ProductKey::OneCard)
+        ->and($keys)->not->toContain(ProductKey::ThreeCard)
+        ->and($keys)->not->toContain(ProductKey::ViewingRoomPass);
 });

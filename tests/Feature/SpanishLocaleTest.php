@@ -1,18 +1,21 @@
 <?php
 
-use App\Enums\LocaleState;
+use App\Enums\LocaleStatus;
+use App\Enums\ProductKey;
 use App\Models\Admin;
 use App\Models\Locale;
 use App\Models\Product;
+use App\Support\Locales;
 use App\Support\RequestContext;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    Route::middleware('api')->get('/api/v1/test-context', fn () => [
+    Locales::forget();
+
+    Route::middleware('api')->get('/api/v1/{locale}/test-context', fn () => [
         'locale' => app(RequestContext::class)->locale,
     ]);
 });
@@ -21,14 +24,14 @@ it('exists as a locale the panel can edit, without being public', function () {
     $spanish = Locale::where('code', 'es')->first();
 
     expect($spanish)->not->toBeNull()
-        ->and($spanish->state)->toBe(LocaleState::Available)
-        ->and($spanish->isConfigured())->toBeTrue();
+        ->and($spanish->status)->toBe(LocaleStatus::Draft)
+        ->and($spanish->english_name)->toBe('Spanish');
 });
 
 it('shows a spanish tab in the admin panel', function () {
-    // The tab follows config, which is what makes this a config change rather
-    // than a code change. Hard rule 4.
-    expect(array_keys(config('localization.available')))->toContain('es');
+    // The tab follows the registry, which is what makes adding a language a row
+    // rather than a code change. Hard rule 4.
+    expect(Locales::codes())->toContain('es');
 });
 
 it('keeps spanish out of the public language list', function () {
@@ -37,39 +40,39 @@ it('keeps spanish out of the public language list', function () {
         ->assertExactJson([['code' => 'en', 'label' => 'English']]);
 });
 
-it('never serves spanish while it is only available', function () {
-    // `available` means a translation in progress. Nobody is served it, admin
+it('never serves spanish while it is still a draft', function () {
+    // Draft means a translation in progress. Nobody is served it, admin
     // included, because a half translated site is worse than an English one.
-    $this->getJson('/api/v1/test-context?locale=es')->assertJsonPath('locale', 'en');
+    $this->getJson('/api/v1/es/test-context')->assertNotFound();
 
     $this->actingAs(Admin::factory()->create(), 'admin')
-        ->getJson('/api/v1/test-context?locale=es')
-        ->assertJsonPath('locale', 'en');
+        ->getJson('/api/v1/es/test-context')
+        ->assertNotFound();
 });
 
 it('serves spanish to a signed-in admin once it is in preview', function () {
-    Locale::where('code', 'es')->update(['state' => LocaleState::Preview]);
+    Locale::where('code', 'es')->update(['status' => LocaleStatus::Preview]);
 
     // This is how the real site gets reviewed on production before customers
     // can reach it.
     $this->actingAs(Admin::factory()->create(), 'admin')
-        ->getJson('/api/v1/test-context?locale=es')
+        ->getJson('/api/v1/es/test-context')
         ->assertJsonPath('locale', 'es');
 });
 
 it('still refuses spanish to the public while it is in preview', function () {
-    Locale::where('code', 'es')->update(['state' => LocaleState::Preview]);
+    Locale::where('code', 'es')->update(['status' => LocaleStatus::Preview]);
 
-    $this->getJson('/api/v1/test-context?locale=es')->assertJsonPath('locale', 'en');
+    $this->getJson('/api/v1/es/test-context')->assertNotFound();
 
     // And it stays out of the language selector, so nobody finds it by accident.
     $this->getJson('/api/v1/languages')->assertJsonCount(1);
 });
 
 it('serves spanish to everyone once it goes live', function () {
-    Locale::where('code', 'es')->update(['state' => LocaleState::Live]);
+    Locale::where('code', 'es')->update(['status' => LocaleStatus::Live]);
 
-    $this->getJson('/api/v1/test-context?locale=es')->assertJsonPath('locale', 'es');
+    $this->getJson('/api/v1/es/test-context')->assertJsonPath('locale', 'es');
 
     $this->getJson('/api/v1/languages')
         ->assertExactJson([
@@ -81,18 +84,19 @@ it('serves spanish to everyone once it goes live', function () {
 it('stores spanish product copy alongside english', function () {
     $product = Product::factory()->create([
         'name' => ['en' => 'One Card', 'es' => 'Una Carta'],
-        'slug' => ['en' => 'one-card', 'es' => 'una-carta'],
     ]);
 
     expect($product->fresh()->getTranslation('name', 'es'))->toBe('Una Carta')
-        ->and(Product::whereSlug('una-carta', 'es')->first()?->id)->toBe($product->id);
+        ->and($product->getTranslation('name', 'en'))->toBe('One Card');
 });
 
-it('enforces slug uniqueness in spanish', function () {
-    Product::factory()->create(['key' => 'first', 'slug' => ['es' => 'una-carta']]);
+it('addresses a product by the same key in every language', function () {
+    $product = Product::factory()->create([
+        'key' => ProductKey::OneCard,
+        'name' => ['en' => 'One Card', 'es' => 'Una Carta'],
+    ]);
 
-    // The index added with the locale has to work like the English one, or two
-    // products end up answering to the same Spanish URL.
-    expect(fn () => Product::factory()->create(['key' => 'second', 'slug' => ['es' => 'una-carta']]))
-        ->toThrow(QueryException::class);
+    // Keys are never translated, so a product has one address rather than one
+    // per language, and renaming it in Spanish cannot break a link.
+    expect(Product::where('key', ProductKey::OneCard)->first()?->id)->toBe($product->id);
 });
