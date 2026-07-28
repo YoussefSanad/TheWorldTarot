@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\Fulfilment;
 use App\Enums\ProductKey;
 use App\Enums\ProductType;
+use App\Models\Concerns\HasTranslationCompleteness;
 use App\Support\CurrencyResolver;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -27,12 +28,26 @@ use Spatie\Translatable\HasTranslations;
 ])]
 class Product extends Model
 {
-    use HasFactory, HasTranslations, SoftDeletes;
+    use HasFactory, HasTranslationCompleteness, HasTranslations, SoftDeletes;
 
     /**
      * @var array<int, string>
      */
     public array $translatable = ['name', 'short_description', 'long_description'];
+
+    /**
+     * What a language needs before this product can be shown in it, and what
+     * English needs before it can be published at all.
+     *
+     * The same list drives both, so the two can never disagree about what
+     * "finished" means.
+     *
+     * @return array<int, string>
+     */
+    public static function requiredTranslations(): array
+    {
+        return ['name', 'short_description', 'long_description'];
+    }
 
     protected function casts(): array
     {

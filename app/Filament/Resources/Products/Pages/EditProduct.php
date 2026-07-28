@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Products\Pages;
 
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\Products\Schemas\ProductForm;
+use App\Models\Product;
 use App\Support\Money;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Validation\ValidationException;
@@ -17,9 +18,11 @@ class EditProduct extends EditRecord
     protected static string $resource = ProductResource::class;
 
     /**
-     * The copy a reading cannot go on sale without.
+     * How each missing field is described. Which fields are required comes from
+     * `Product::requiredTranslations()`, so the publish guard and the language
+     * completeness check can never disagree about what finished means.
      */
-    private const REQUIRED_TO_PUBLISH = [
+    private const MISSING_COPY_MESSAGES = [
         'name' => 'Add a name before showing this on the website.',
         'short_description' => 'Add a short description before showing this on the website.',
         'long_description' => 'Add the full description before showing this on the website.',
@@ -58,9 +61,10 @@ class EditProduct extends EditRecord
         // language tab, so this only ever inspects the default language's
         // values. A translation being incomplete never blocks a sale.
         if (ProductForm::editingDefaultLocale($this)) {
-            foreach (self::REQUIRED_TO_PUBLISH as $field => $message) {
+            foreach (Product::requiredTranslations() as $field) {
                 if (blank($this->data[$field] ?? null)) {
-                    $errors["data.{$field}"] = $message;
+                    $errors["data.{$field}"] = self::MISSING_COPY_MESSAGES[$field]
+                        ?? 'Fill this in before showing this on the website.';
                 }
             }
         }

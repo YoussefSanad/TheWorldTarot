@@ -1,6 +1,6 @@
 <?php
 
-use App\Enums\LocaleState;
+use App\Enums\LocaleStatus;
 use App\Enums\ProductKey;
 use App\Models\Locale;
 use App\Models\Product;
@@ -147,12 +147,15 @@ it('returns the price as an integer, never a decimal', function () {
 
 describe('with spanish live', function () {
     beforeEach(function () {
-        Locale::where('code', 'es')->update(['state' => LocaleState::Live]);
+        Locale::where('code', 'es')->update(['status' => LocaleStatus::Live]);
 
+        // Fully translated, since anything less is deliberately not served in
+        // Spanish at all.
         Product::factory()->create([
             'key' => ProductKey::OneCard,
             'name' => ['en' => 'One Card Reading', 'es' => 'Lectura de Una Carta'],
             'short_description' => ['en' => 'A single card.', 'es' => 'Una sola carta.'],
+            'long_description' => ['en' => 'The long one.', 'es' => 'La larga.'],
         ]);
     });
 
@@ -177,10 +180,53 @@ describe('with spanish live', function () {
             ->assertJsonPath('name', 'Lectura de Una Carta')
             ->assertJsonPath('price.currency', 'GBP');
     });
+
+    it('leaves an untranslated product out of that language', function () {
+        // Published after Spanish went live and not translated yet. It must be
+        // absent from Spanish rather than appearing in English among the
+        // Spanish ones.
+        Product::factory()->create([
+            'key' => ProductKey::ThreeCard,
+            'name' => ['en' => 'Three Card Reading'],
+        ]);
+
+        $this->getJson('/api/v1/products?locale=es')
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.key', 'one-card');
+
+        $this->getJson('/api/v1/products/three-card?locale=es')->assertNotFound();
+    });
+
+    it('keeps that same product visible in english', function () {
+        Product::factory()->create([
+            'key' => ProductKey::ThreeCard,
+            'name' => ['en' => 'Three Card Reading'],
+        ]);
+
+        // A missing Spanish translation must never hold back the English site.
+        $this->getJson('/api/v1/products')->assertJsonCount(2);
+
+        $this->getJson('/api/v1/products/three-card')
+            ->assertOk()
+            ->assertJsonPath('name', 'Three Card Reading');
+    });
+
+    it('leaves a half translated product out too', function () {
+        // Half translated is the case that would otherwise put an English
+        // paragraph on a Spanish page.
+        Product::factory()->create([
+            'key' => ProductKey::ThreeCard,
+            'name' => ['en' => 'Three Card Reading', 'es' => 'Lectura de Tres Cartas'],
+            'short_description' => ['en' => 'Three cards.', 'es' => 'Tres cartas.'],
+        ]);
+
+        $this->getJson('/api/v1/products?locale=es')->assertJsonCount(1);
+        $this->getJson('/api/v1/products/three-card?locale=es')->assertNotFound();
+    });
 });
 
 it('serves english when a requested language is not public yet', function () {
-    // Spanish is seeded as `available`, so a visitor asking for it gets the
+    // Spanish ships as a draft, so a visitor asking for it gets the
     // default rather than a half translated page.
     Product::factory()->create([
         'key' => ProductKey::OneCard,
