@@ -42,6 +42,21 @@ it('says the bucket is missing rather than throwing from inside flysystem', func
         ->assertFailed();
 });
 
+it('points at a disk that does have a bucket', function () {
+    config()->set('filesystems.media', 's3');
+    config()->set('filesystems.disks.s3.bucket', null);
+    config()->set('filesystems.disks.cloud', ['driver' => 's3', 'bucket' => 'fls-something']);
+
+    // The platform ships disk configuration as a blob rather than as AWS_
+    // variables, so a perfectly good bucket can be sitting in a disk nobody
+    // guessed the name of. Reading the list beats guessing.
+    // One expectation, not two: each consumes the line it matches, so asserting
+    // on "cloud" first would eat the very line carrying "has a bucket".
+    $this->artisan('media:check')
+        ->expectsOutputToContain('has a bucket')
+        ->assertFailed();
+});
+
 it('finds a bucket name hiding under another variable', function () {
     config()->set('filesystems.media', 's3');
     config()->set('filesystems.disks.s3.bucket', null);

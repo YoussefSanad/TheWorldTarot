@@ -147,6 +147,31 @@ class CheckMediaStorage extends Command
      * variable of its own choosing, or the bucket belongs to another
      * environment. This tells the two apart without a second trip to the shell.
      */
+    /**
+     * Which disks this environment actually has, and which of them have a
+     * bucket.
+     *
+     * Laravel Cloud ships disk configuration as a blob rather than as AWS_
+     * variables, the same way it ships queue configuration, so the bucket can
+     * be sitting in a perfectly good disk under a name nobody guessed. Reading
+     * the list beats guessing at variable names.
+     */
+    private function reportDisks(): void
+    {
+        $this->components->info('Disks this environment defines:');
+
+        foreach (array_keys(config('filesystems.disks', [])) as $disk) {
+            $bucket = config("filesystems.disks.{$disk}.bucket");
+
+            $this->components->twoColumnDetail(
+                $disk,
+                filled($bucket) ? '<fg=green>has a bucket</>' : (string) config("filesystems.disks.{$disk}.driver"),
+            );
+        }
+
+        $this->newLine();
+    }
+
     private function reportCandidates(): void
     {
         $known = ['AWS_BUCKET', 'AWS_URL', 'AWS_ENDPOINT', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_DEFAULT_REGION', 'AWS_REGION'];
@@ -157,6 +182,8 @@ class CheckMediaStorage extends Command
             ->unique()
             ->sort()
             ->values();
+
+        $this->reportDisks();
 
         if ($candidates->isEmpty()) {
             $this->components->warn(
