@@ -95,20 +95,50 @@ class CheckMediaStorage extends Command
     private function reportEnvironment(): void
     {
         $this->newLine();
+
+        // Checked first, because it makes every other line here a lie. Laravel
+        // does not read the .env file at all when the configuration is cached,
+        // so env() returns null for everything and a perfectly well configured
+        // environment reports as empty.
+        if (app()->configurationIsCached()) {
+            $this->components->error(
+                'The configuration is cached, so nothing below can be trusted: the .env file is not read at all '
+                .'in this state, and it was cached before the bucket existed. Run config:clear, then try again.'
+            );
+
+            return;
+        }
+
         $this->components->info('What this environment was given:');
 
-        foreach (['AWS_BUCKET', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_DEFAULT_REGION', 'AWS_ENDPOINT', 'AWS_URL'] as $variable) {
+        foreach (['AWS_BUCKET', 'AWS_URL', 'AWS_ENDPOINT'] as $variable) {
             $this->components->twoColumnDetail(
                 $variable,
                 filled(env($variable)) ? '<fg=green>set</>' : '<fg=red>missing</>',
             );
         }
 
+        // Reported apart from the rest, because absent is the normal state on a
+        // platform that hands out temporary credentials, and reading them as a
+        // fault sends people looking for keys that are not supposed to exist.
+        $this->components->twoColumnDetail(
+            'Credentials',
+            filled(env('AWS_ACCESS_KEY_ID'))
+                ? 'static keys'
+                : (filled(env('AWS_CONTAINER_CREDENTIALS_FULL_URI'))
+                    ? '<fg=green>provided by the platform</>'
+                    : '<fg=red>none of any kind</>'),
+        );
+
+        $this->components->twoColumnDetail(
+            'Region',
+            (string) (config('filesystems.disks.s3.region') ?: '<fg=red>missing</>'),
+        );
+
         $this->newLine();
         $this->components->warn(
-            'If these are all missing, the bucket is attached to another environment, or the configuration '
-            .'was cached before it was attached. Run config:clear and try again. '
-            .'If the platform names them differently, tell me the names and the disk will read those instead.'
+            'AWS_BUCKET is the one thing the platform cannot infer. If it is missing, the bucket is attached '
+            .'to a different environment than this one, or its variables have not been added here yet.'
         );
     }
 }

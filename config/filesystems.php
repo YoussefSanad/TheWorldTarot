@@ -71,9 +71,18 @@ return [
 
         's3' => [
             'driver' => 's3',
+
+            // Left null on Laravel Cloud, deliberately. The platform hands the
+            // SDK temporary credentials through the container credential
+            // provider, AWS_CONTAINER_CREDENTIALS_FULL_URI, so static keys are
+            // absent by design rather than missing. Null here means the SDK
+            // resolves them itself.
             'key' => env('AWS_ACCESS_KEY_ID'),
             'secret' => env('AWS_SECRET_ACCESS_KEY'),
-            'region' => env('AWS_DEFAULT_REGION'),
+
+            // AWS_REGION is what the container sets. Laravel's own variable
+            // wins when present, so a dashboard setting still overrides it.
+            'region' => env('AWS_DEFAULT_REGION', env('AWS_REGION')),
             'bucket' => env('AWS_BUCKET'),
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
