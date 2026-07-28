@@ -58,16 +58,23 @@ final class TranslationCoverage
     }
 
     /**
-     * Only records that are otherwise ready to be seen. A reading with no price
-     * is not on the website in any language, so it is nobody's problem and
-     * blocking a language over it would be nonsense.
+     * Only records a customer could actually reach. A reading with no price, or
+     * one still being written in the original language, is on the website in no
+     * language at all, so blocking a translation over it would be nonsense.
      *
      * @return Collection<int, Model>
      */
     private static function publishedRecords(): Collection
     {
         return collect(config('translatable.models'))
-            ->flatMap(fn (string $model) => $model::query()->published()->priced()->get()->all());
+            ->flatMap(fn (string $model) => $model::query()
+                ->published()
+                ->priced()
+                // Not finished in the original language means not on the
+                // website at all, so it leaves no language short of anything.
+                ->completeIn(Locales::default())
+                ->get()
+                ->all());
     }
 
     private static function labelFor(Model $record): string

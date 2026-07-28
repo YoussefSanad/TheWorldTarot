@@ -100,6 +100,43 @@ it('ignores a reading that is not on the website anyway', function () {
     expect(spanishStatus())->toBe(LocaleStatus::Live);
 });
 
+it('takes the reading off every language when the original copy is emptied', function () {
+    $product = translatedProduct();
+    translatedProduct(ProductKey::ThreeCard, [
+        'name' => ['en' => 'Three Card Reading', 'es' => 'Lectura de Tres Cartas'],
+    ]);
+    spanishLive();
+
+    // Reported from the panel: emptying the English name left the reading
+    // visible in Spanish and invisible in English, so Spanish had nothing
+    // missing and stayed up. The original language is the source: unfinished
+    // there means unfinished everywhere.
+    $product->setTranslation('name', 'en', '')->save();
+
+    expect($product->fresh()->isAvailableIn('en'))->toBeFalse()
+        ->and($product->fresh()->isAvailableIn('es'))->toBeFalse();
+
+    $this->getJson('/api/v1/en/products')->assertJsonCount(1);
+    $this->getJson('/api/v1/es/products')->assertJsonCount(1);
+});
+
+it('leaves the language up when the reading it removed was the untranslated one', function () {
+    translatedProduct();
+    spanishLive();
+
+    // Nothing a customer can reach is untranslated, so Spanish has no reason to
+    // come down.
+    $orphan = translatedProduct(ProductKey::ThreeCard, [
+        'name' => ['en' => 'Three Card Reading'],
+    ]);
+    expect(spanishStatus())->toBe(LocaleStatus::Draft);
+
+    spanishLive();
+    $orphan->setTranslation('name', 'en', '')->save();
+
+    expect(spanishStatus())->toBe(LocaleStatus::Live);
+});
+
 it('never touches the site\'s own language', function () {
     // English is the original. It cannot be left behind by its own content.
     translatedProduct(ProductKey::ThreeCard, ['name' => ['en' => 'Three Card Reading']]);

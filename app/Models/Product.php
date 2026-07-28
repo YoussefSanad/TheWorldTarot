@@ -7,6 +7,7 @@ use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Concerns\HasTranslationCompleteness;
 use App\Support\CurrencyResolver;
+use App\Support\Locales;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -101,12 +102,21 @@ class Product extends Model
      */
     public function scopeAvailableIn(Builder $query, string $locale): Builder
     {
-        return $query->published()->priced()->completeIn($locale);
+        return $query->published()
+            ->priced()
+            // The original language is the source. A reading that is not
+            // finished in it is not finished at all, so it appears nowhere,
+            // rather than existing in Spanish and not in English.
+            ->completeIn(Locales::default())
+            ->completeIn($locale);
     }
 
     public function isAvailableIn(string $locale): bool
     {
-        return $this->is_published && $this->isPriced() && $this->isCompleteIn($locale);
+        return $this->is_published
+            && $this->isPriced()
+            && $this->isCompleteIn(Locales::default())
+            && $this->isCompleteIn($locale);
     }
 
     /**
