@@ -10,10 +10,15 @@ return new class extends Migration
     /**
      * Run the migrations.
      *
-     * Config (config/localization.php) declares which locales CAN be served.
-     * This table holds the runtime state of each: available, preview, or live.
-     * A row whose code is absent from config.available is treated as nonexistent.
-     * See docs/plans/milestone-1-plan.md and .claude/translation.md.
+     * The languages this site can be read in.
+     *
+     * Written when a config file also listed the locales and won over this
+     * table. That file is gone and this table is now the whole registry. A
+     * later migration renames `state` to `status` and adds the names. See
+     * .claude/translation.md section 3.
+     *
+     * Values are literals rather than config lookups or enum cases, because a
+     * migration that has already run must not break when either changes.
      */
     public function up(): void
     {
@@ -27,7 +32,7 @@ return new class extends Migration
 
         // The default locale is always live. Launch is English only.
         DB::table('locales')->insert([
-            'code' => config('localization.default', 'en'),
+            'code' => 'en',
             'state' => 'live',
             'sort_order' => 0,
             'created_at' => now(),

@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\LocaleState;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
@@ -22,7 +21,9 @@ return new class extends Migration
         DB::table('locales')->updateOrInsert(
             ['code' => 'es'],
             [
-                'state' => LocaleState::Available->value,
+                // Literal rather than an enum case: a migration that has already run must
+                // not break when the enum is renamed.
+                'state' => 'available',
                 'sort_order' => 1,
                 'created_at' => now(),
                 'updated_at' => now(),

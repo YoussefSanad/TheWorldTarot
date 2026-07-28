@@ -1,10 +1,11 @@
 <?php
 
-use App\Enums\LocaleState;
+use App\Enums\LocaleStatus;
 use App\Enums\ProductKey;
 use App\Models\Admin;
 use App\Models\Locale;
 use App\Models\Product;
+use App\Support\Locales;
 use App\Support\RequestContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Route;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
+    Locales::forget();
+
     Route::middleware('api')->get('/api/v1/test-context', fn () => [
         'locale' => app(RequestContext::class)->locale,
     ]);
@@ -21,14 +24,14 @@ it('exists as a locale the panel can edit, without being public', function () {
     $spanish = Locale::where('code', 'es')->first();
 
     expect($spanish)->not->toBeNull()
-        ->and($spanish->state)->toBe(LocaleState::Available)
-        ->and($spanish->isConfigured())->toBeTrue();
+        ->and($spanish->status)->toBe(LocaleStatus::Draft)
+        ->and($spanish->english_name)->toBe('Spanish');
 });
 
 it('shows a spanish tab in the admin panel', function () {
-    // The tab follows config, which is what makes this a config change rather
-    // than a code change. Hard rule 4.
-    expect(array_keys(config('localization.available')))->toContain('es');
+    // The tab follows the registry, which is what makes adding a language a row
+    // rather than a code change. Hard rule 4.
+    expect(Locales::codes())->toContain('es');
 });
 
 it('keeps spanish out of the public language list', function () {
@@ -48,7 +51,7 @@ it('never serves spanish while it is only available', function () {
 });
 
 it('serves spanish to a signed-in admin once it is in preview', function () {
-    Locale::where('code', 'es')->update(['state' => LocaleState::Preview]);
+    Locale::where('code', 'es')->update(['status' => LocaleStatus::Preview]);
 
     // This is how the real site gets reviewed on production before customers
     // can reach it.
@@ -58,7 +61,7 @@ it('serves spanish to a signed-in admin once it is in preview', function () {
 });
 
 it('still refuses spanish to the public while it is in preview', function () {
-    Locale::where('code', 'es')->update(['state' => LocaleState::Preview]);
+    Locale::where('code', 'es')->update(['status' => LocaleStatus::Preview]);
 
     $this->getJson('/api/v1/test-context?locale=es')->assertJsonPath('locale', 'en');
 
@@ -67,7 +70,7 @@ it('still refuses spanish to the public while it is in preview', function () {
 });
 
 it('serves spanish to everyone once it goes live', function () {
-    Locale::where('code', 'es')->update(['state' => LocaleState::Live]);
+    Locale::where('code', 'es')->update(['status' => LocaleStatus::Live]);
 
     $this->getJson('/api/v1/test-context?locale=es')->assertJsonPath('locale', 'es');
 

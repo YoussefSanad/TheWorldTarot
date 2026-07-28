@@ -26,9 +26,7 @@ class LanguageResource extends JsonResource
         return [
             'code' => $this->code,
 
-            // The display name comes from config, not the database. The label
-            // is deploy-coupled because the lang files it belongs to are.
-            'label' => config("localization.available.{$this->code}.label"),
+            'label' => $this->english_name,
 
             // There is deliberately no `enabled` flag. Everything this endpoint
             // returns is live, so the flag would always be true and would imply

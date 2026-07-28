@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Products\Schemas;
 
+use App\Support\Locales;
 use App\Support\Money;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -51,7 +52,7 @@ class ProductForm
                             ->label('Show on the website')
                             ->helperText(fn ($livewire): string => self::editingDefaultLocale($livewire)
                                 ? 'Turn this off to take the reading off sale. Nothing is deleted and past orders are unaffected.'
-                                : 'Switch to '.config('localization.available.'.config('localization.default').'.label').' to change this.')
+                                : 'Switch to '.Locales::defaultName().' to change this.')
                             // Publishing is decided once, in the default
                             // language, rather than differently per language. A
                             // reading is on sale or it is not.
@@ -69,8 +70,7 @@ class ProductForm
 
     public static function editingDefaultLocale(mixed $livewire): bool
     {
-        return ($livewire->activeLocale ?? config('localization.default'))
-            === config('localization.default');
+        return ($livewire->activeLocale ?? Locales::default()) === Locales::default();
     }
 
     /**

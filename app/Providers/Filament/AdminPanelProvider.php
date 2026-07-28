@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Support\Locales;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -57,10 +58,11 @@ class AdminPanelProvider extends PanelProvider
                 Authenticate::class,
             ])
             ->plugins([
-                // Tabs follow config/localization.php, so enabling a language is a
-                // config change with no code edit and no migration.
+                // A tab per language in the registry, drafts included, since a
+                // draft is precisely the language being translated. Adding a
+                // language is a row, with no code edit and no migration.
                 SpatieTranslatablePlugin::make()
-                    ->defaultLocales(array_keys(config('localization.available'))),
+                    ->defaultLocales(Locales::codes()),
             ]);
     }
 }
