@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Locales\Tables;
 
 use App\Enums\LocaleStatus;
 use App\Models\Locale;
+use App\Support\CopyFields;
 use App\Support\Locales;
 use App\Support\TranslationCoverage;
 use Filament\Actions\Action;
@@ -150,18 +151,9 @@ class LocalesTable
      */
     private static function outstandingMessage($outstanding): string
     {
-        $lines = $outstanding->take(3)->map(function (array $row): string {
-            $fields = collect($row['fields'])
-                ->map(fn (string $field): string => match ($field) {
-                    'name' => 'name',
-                    'short_description' => 'short description',
-                    'long_description' => 'full description',
-                    default => str_replace('_', ' ', $field),
-                })
-                ->join(', ', ' and ');
-
-            return "{$row['label']} needs a {$fields}.";
-        });
+        $lines = $outstanding->take(3)->map(
+            fn (array $row): string => "{$row['label']} needs ".CopyFields::sentence($row['fields']).'.'
+        );
 
         if ($outstanding->count() > 3) {
             $lines->push('And '.($outstanding->count() - 3).' more.');

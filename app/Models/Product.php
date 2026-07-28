@@ -6,6 +6,7 @@ use App\Enums\Fulfilment;
 use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Concerns\HasTranslationCompleteness;
+use App\Support\CopyFields;
 use App\Support\CurrencyResolver;
 use App\Support\Locales;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -128,12 +129,7 @@ class Product extends Model
     public function whatIsMissing(string $locale): array
     {
         $missing = array_map(
-            fn (string $field): string => match ($field) {
-                'name' => 'a name',
-                'short_description' => 'a short description',
-                'long_description' => 'a full description',
-                default => str_replace('_', ' ', $field),
-            },
+            fn (string $field): string => CopyFields::describe($field),
             $this->missingTranslations($locale),
         );
 
