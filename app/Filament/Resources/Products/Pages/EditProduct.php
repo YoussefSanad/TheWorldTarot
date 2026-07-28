@@ -3,8 +3,11 @@
 namespace App\Filament\Resources\Products\Pages;
 
 use App\Filament\Resources\Products\ProductResource;
+use App\Filament\Resources\Products\Schemas\ProductForm;
+use App\Models\Product;
 use App\Support\Locales;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Validation\ValidationException;
 use LaraZeus\SpatieTranslatable\Actions\LocaleSwitcher;
 use LaraZeus\SpatieTranslatable\Resources\Pages\EditRecord\Concerns\Translatable;
 
@@ -51,6 +54,41 @@ class EditProduct extends EditRecord
 
         return 'Not on the website'.$language.' yet. It needs '
             .collect($missing)->join(', ', ' and ').'.';
+    }
+
+    /**
+     * Copy that exists in the original language cannot be deleted.
+     *
+     * Everything else is written from the English, and a reading with no
+     * English name is a reading nothing can be built from. Translations are
+     * different: emptying one is a legitimate act, and it takes that language
+     * off the website until it is written again.
+     *
+     * Checked at save rather than as a `required` rule, because a field level
+     * rule also fires while switching language tabs and makes looking at an
+     * untranslated language impossible.
+     */
+    protected function beforeSave(): void
+    {
+        if (! ProductForm::editingDefaultLocale($this)) {
+            return;
+        }
+
+        $product = $this->getRecord();
+        $errors = [];
+
+        foreach (Product::requiredTranslations() as $field) {
+            $existing = $product->getTranslation($field, Locales::default(), false);
+
+            if (filled($existing) && blank($this->data[$field] ?? null)) {
+                $errors["data.{$field}"] = 'This cannot be left empty once it has been written. '
+                    .'Change the wording rather than removing it.';
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
     }
 
     private function localeName(string $locale): string

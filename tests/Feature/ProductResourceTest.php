@@ -116,19 +116,6 @@ it('offers no switch for taking a reading off the website', function () {
         ->assertFormFieldDoesNotExist('is_published');
 });
 
-it('saves a reading that is not finished', function () {
-    $product = Product::factory()->create();
-
-    // Writing is incremental. A reading simply is not on the website until it
-    // is finished, so the panel says what is missing rather than refusing.
-    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm(['short_description' => '', 'long_description' => ''])
-        ->call('save')
-        ->assertHasNoFormErrors();
-
-    expect($product->refresh()->isAvailableIn('en'))->toBeFalse();
-});
-
 it('says what a reading is still waiting for', function () {
     $product = Product::factory()->create([
         'short_description' => ['en' => ''],
@@ -226,4 +213,50 @@ it('keeps the pass out of nobody\'s way, listing every type together', function 
         ->assertCanSeeTableRecords(Product::all());
 
     expect(Product::ofType(ProductType::Pass)->count())->toBe(1);
+});
+
+it('refuses to delete copy that already exists in the original language', function () {
+    $product = Product::factory()->create(['name' => ['en' => 'One Card Reading']]);
+
+    // Everything else is written from the English. A reading with no English
+    // name is a reading nothing can be built from.
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm(['name' => ''])
+        ->call('save')
+        ->assertHasFormErrors(['name']);
+
+    expect($product->refresh()->getTranslation('name', 'en'))->toBe('One Card Reading');
+});
+
+it('still allows saving a reading whose copy was never written', function () {
+    // The seeded state: descriptions empty and waiting. Blocking this would
+    // stop her setting a price before writing the copy.
+    $product = Product::factory()->create([
+        'short_description' => ['en' => ''],
+        'long_description' => ['en' => ''],
+    ]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm(['price_gbp' => '19.00'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($product->refresh()->price_gbp)->toBe(1900);
+});
+
+it('allows a translation to be emptied, which takes that language down', function () {
+    config()->set('app.fallback_locale', 'en');
+
+    $product = Product::factory()->create([
+        'name' => ['en' => 'One Card Reading', 'es' => 'Lectura de Una Carta'],
+    ]);
+
+    // Deleting a translation is a legitimate act, unlike deleting the original.
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->set('activeLocale', 'es')
+        ->fillForm(['name' => ''])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($product->refresh()->getTranslation('name', 'es', false))->toBeEmpty();
 });
