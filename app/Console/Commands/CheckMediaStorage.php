@@ -23,12 +23,24 @@ class CheckMediaStorage extends Command
     public function handle(): int
     {
         $name = config('filesystems.media');
-        $disk = Storage::disk($name);
         $driver = config("filesystems.disks.{$name}.driver");
+        $bucket = config("filesystems.disks.{$name}.bucket");
 
         $this->components->twoColumnDetail('Disk', $name);
         $this->components->twoColumnDetail('Driver', (string) $driver);
-        $this->components->twoColumnDetail('Bucket', (string) (config("filesystems.disks.{$name}.bucket") ?: 'not applicable'));
+        $this->components->twoColumnDetail('Bucket', (string) ($bucket ?: 'not applicable'));
+
+        // Before touching the disk, because building an s3 disk with no bucket
+        // throws a type error from inside Flysystem, and a stack trace is a
+        // poor way to be told an environment variable is missing.
+        if ($driver === 's3' && blank($bucket)) {
+            $this->components->error('This environment has no bucket configured, so uploads cannot work at all.');
+            $this->reportEnvironment();
+
+            return self::FAILURE;
+        }
+
+        $disk = Storage::disk($name);
 
         // The whole point of the command. A local driver anywhere but a
         // developer's machine means uploads are being written to a filesystem
@@ -70,5 +82,33 @@ class CheckMediaStorage extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Which of the platform's variables actually reached this environment.
+     *
+     * Names and whether they are set, never values. The usual answer is that
+     * the bucket is attached to a different environment than the one this ran
+     * in, or that the configuration was cached before the platform injected
+     * anything.
+     */
+    private function reportEnvironment(): void
+    {
+        $this->newLine();
+        $this->components->info('What this environment was given:');
+
+        foreach (['AWS_BUCKET', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_DEFAULT_REGION', 'AWS_ENDPOINT', 'AWS_URL'] as $variable) {
+            $this->components->twoColumnDetail(
+                $variable,
+                filled(env($variable)) ? '<fg=green>set</>' : '<fg=red>missing</>',
+            );
+        }
+
+        $this->newLine();
+        $this->components->warn(
+            'If these are all missing, the bucket is attached to another environment, or the configuration '
+            .'was cached before it was attached. Run config:clear and try again. '
+            .'If the platform names them differently, tell me the names and the disk will read those instead.'
+        );
     }
 }
