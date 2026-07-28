@@ -43,13 +43,34 @@ final class TranslationCoverage
     }
 
     /**
-     * How far along a language is, for the summary line in the panel.
+     * How far along a language is across everything, for the languages screen.
      *
      * @return array{complete: int, total: int}
      */
     public static function progress(string $locale): array
     {
-        $records = self::translatableRecords();
+        return collect(config('translatable.models'))
+            ->map(fn (string $model): array => self::progressFor($model, $locale))
+            ->reduce(fn (array $running, array $model): array => [
+                'complete' => $running['complete'] + $model['complete'],
+                'total' => $running['total'] + $model['total'],
+            ], ['complete' => 0, 'total' => 0]);
+    }
+
+    /**
+     * How far along a language is in one kind of thing, for the line above a
+     * list.
+     *
+     * Separate from the total deliberately. "20 of 26" on the languages screen
+     * answers whether a language can go live, and answers nothing at all while
+     * standing in front of the cards.
+     *
+     * @param  class-string  $model
+     * @return array{complete: int, total: int}
+     */
+    public static function progressFor(string $model, string $locale): array
+    {
+        $records = $model::query()->published()->get();
 
         return [
             'complete' => $records->filter->isCompleteIn($locale)->count(),

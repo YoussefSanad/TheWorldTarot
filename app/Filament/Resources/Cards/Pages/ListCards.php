@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Cards\Pages;
 
+use App\Filament\Concerns\ShowsTranslationProgress;
 use App\Filament\Resources\Cards\CardResource;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
@@ -10,7 +11,7 @@ use LaraZeus\SpatieTranslatable\Resources\Pages\ListRecords\Concerns\Translatabl
 
 class ListCards extends ListRecords
 {
-    use Translatable;
+    use ShowsTranslationProgress, Translatable;
 
     protected static string $resource = CardResource::class;
 
