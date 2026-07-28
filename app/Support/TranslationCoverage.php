@@ -32,7 +32,7 @@ final class TranslationCoverage
      */
     public static function outstanding(string $locale): Collection
     {
-        return self::publishedRecords()
+        return self::translatableRecords()
             ->map(fn (Model $record) => [
                 'record' => $record,
                 'label' => self::labelFor($record),
@@ -49,7 +49,7 @@ final class TranslationCoverage
      */
     public static function progress(string $locale): array
     {
-        $records = self::publishedRecords();
+        $records = self::translatableRecords();
 
         return [
             'complete' => $records->filter->isCompleteIn($locale)->count(),
@@ -58,23 +58,23 @@ final class TranslationCoverage
     }
 
     /**
-     * Only records a customer could actually reach. A reading with no price, or
-     * one still being written in the original language, is on the website in no
-     * language at all, so blocking a translation over it would be nonsense.
+     * Every record that exists, not only the ones a customer can reach today.
+     *
+     * This used to skip readings with no price, on the grounds that nobody
+     * could see them anyway. That was wrong, and it let a language go public
+     * with two of four readings holding no Spanish at all: they were unpriced,
+     * so they did not count, so the gate declared Spanish finished.
+     *
+     * Nothing here is ever retired. A reading with no price is one still being
+     * set up, not one that does not count, and it would reach the website long
+     * after anyone remembered it was never translated.
      *
      * @return Collection<int, Model>
      */
-    private static function publishedRecords(): Collection
+    private static function translatableRecords(): Collection
     {
         return collect(config('translatable.models'))
-            ->flatMap(fn (string $model) => $model::query()
-                ->published()
-                ->priced()
-                // Not finished in the original language means not on the
-                // website at all, so it leaves no language short of anything.
-                ->completeIn(Locales::default())
-                ->get()
-                ->all());
+            ->flatMap(fn (string $model) => $model::query()->published()->get()->all());
     }
 
     private static function labelFor(Model $record): string

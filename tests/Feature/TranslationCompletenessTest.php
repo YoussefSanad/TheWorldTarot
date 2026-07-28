@@ -82,12 +82,37 @@ it('reports a language complete only when nothing published is outstanding', fun
     expect(TranslationCoverage::isComplete('es'))->toBeFalse();
 });
 
-it('ignores unpublished records, which block nobody', function () {
+it('counts a reading that has no price yet', function () {
     translated(['key' => ProductKey::OneCard]);
-    Product::factory()->unpublished()->create(['key' => ProductKey::ThreeCard]);
 
-    // A draft nobody can see is not a reason to hold back a language.
-    expect(TranslationCoverage::isComplete('es'))->toBeTrue();
+    // Regression. These used to be skipped because nobody could see them, which
+    // let a language go public with two of four readings holding no Spanish at
+    // all. Nothing here is ever retired: no price means still being set up, not
+    // does not count.
+    Product::factory()->create([
+        'key' => ProductKey::ThreeCard,
+        'name' => ['en' => 'Three Card Reading'],
+        'price_usd' => 0,
+        'price_eur' => 0,
+        'price_gbp' => 0,
+    ]);
+
+    expect(TranslationCoverage::isComplete('es'))->toBeFalse()
+        ->and(TranslationCoverage::outstanding('es')->pluck('label')->all())
+        ->toBe(['Three Card Reading']);
+});
+
+it('counts a reading whose english copy is still being written', function () {
+    translated(['key' => ProductKey::OneCard]);
+
+    Product::factory()->create([
+        'key' => ProductKey::ThreeCard,
+        'name' => ['en' => 'Three Card Reading'],
+        'short_description' => ['en' => ''],
+        'long_description' => ['en' => ''],
+    ]);
+
+    expect(TranslationCoverage::isComplete('es'))->toBeFalse();
 });
 
 it('lists what is outstanding, with the record and the fields', function () {

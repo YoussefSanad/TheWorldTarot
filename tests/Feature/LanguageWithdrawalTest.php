@@ -84,17 +84,32 @@ it('leaves the language alone when the new reading is translated', function () {
     expect(spanishStatus())->toBe(LocaleStatus::Live);
 });
 
-it('ignores a reading that is not on the website anyway', function () {
+it('takes the language down for a reading that has no price yet', function () {
     translatedProduct();
     spanishLive();
 
-    // No price, so nobody can see it in any language. It cannot leave a
-    // language short of anything.
+    // It is not on the website today, but it will be, and by then nobody will
+    // remember it was never translated. A reading being set up is still a
+    // reading that has to be translated.
     translatedProduct(ProductKey::ThreeCard, [
         'name' => ['en' => 'Three Card Reading'],
         'price_usd' => 0,
         'price_eur' => 0,
         'price_gbp' => 0,
+    ]);
+
+    expect(spanishStatus())->toBe(LocaleStatus::Draft);
+});
+
+it('ignores a reading that is not published at all', function () {
+    translatedProduct();
+    spanishLive();
+
+    // The developer-level switch, the only way anything is ever off the
+    // catalogue. Nothing the client can reach.
+    Product::factory()->unpublished()->create([
+        'key' => ProductKey::ThreeCard,
+        'name' => ['en' => 'Three Card Reading'],
     ]);
 
     expect(spanishStatus())->toBe(LocaleStatus::Live);
@@ -120,12 +135,9 @@ it('takes the reading off every language when the original copy is emptied', fun
     $this->getJson('/api/v1/es/products')->assertJsonCount(1);
 });
 
-it('leaves the language up when the reading it removed was the untranslated one', function () {
+it('does not let emptying the english copy excuse a missing translation', function () {
     translatedProduct();
-    spanishLive();
 
-    // Nothing a customer can reach is untranslated, so Spanish has no reason to
-    // come down.
     $orphan = translatedProduct(ProductKey::ThreeCard, [
         'name' => ['en' => 'Three Card Reading'],
     ]);
@@ -134,7 +146,9 @@ it('leaves the language up when the reading it removed was the untranslated one'
     spanishLive();
     $orphan->setTranslation('name', 'en', '')->save();
 
-    expect(spanishStatus())->toBe(LocaleStatus::Live);
+    // Emptying the English does not take a reading off the catalogue. It is
+    // still there, still untranslated, and still a reason Spanish is not ready.
+    expect(spanishStatus())->toBe(LocaleStatus::Draft);
 });
 
 it('never touches the site\'s own language', function () {
