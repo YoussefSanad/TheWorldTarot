@@ -7,6 +7,7 @@ use App\Filament\Resources\Products\Pages\ListProducts;
 use App\Filament\Resources\Products\ProductResource;
 use App\Models\Admin;
 use App\Models\Product;
+use App\Support\Locales;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -176,42 +177,32 @@ it('refuses to publish when only one currency is missing a price', function () {
 });
 
 it('persists a translation against the active language', function () {
-    config()->set('localization.available', [
-        'en' => ['label' => 'English', 'native' => 'English'],
-        'it' => ['label' => 'Italian', 'native' => 'Italiano'],
-    ]);
-
     $product = Product::factory()->create(['name' => ['en' => 'One Card']]);
 
     Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->set('activeLocale', 'it')
+        ->set('activeLocale', 'es')
         ->fillForm(['name' => 'Una Carta'])
         ->call('save')
         ->assertHasNoFormErrors();
 
-    // The English value must survive editing the Italian one.
-    expect($product->refresh()->getTranslation('name', 'it'))->toBe('Una Carta')
+    // The English value must survive editing the Spanish one.
+    expect($product->refresh()->getTranslation('name', 'es'))->toBe('Una Carta')
         ->and($product->getTranslation('name', 'en'))->toBe('One Card');
 });
 
 it('allows a translation to be saved one field at a time', function () {
-    config()->set('localization.available', [
-        'en' => ['label' => 'English', 'native' => 'English'],
-        'it' => ['label' => 'Italian', 'native' => 'Italiano'],
-    ]);
-
     $product = Product::factory()->create();
 
-    // Translating is incremental. Demanding every Italian field before anything
+    // Translating is incremental. Demanding every Spanish field before anything
     // can be saved would make the panel useless for the job it exists to do.
     // Completeness is the gate on going live, not on saving.
     Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->set('activeLocale', 'it')
+        ->set('activeLocale', 'es')
         ->fillForm(['name' => 'Una Carta', 'short_description' => '', 'long_description' => '', 'slug' => ''])
         ->call('save')
         ->assertHasNoFormErrors();
 
-    expect($product->refresh()->getTranslation('name', 'it'))->toBe('Una Carta');
+    expect($product->refresh()->getTranslation('name', 'es'))->toBe('Una Carta');
 });
 
 it('saves a draft with copy still missing', function () {
@@ -242,11 +233,6 @@ it('refuses to publish a reading with copy still missing', function () {
 });
 
 it('switches language back and forth without complaining', function () {
-    config()->set('localization.available', [
-        'en' => ['label' => 'English', 'native' => 'English'],
-        'es' => ['label' => 'Spanish', 'native' => 'Español'],
-    ]);
-
     $product = Product::factory()->create();
 
     // Looking at an untranslated language and changing your mind must not be
@@ -263,11 +249,6 @@ it('switches language back and forth without complaining', function () {
 });
 
 it('only offers publishing in the default language', function () {
-    config()->set('localization.available', [
-        'en' => ['label' => 'English', 'native' => 'English'],
-        'es' => ['label' => 'Spanish', 'native' => 'Español'],
-    ]);
-
     $product = Product::factory()->create();
 
     // A reading is on sale or it is not. Publishing per language would be a
@@ -278,9 +259,8 @@ it('only offers publishing in the default language', function () {
         ->assertFormFieldIsDisabled('is_published');
 });
 
-it('drives the resource translatable locales from config', function () {
-    expect(ProductResource::getTranslatableLocales())
-        ->toBe(array_keys(config('localization.available')));
+it('drives the resource translatable locales from the registry', function () {
+    expect(ProductResource::getTranslatableLocales())->toBe(Locales::codes());
 });
 
 it('does not show structural fields to the client', function () {

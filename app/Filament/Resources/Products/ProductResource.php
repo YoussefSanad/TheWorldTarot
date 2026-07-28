@@ -7,6 +7,7 @@ use App\Filament\Resources\Products\Pages\ListProducts;
 use App\Filament\Resources\Products\Schemas\ProductForm;
 use App\Filament\Resources\Products\Tables\ProductsTable;
 use App\Models\Product;
+use App\Support\Locales;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -26,6 +27,21 @@ class ProductResource extends Resource
     protected static ?string $recordTitleAttribute = 'name';
 
     protected static ?string $navigationLabel = 'Readings and passes';
+
+    /**
+     * The language tabs, read when the form is built rather than when the panel
+     * is registered.
+     *
+     * The plugin takes its list once, at registration, which is stale the
+     * moment a language is added or removed. Reading the registry here means a
+     * new language appears as soon as its row exists.
+     *
+     * @return array<int, string>
+     */
+    public static function getTranslatableLocales(): array
+    {
+        return Locales::codes();
+    }
 
     public static function form(Schema $schema): Schema
     {
