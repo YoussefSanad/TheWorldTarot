@@ -15,7 +15,7 @@ uses(RefreshDatabase::class);
 beforeEach(function () {
     Locales::forget();
 
-    Route::middleware('api')->get('/api/v1/test-context', fn () => [
+    Route::middleware('api')->get('/api/v1/{locale}/test-context', fn () => [
         'locale' => app(RequestContext::class)->locale,
     ]);
 });
@@ -40,14 +40,14 @@ it('keeps spanish out of the public language list', function () {
         ->assertExactJson([['code' => 'en', 'label' => 'English']]);
 });
 
-it('never serves spanish while it is only available', function () {
-    // `available` means a translation in progress. Nobody is served it, admin
+it('never serves spanish while it is still a draft', function () {
+    // Draft means a translation in progress. Nobody is served it, admin
     // included, because a half translated site is worse than an English one.
-    $this->getJson('/api/v1/test-context?locale=es')->assertJsonPath('locale', 'en');
+    $this->getJson('/api/v1/es/test-context')->assertNotFound();
 
     $this->actingAs(Admin::factory()->create(), 'admin')
-        ->getJson('/api/v1/test-context?locale=es')
-        ->assertJsonPath('locale', 'en');
+        ->getJson('/api/v1/es/test-context')
+        ->assertNotFound();
 });
 
 it('serves spanish to a signed-in admin once it is in preview', function () {
@@ -56,14 +56,14 @@ it('serves spanish to a signed-in admin once it is in preview', function () {
     // This is how the real site gets reviewed on production before customers
     // can reach it.
     $this->actingAs(Admin::factory()->create(), 'admin')
-        ->getJson('/api/v1/test-context?locale=es')
+        ->getJson('/api/v1/es/test-context')
         ->assertJsonPath('locale', 'es');
 });
 
 it('still refuses spanish to the public while it is in preview', function () {
     Locale::where('code', 'es')->update(['status' => LocaleStatus::Preview]);
 
-    $this->getJson('/api/v1/test-context?locale=es')->assertJsonPath('locale', 'en');
+    $this->getJson('/api/v1/es/test-context')->assertNotFound();
 
     // And it stays out of the language selector, so nobody finds it by accident.
     $this->getJson('/api/v1/languages')->assertJsonCount(1);
@@ -72,7 +72,7 @@ it('still refuses spanish to the public while it is in preview', function () {
 it('serves spanish to everyone once it goes live', function () {
     Locale::where('code', 'es')->update(['status' => LocaleStatus::Live]);
 
-    $this->getJson('/api/v1/test-context?locale=es')->assertJsonPath('locale', 'es');
+    $this->getJson('/api/v1/es/test-context')->assertJsonPath('locale', 'es');
 
     $this->getJson('/api/v1/languages')
         ->assertExactJson([

@@ -20,7 +20,6 @@ class ProductController extends Controller
      * viewing room pass is not listed here: it has its own page rather than
      * sitting in a list of readings, and is fetched by its own key.
      */
-    #[QueryParameter('locale', 'The language to read the copy in. Falls back to English.', required: false, type: 'string', example: 'es')]
     #[QueryParameter('currency', 'The currency to price in. Falls back to the visitor\'s country.', required: false, type: 'string', example: 'GBP')]
     public function index(): ProductCollection
     {
@@ -48,10 +47,13 @@ class ProductController extends Controller
      * reading exists is not public information, and so is whether a key outside
      * the catalogue means anything.
      */
-    #[QueryParameter('locale', 'The language to read the copy in. Falls back to English.', required: false, type: 'string', example: 'es')]
     #[QueryParameter('currency', 'The currency to price in. Falls back to the visitor\'s country.', required: false, type: 'string', example: 'GBP')]
-    public function show(string $key): ProductResource
+    public function show(string $locale, string $key): ProductResource
     {
+        // Route parameters reach a controller in the order they appear in the
+        // path, not by matching names, so the language segment has to be taken
+        // even though the middleware has already dealt with it. Leaving it out
+        // silently passes "en" as the product key.
         $productKey = ProductKey::tryFrom($key);
 
         if ($productKey === null) {

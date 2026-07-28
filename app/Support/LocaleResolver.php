@@ -20,23 +20,28 @@ final class LocaleResolver
     }
 
     /**
-     * Resolution rules, in order:
+     * The language for a URL, or null when that URL should not exist.
+     *
+     * Null rather than a fallback, because a path segment is an address, not a
+     * hint. Asking for a language that is not public is asking for a page that
+     * is not there, and answering in English would put the same content at
+     * unlimited URLs.
      *
      * 1. A live language is served to anyone
      * 2. A language in preview is served only to a signed-in admin
-     * 3. Anything else, including absent, unknown, or still being translated,
-     *    falls back to the default
+     * 3. Anything else, including unknown, absent, or still being translated,
+     *    is nothing
      */
-    public static function resolve(?string $requested, bool $isAdmin = false): string
+    public static function resolve(?string $requested, bool $isAdmin = false): ?string
     {
         if ($requested === null || $requested === '') {
-            return self::default();
+            return null;
         }
 
         $locale = Locales::find(strtolower($requested));
 
         if ($locale === null || ! $locale->isServableTo($isAdmin)) {
-            return self::default();
+            return null;
         }
 
         return $locale->code;

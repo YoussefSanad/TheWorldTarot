@@ -8,6 +8,7 @@ use App\Support\RequestContext;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * Resolves locale and currency for the request and binds both.
@@ -25,10 +26,22 @@ class ResolveRequestContext
 {
     public function handle(Request $request, Closure $next): Response
     {
+        // The language is a path segment, /api/v1/es/products, so that content
+        // URLs are distinct per language and cache cleanly. Routes with no
+        // segment, such as /languages, are not content and use the default.
+        $requested = $this->stringParam($request->route('locale'));
+
         $locale = LocaleResolver::resolve(
-            $this->stringParam($request->query('locale')),
+            $requested ?? LocaleResolver::default(),
             $request->user('admin') !== null,
         );
+
+        if ($locale === null) {
+            // A language that is not public is not an address. Falling back to
+            // English here would serve the same content at as many URLs as
+            // someone cared to invent.
+            throw new NotFoundHttpException;
+        }
 
         // Sets the locale for translated content, lang files, and validation
         // messages for the rest of the request.

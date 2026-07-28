@@ -11,15 +11,27 @@ use Illuminate\Support\Facades\Route;
 | See .claude/api.md.
 */
 Route::prefix('v1')->group(function () {
-    // The frontend contract. These two shapes are agreed with the frontend
-    // partner: adding a field is safe, renaming or removing one is not.
+    // Not content, so no language segment. The language list in particular
+    // cannot sit behind a language, since it is what tells the frontend which
+    // languages there are.
     Route::get('/languages', LanguageController::class);
     Route::get('/currencies', CurrencyController::class);
-
-    Route::get('/products', [ProductController::class, 'index'])->name('products.index');
-    Route::get('/products/{key}', [ProductController::class, 'show'])->name('products.show');
 
     Route::get('/user', function (Request $request) {
         return $request->user();
     })->middleware('auth:sanctum');
+
+    /*
+    | Content, addressed per language: /api/v1/en/products. Every language is
+    | prefixed, English included, so none is the odd one out and the frontend's
+    | routes map to ours exactly.
+    |
+    | A language that is not public 404s here rather than falling back, because
+    | a path segment is an address and not a hint. See .claude/translation.md
+    | section 7.
+    */
+    Route::prefix('{locale}')->group(function () {
+        Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+        Route::get('/products/{key}', [ProductController::class, 'show'])->name('products.show');
+    });
 });
