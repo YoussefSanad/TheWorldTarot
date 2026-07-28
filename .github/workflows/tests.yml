@@ -16,6 +16,17 @@ jobs:
     name: Pest
     runs-on: ubuntu-latest
 
+    # phpunit.xml sets these for the tests themselves. They are repeated here
+    # so artisan commands outside the suite, such as key:generate, talk to the
+    # database that actually exists in the service container.
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: the_world_tarot_testing
+      DB_USERNAME: postgres
+      DB_PASSWORD: ''
+
     services:
       # Postgres, never SQLite. The schema uses jsonb and the tests assert
       # column types, so a different engine would prove nothing.
@@ -54,13 +65,18 @@ jobs:
           key: composer-${{ hashFiles('composer.lock') }}
           restore-keys: composer-
 
+      # Before composer install, not after: installing runs
+      # `artisan package:discover`, which boots the application, which needs to
+      # know how to reach a database. Without this it falls back to SQLite and
+      # fails on a file that does not exist.
+      - name: Prepare the environment
+        run: cp .env.example .env
+
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Prepare the environment
-        run: |
-          cp .env.example .env
-          php artisan key:generate
+      - name: Generate an application key
+        run: php artisan key:generate
 
       - name: Run the test suite
         run: ./vendor/bin/pest --colors=always

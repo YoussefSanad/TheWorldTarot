@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Locale;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 /**
  * Reads the locale registry, once per request.
@@ -44,11 +45,25 @@ final class Locales
             return self::$cache;
         }
 
-        if (! Schema::hasTable('locales')) {
+        try {
+            if (! Schema::hasTable('locales')) {
+                return self::$cache = collect();
+            }
+
+            return self::$cache = Locale::ordered()->get();
+        } catch (Throwable $e) {
+            // The admin panel is built while the framework boots, so this runs
+            // during `package:discover`, `config:cache` and every other artisan
+            // command, including ones that run before a database exists or is
+            // reachable. Checking the table is not enough on its own, because
+            // that check is itself a query.
+            //
+            // Reported rather than swallowed: a real outage should be visible
+            // in the logs, not only in the missing language tabs.
+            report($e);
+
             return self::$cache = collect();
         }
-
-        return self::$cache = Locale::ordered()->get();
     }
 
     /**
