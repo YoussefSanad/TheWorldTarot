@@ -30,10 +30,10 @@ class ProductSeeder extends Seeder
             $product = Product::withTrashed()->firstOrNew(['key' => $key]);
 
             // Values, set once so a later run never overwrites an edit.
-            // Prices start at zero, which is deliberately wrong rather than
-            // plausibly wrong: a made-up placeholder price is the kind of thing
-            // that reaches production unnoticed. Nothing can be published at
-            // zero, so the panel makes her set a real one.
+            // Prices start at zero and the copy starts empty, which is what
+            // keeps a freshly seeded reading off the website: availability is
+            // calculated from the copy and the prices, so there is nothing to
+            // switch on and nothing to leave switched on by mistake.
             if (! $product->exists) {
                 $product->fill([
                     'name' => ['en' => $key->defaultName()],
@@ -42,7 +42,6 @@ class ProductSeeder extends Seeder
                     'price_usd' => 0,
                     'price_eur' => 0,
                     'price_gbp' => 0,
-                    'is_published' => false,
                     'sort_order' => $key->defaultSortOrder(),
                 ]);
             }

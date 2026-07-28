@@ -23,12 +23,10 @@ class ProductController extends Controller
     #[QueryParameter('currency', 'The currency to price in. Falls back to the visitor\'s country.', required: false, type: 'string', example: 'GBP')]
     public function index(): ProductCollection
     {
-        // Only what is finished in this language. A product still being
-        // translated is absent from that language rather than appearing in
-        // English among Spanish ones.
-        $products = Product::published()
+        // Only what a customer in this language can actually see: copy in
+        // their language, and a real price in every currency.
+        $products = Product::availableIn(app()->getLocale())
             ->ofType(ProductType::Reading)
-            ->completeIn(app()->getLocale())
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
@@ -60,8 +58,7 @@ class ProductController extends Controller
             throw new NotFoundHttpException;
         }
 
-        $product = Product::published()
-            ->completeIn(app()->getLocale())
+        $product = Product::availableIn(app()->getLocale())
             ->where('key', $productKey)
             ->first();
 

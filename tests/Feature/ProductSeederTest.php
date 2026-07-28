@@ -17,20 +17,27 @@ function seedProducts(): void
 it('creates the four readings', function () {
     seedProducts();
 
-    expect(Product::pluck('key')->all())->toBe(ProductKey::readings());
+    // Ordered explicitly. Without it Postgres returns rows in whatever order
+    // they physically sit in, which shifts as rows are updated, so the same
+    // assertion passes or fails depending on what ran before it.
+    expect(Product::orderBy('sort_order')->pluck('key')->all())
+        ->toBe(ProductKey::readings());
 });
 
-it('creates them unpublished, with no price set', function () {
+it('creates them with no price and no copy, so nobody can see them yet', function () {
     seedProducts();
 
     $product = Product::firstWhere('key', ProductKey::OneCard);
 
     // Zero is deliberately wrong rather than plausibly wrong. A made-up
     // placeholder price is the kind of thing that reaches production unnoticed.
-    expect($product->is_published)->toBeFalse()
-        ->and($product->price_usd)->toBe(0)
+    // Availability is calculated, so an unfinished reading is off the website
+    // without anything having to be switched off.
+    expect($product->price_usd)->toBe(0)
         ->and($product->price_eur)->toBe(0)
-        ->and($product->price_gbp)->toBe(0);
+        ->and($product->price_gbp)->toBe(0)
+        ->and($product->isAvailableIn('en'))->toBeFalse()
+        ->and($product->whatIsMissing('en'))->toContain('a price in every currency');
 });
 
 it('gives every reading the same structure', function () {

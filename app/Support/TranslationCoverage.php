@@ -32,10 +32,6 @@ final class TranslationCoverage
      */
     public static function outstanding(string $locale): Collection
     {
-        if ($locale === Locales::default()) {
-            return collect();
-        }
-
         return self::publishedRecords()
             ->map(fn (Model $record) => [
                 'record' => $record,
@@ -62,15 +58,16 @@ final class TranslationCoverage
     }
 
     /**
-     * Only published records count. An unpublished draft is nobody's problem in
-     * any language, and blocking a launch over one would be nonsense.
+     * Only records that are otherwise ready to be seen. A reading with no price
+     * is not on the website in any language, so it is nobody's problem and
+     * blocking a language over it would be nonsense.
      *
      * @return Collection<int, Model>
      */
     private static function publishedRecords(): Collection
     {
         return collect(config('translatable.models'))
-            ->flatMap(fn (string $model) => $model::query()->published()->get()->all());
+            ->flatMap(fn (string $model) => $model::query()->published()->priced()->get()->all());
     }
 
     private static function labelFor(Model $record): string

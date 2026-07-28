@@ -3,11 +3,8 @@
 namespace App\Filament\Resources\Products\Pages;
 
 use App\Filament\Resources\Products\ProductResource;
-use App\Filament\Resources\Products\Schemas\ProductForm;
-use App\Models\Product;
-use App\Support\Money;
+use App\Support\Locales;
 use Filament\Resources\Pages\EditRecord;
-use Illuminate\Validation\ValidationException;
 use LaraZeus\SpatieTranslatable\Actions\LocaleSwitcher;
 use LaraZeus\SpatieTranslatable\Resources\Pages\EditRecord\Concerns\Translatable;
 
@@ -18,19 +15,8 @@ class EditProduct extends EditRecord
     protected static string $resource = ProductResource::class;
 
     /**
-     * How each missing field is described. Which fields are required comes from
-     * `Product::requiredTranslations()`, so the publish guard and the language
-     * completeness check can never disagree about what finished means.
-     */
-    private const MISSING_COPY_MESSAGES = [
-        'name' => 'Add a name before showing this on the website.',
-        'short_description' => 'Add a short description before showing this on the website.',
-        'long_description' => 'Add the full description before showing this on the website.',
-    ];
-
-    /**
      * The language switcher only. No delete, no force delete, no restore:
-     * products are seeded, and taking one off sale means unpublishing it.
+     * products are seeded, and nothing here is ever retired.
      */
     protected function getHeaderActions(): array
     {
@@ -40,60 +26,35 @@ class EditProduct extends EditRecord
     }
 
     /**
-     * Everything a reading needs before it can be published, checked in one
-     * place at the moment of saving.
+     * Tells her what this reading is still waiting for, in her language, rather
+     * than refusing a save.
      *
-     * Deliberately not field level `required` rules. Those fire while switching
-     * language tabs, because the switcher validates the tab it is leaving
-     * against the language it is arriving at, which made it impossible to look
-     * at an untranslated language and change your mind. They also block saving
-     * a draft, and writing is incremental.
+     * Nothing is required field by field. Writing is incremental, and a field
+     * level rule also fires while switching language tabs, which made looking
+     * at an untranslated language and changing your mind impossible. A reading
+     * simply is not on the website until it is finished, so the panel says what
+     * is missing instead of arguing about it.
      */
-    protected function beforeSave(): void
+    public function getSubheading(): ?string
     {
-        if (! ($this->data['is_published'] ?? false)) {
-            return;
+        $product = $this->getRecord();
+        $locale = $this->activeLocale ?? Locales::default();
+        $missing = $product->whatIsMissing($locale);
+
+        if ($missing === []) {
+            return $locale === Locales::default()
+                ? 'On the website.'
+                : 'On the website in '.$this->localeName($locale).' too.';
         }
 
-        $errors = [];
+        $language = $locale === Locales::default() ? '' : ' in '.$this->localeName($locale);
 
-        // Copy is per language, and publishing is only offered on the default
-        // language tab, so this only ever inspects the default language's
-        // values. A translation being incomplete never blocks a sale.
-        if (ProductForm::editingDefaultLocale($this)) {
-            foreach (Product::requiredTranslations() as $field) {
-                if (blank($this->data[$field] ?? null)) {
-                    $errors["data.{$field}"] = self::MISSING_COPY_MESSAGES[$field]
-                        ?? 'Fill this in before showing this on the website.';
-                }
-            }
-        }
-
-        // Prices are not translatable, so they are checked whatever tab is
-        // open. A seeded reading starts at zero in every currency, which the
-        // database happily accepts: `NOT NULL` can insist a price exists, not
-        // that it means anything.
-        foreach (array_keys(config('currencies.available')) as $code) {
-            $field = 'price_'.strtolower($code);
-
-            if ($this->priceIsUnset($this->data[$field] ?? null)) {
-                $errors["data.{$field}"] = 'Set a price above zero before showing this on the website.';
-            }
-        }
-
-        if ($errors !== []) {
-            throw ValidationException::withMessages($errors);
-        }
+        return 'Not on the website'.$language.' yet. It needs '
+            .collect($missing)->join(', ', ' and ').'.';
     }
 
-    private function priceIsUnset(mixed $value): bool
+    private function localeName(string $locale): string
     {
-        try {
-            // Anything that is not an amount at all is reported by the field's
-            // own rule, so it is not this check's business.
-            return Money::toMinor((string) $value) < 1;
-        } catch (\InvalidArgumentException) {
-            return false;
-        }
+        return Locales::find($locale)?->english_name ?? $locale;
     }
 }

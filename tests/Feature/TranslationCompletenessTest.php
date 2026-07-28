@@ -47,15 +47,19 @@ it('treats an empty translation as missing, not as an answer', function () {
     expect($product->missingTranslations('es'))->toBe(['short_description']);
 });
 
-it('exempts the default language, which the publish guard already covers', function () {
+it('holds the default language to the same standard as any other', function () {
     $product = Product::factory()->create([
         'name' => ['en' => 'One Card Reading'],
         'short_description' => ['en' => ''],
         'long_description' => ['en' => ''],
     ]);
 
-    expect($product->isCompleteIn('en'))->toBeTrue()
-        ->and($product->missingTranslations('en'))->toBe([]);
+    // English used to be exempt, on the grounds that a publish switch covered
+    // it. That switch is gone, so a reading with no description is not ready to
+    // be read in any language, English included.
+    expect($product->isCompleteIn('en'))->toBeFalse()
+        ->and($product->missingTranslations('en'))
+        ->toBe(['short_description', 'long_description']);
 });
 
 it('filters incomplete records out of a query rather than after it', function () {

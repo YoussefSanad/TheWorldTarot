@@ -182,20 +182,15 @@ describe('with spanish live', function () {
             ->assertJsonPath('price.currency', 'GBP');
     });
 
-    it('leaves an untranslated product out of that language', function () {
-        // Published after Spanish went live and not translated yet. It must be
-        // absent from Spanish rather than appearing in English among the
-        // Spanish ones.
+    it('takes the language down when an untranslated reading appears', function () {
         Product::factory()->create([
             'key' => ProductKey::ThreeCard,
             'name' => ['en' => 'Three Card Reading'],
         ]);
 
-        $this->getJson('/api/v1/es/products')
-            ->assertJsonCount(1)
-            ->assertJsonPath('0.key', 'one-card');
-
-        $this->getJson('/api/v1/es/products/three-card')->assertNotFound();
+        // A language shows everything or nothing, so this is not a shorter
+        // Spanish list. There is no Spanish site until it is translated.
+        $this->getJson('/api/v1/es/products')->assertNotFound();
     });
 
     it('keeps that same product visible in english', function () {
@@ -212,7 +207,7 @@ describe('with spanish live', function () {
             ->assertJsonPath('name', 'Three Card Reading');
     });
 
-    it('leaves a half translated product out too', function () {
+    it('takes the language down for a half translated reading too', function () {
         // Half translated is the case that would otherwise put an English
         // paragraph on a Spanish page.
         Product::factory()->create([
@@ -221,7 +216,7 @@ describe('with spanish live', function () {
             'short_description' => ['en' => 'Three cards.', 'es' => 'Tres cartas.'],
         ]);
 
-        $this->getJson('/api/v1/es/products')->assertJsonCount(1);
+        $this->getJson('/api/v1/es/products')->assertNotFound();
         $this->getJson('/api/v1/es/products/three-card')->assertNotFound();
     });
 });

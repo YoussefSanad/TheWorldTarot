@@ -107,73 +107,45 @@ it('refuses an amount that is not a price', function () {
         ->assertHasFormErrors(['price_gbp']);
 });
 
-it('refuses to publish a reading that has no real price', function () {
-    // Seeded products start at zero in every currency. The database can only
-    // insist a price exists, not that it means anything, so this is what stops
-    // a reading going on sale for nothing.
-    $product = Product::factory()->unpublished()->create([
-        'price_usd' => 0,
-        'price_eur' => 0,
-        'price_gbp' => 0,
-    ]);
+it('offers no switch for taking a reading off the website', function () {
+    $product = Product::factory()->create();
 
+    // Nothing here is ever retired, so a switch with one useful position was
+    // only ever a way to take the shop down by accident.
     Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm(['is_published' => true])
-        ->call('save')
-        ->assertHasFormErrors(['price_usd', 'price_eur', 'price_gbp']);
-
-    expect($product->refresh()->is_published)->toBeFalse();
+        ->assertFormFieldDoesNotExist('is_published');
 });
 
-it('allows a zero price while the reading stays off the website', function () {
-    // An unfinished product must still be saveable, or the seeded state cannot
-    // be worked on at all.
-    $product = Product::factory()->unpublished()->create([
-        'price_usd' => 0,
-        'price_eur' => 0,
-        'price_gbp' => 0,
-    ]);
+it('saves a reading that is not finished', function () {
+    $product = Product::factory()->create();
 
+    // Writing is incremental. A reading simply is not on the website until it
+    // is finished, so the panel says what is missing rather than refusing.
     Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm(['name' => 'Still being written'])
-        ->call('save')
-        ->assertHasNoFormErrors();
-});
-
-it('publishes once every price is set', function () {
-    $product = Product::factory()->unpublished()->create([
-        'price_usd' => 0,
-        'price_eur' => 0,
-        'price_gbp' => 0,
-    ]);
-
-    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm([
-            'price_usd' => '25.00',
-            'price_eur' => '23.00',
-            'price_gbp' => '19.00',
-            'is_published' => true,
-        ])
+        ->fillForm(['short_description' => '', 'long_description' => ''])
         ->call('save')
         ->assertHasNoFormErrors();
 
-    expect($product->refresh()->is_published)->toBeTrue()
-        ->and($product->price_gbp)->toBe(1900);
+    expect($product->refresh()->isAvailableIn('en'))->toBeFalse();
 });
 
-it('refuses to publish when only one currency is missing a price', function () {
-    $product = Product::factory()->unpublished()->create([
-        'price_usd' => 2500,
-        'price_eur' => 2300,
+it('says what a reading is still waiting for', function () {
+    $product = Product::factory()->create([
+        'short_description' => ['en' => ''],
         'price_gbp' => 0,
     ]);
 
-    // A British visitor would otherwise reach a reading priced at nothing.
     Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm(['is_published' => true])
-        ->call('save')
-        ->assertHasFormErrors(['price_gbp'])
-        ->assertHasNoFormErrors(['price_usd', 'price_eur']);
+        ->assertSee('Not on the website yet')
+        ->assertSee('a short description')
+        ->assertSee('a price in every currency');
+});
+
+it('says a finished reading is on the website', function () {
+    Product::factory()->create();
+
+    Livewire::test(EditProduct::class, ['record' => Product::first()->getRouteKey()])
+        ->assertSee('On the website');
 });
 
 it('persists a translation against the active language', function () {
@@ -205,33 +177,6 @@ it('allows a translation to be saved one field at a time', function () {
     expect($product->refresh()->getTranslation('name', 'es'))->toBe('Una Carta');
 });
 
-it('saves a draft with copy still missing', function () {
-    $product = Product::factory()->unpublished()->create();
-
-    // Writing is incremental. A half finished reading has to be saveable, in
-    // any language, or the panel is useless for the job it exists to do.
-    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm(['name' => 'One Card', 'short_description' => '', 'long_description' => ''])
-        ->call('save')
-        ->assertHasNoFormErrors();
-});
-
-it('refuses to publish a reading with copy still missing', function () {
-    $product = Product::factory()->unpublished()->create();
-
-    // Completeness is demanded at the moment it goes on sale, not before.
-    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->fillForm([
-            'short_description' => '',
-            'long_description' => '',
-            'is_published' => true,
-        ])
-        ->call('save')
-        ->assertHasFormErrors(['short_description', 'long_description']);
-
-    expect($product->refresh()->is_published)->toBeFalse();
-});
-
 it('switches language back and forth without complaining', function () {
     $product = Product::factory()->create();
 
@@ -246,17 +191,6 @@ it('switches language back and forth without complaining', function () {
         ->assertHasNoErrors()
         ->set('activeLocale', 'es')
         ->assertHasNoErrors();
-});
-
-it('only offers publishing in the default language', function () {
-    $product = Product::factory()->create();
-
-    // A reading is on sale or it is not. Publishing per language would be a
-    // different meaning entirely, and one nobody asked for.
-    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
-        ->assertFormFieldIsEnabled('is_published')
-        ->set('activeLocale', 'es')
-        ->assertFormFieldIsDisabled('is_published');
 });
 
 it('drives the resource translatable locales from the registry', function () {

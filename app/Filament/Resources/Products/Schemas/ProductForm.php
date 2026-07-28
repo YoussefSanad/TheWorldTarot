@@ -6,7 +6,6 @@ use App\Support\Locales;
 use App\Support\Money;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -46,25 +45,14 @@ class ProductForm
                     ->schema(self::priceFields())
                     ->columns(3),
 
-                Section::make('Availability')
+                Section::make('Order')
                     ->schema([
-                        Toggle::make('is_published')
-                            ->label('Show on the website')
-                            ->helperText(fn ($livewire): string => self::editingDefaultLocale($livewire)
-                                ? 'Turn this off to take the reading off sale. Nothing is deleted and past orders are unaffected.'
-                                : 'Switch to '.Locales::defaultName().' to change this.')
-                            // Publishing is decided once, in the default
-                            // language, rather than differently per language. A
-                            // reading is on sale or it is not.
-                            ->disabled(fn ($livewire): bool => ! self::editingDefaultLocale($livewire)),
-
                         TextInput::make('sort_order')
                             ->label('Position in the list')
                             ->helperText('Lower numbers appear first.')
                             ->numeric()
                             ->required(),
-                    ])
-                    ->columns(2),
+                    ]),
             ]);
     }
 

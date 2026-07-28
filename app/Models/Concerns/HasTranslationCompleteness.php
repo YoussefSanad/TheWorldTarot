@@ -2,7 +2,6 @@
 
 namespace App\Models\Concerns;
 
-use App\Support\Locales;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -25,16 +24,15 @@ trait HasTranslationCompleteness
     abstract public static function requiredTranslations(): array;
 
     /**
-     * The default language is exempt: `is_published` already decides whether a
-     * record is public, and the panel refuses to publish English copy that is
-     * missing.
+     * Every language is checked, the default one included.
+     *
+     * It used to be exempt, on the grounds that the publish guard covered
+     * English. That guard is gone, so English is now held to the same standard
+     * as everything else: a reading with no description is not ready to be read
+     * in any language.
      */
     public function isCompleteIn(string $locale): bool
     {
-        if ($locale === Locales::default()) {
-            return true;
-        }
-
         return $this->missingTranslations($locale) === [];
     }
 
@@ -46,10 +44,6 @@ trait HasTranslationCompleteness
      */
     public function missingTranslations(string $locale): array
     {
-        if ($locale === Locales::default()) {
-            return [];
-        }
-
         return array_values(array_filter(
             static::requiredTranslations(),
             fn (string $field): bool => blank($this->getTranslation($field, $locale, false)),
@@ -65,10 +59,6 @@ trait HasTranslationCompleteness
      */
     public function scopeCompleteIn(Builder $query, string $locale): Builder
     {
-        if ($locale === Locales::default()) {
-            return $query;
-        }
-
         foreach (static::requiredTranslations() as $field) {
             // jsonb ->> returns null for a missing key, so both a missing
             // translation and an empty one are caught here.

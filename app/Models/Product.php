@@ -69,6 +69,71 @@ class Product extends Model
         return $query->where('is_published', true);
     }
 
+    /**
+     * Every price set to something real.
+     *
+     * A seeded reading starts at zero in every currency, which the database
+     * accepts: `NOT NULL` can insist a price exists, not that it means
+     * anything. Nothing is ever sold for nothing.
+     */
+    public function scopePriced(Builder $query): Builder
+    {
+        foreach (array_keys(config('currencies.available')) as $code) {
+            $query->where('price_'.strtolower($code), '>', 0);
+        }
+
+        return $query;
+    }
+
+    public function isPriced(): bool
+    {
+        return collect(array_keys(config('currencies.available')))
+            ->every(fn (string $code): bool => ($this->priceIn($code) ?? 0) > 0);
+    }
+
+    /**
+     * What a customer reading the site in this language can actually see.
+     *
+     * Availability is worked out, not switched on. A reading is on the website
+     * when it has its copy in that language and a real price in every currency,
+     * so there is nothing to remember to tick and nothing to leave in the wrong
+     * position by accident.
+     */
+    public function scopeAvailableIn(Builder $query, string $locale): Builder
+    {
+        return $query->published()->priced()->completeIn($locale);
+    }
+
+    public function isAvailableIn(string $locale): bool
+    {
+        return $this->is_published && $this->isPriced() && $this->isCompleteIn($locale);
+    }
+
+    /**
+     * Why a reading is not on the website yet, in the client's words. Empty
+     * when it is.
+     *
+     * @return array<int, string>
+     */
+    public function whatIsMissing(string $locale): array
+    {
+        $missing = array_map(
+            fn (string $field): string => match ($field) {
+                'name' => 'a name',
+                'short_description' => 'a short description',
+                'long_description' => 'a full description',
+                default => str_replace('_', ' ', $field),
+            },
+            $this->missingTranslations($locale),
+        );
+
+        if (! $this->isPriced()) {
+            $missing[] = 'a price in every currency';
+        }
+
+        return $missing;
+    }
+
     public function scopeOfType(Builder $query, ProductType $type): Builder
     {
         return $query->where('type', $type);
