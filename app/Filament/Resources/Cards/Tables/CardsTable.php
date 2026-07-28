@@ -8,6 +8,7 @@ use App\Support\Locales;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -18,6 +19,11 @@ class CardsTable
         return $table
             ->defaultSort('number')
             ->columns([
+                ImageColumn::make('image_path')
+                    ->label('Picture')
+                    ->disk(config('filesystems.media'))
+                    ->placeholder('None yet'),
+
                 TextColumn::make('number')
                     ->label('Number')
                     ->sortable(),

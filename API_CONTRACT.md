@@ -100,7 +100,8 @@ The Library: every card on the website in that language, in deck order.
     "number": 0,
     "name": "The Fool",
     "short_description": "A beginning.",
-    "long_description": "The longer meaning of the card."
+    "long_description": "The longer meaning of the card.",
+    "image": "https://media.theworldtarot.com/cards/the-fool.jpg"
   }
 ]
 ```
@@ -108,7 +109,8 @@ The Library: every card on the website in that language, in deck order.
 - **The listing carries the full copy**, unlike the readings listing. The Library opens a card in a pop-up on a page that already holds the deck, so one request renders everything and opening a card costs no round trip. The whole deck is roughly 25KB of text before compression
 - `number` is the number on the card, and the order the deck is shown in. The Fool is 0
 - `id` is how you fetch a single card. **There is no slug**, because a card is never reached by a URL a person reads. If you need per-card addresses, say so now rather than after launch
-- **A card appears only in the languages it is finished in**, on the same rule as readings
+- **`image` is an absolute URL and is never null.** A card is on the website only once it has both its copy and its picture, so a card you receive always has one. It is the same picture in every language
+- **A card appears only in the languages it is finished in**, on the same rule as readings, and only once it has a picture
 
 ### GET /api/v1/{locale}/cards/{id}
 
@@ -219,7 +221,6 @@ The country header only exists once traffic flows through the CDN. Before DNS cu
 
 Nothing here has a shape yet, and we would rather agree them with you before writing them than after.
 
-- Card artwork. Cards carry their copy today and no image. The artwork arrives with the video, so the Library is renderable as text now and complete after that
 - Video playback and signed URLs
 - The viewing room pass, which is a product you fetch by its key
 - Checkout, orders, member accounts, gift codes

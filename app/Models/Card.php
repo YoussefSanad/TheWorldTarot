@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Translatable\HasTranslations;
 
 /**
@@ -22,7 +23,8 @@ use Spatie\Translatable\HasTranslations;
  * its identifier is never read by anyone.
  */
 #[Fillable([
-    'number', 'name', 'short_description', 'long_description', 'is_published',
+    'number', 'name', 'short_description', 'long_description', 'image_path',
+    'is_published',
 ])]
 class Card extends Model
 {
@@ -62,17 +64,55 @@ class Card extends Model
     /**
      * What a visitor reading the Library in this language can actually see.
      *
-     * Thinner than a product's, which also has to be priced in every currency.
-     * A card is on the website when it is finished, and that is all.
+     * A card needs its copy and its picture. The Library shows the card, so one
+     * without a picture is not something anyone can be shown, in the same way a
+     * reading without a price is not something anyone can buy.
      */
     public function scopeAvailableIn(Builder $query, string $locale): Builder
     {
         return $query->published()
+            ->whereNotNull('image_path')
             // The original language is the source. A card that is not finished
             // in it is not finished at all, so it appears nowhere rather than
             // existing in Spanish and not in English.
             ->completeIn(Locales::default())
             ->completeIn($locale);
+    }
+
+    public function hasImage(): bool
+    {
+        return filled($this->image_path);
+    }
+
+    /**
+     * Where the picture is served from.
+     *
+     * Rows hold the path alone, so which bucket it lives in is configuration
+     * and moving it never touches the data.
+     */
+    public function imageUrl(): ?string
+    {
+        if (! $this->hasImage()) {
+            return null;
+        }
+
+        return Storage::disk(config('filesystems.media'))->url($this->image_path);
+    }
+
+    /**
+     * Why this card is not on the website yet, in her words.
+     *
+     * @return array<int, string>
+     */
+    public function whatIsMissing(string $locale): array
+    {
+        $missing = $this->missingCopy($locale);
+
+        if (! $this->hasImage()) {
+            $missing[] = 'a picture';
+        }
+
+        return $missing;
     }
 
     /**
@@ -90,6 +130,7 @@ class Card extends Model
     public function isAvailableIn(string $locale): bool
     {
         return $this->is_published
+            && $this->hasImage()
             && $this->isCompleteIn(Locales::default())
             && $this->isCompleteIn($locale);
     }

@@ -18,7 +18,7 @@ API=https://staging-api.theworldtarot.com
 | Push a commit to `main` | A deploy starts and finishes without manual steps |
 | Deploy log | Migrations applied, `ProductSeeder` and `CardSeeder` ran |
 | Laravel Cloud, Queues tab | The managed queue exists, workers at zero, nothing failed |
-| Environment variables | `APP_DEBUG` is **false** |
+| Environment variables | `APP_DEBUG` is **false**, and `MEDIA_DISK` is **`r2`**, not `public` |
 | Visit `$API` in a browser | No stack trace, no environment variables on screen |
 
 **Cold start.** Leave staging idle 15 minutes, then run three times and record all three:
@@ -146,8 +146,13 @@ Navigation is **Tarot cards**.
 
 | Check | Expected |
 |---|---|
-| Open the list | 22 cards, numbered 0 to 21, in deck order, none on the website |
+| Open the list | 22 cards, numbered 0 to 21, in deck order, none on the website, no pictures |
 | Above the list | "Spanish: 0 of 22 translated" |
+| Open a card with no picture | It says it needs a picture |
+| Upload a picture on a written card | It appears in the list and the card goes on the website |
+| Upload a picture, then deploy again and reload | **The picture is still there.** If it vanishes, the environment is writing to its own filesystem instead of the bucket |
+| Switch to the Spanish tab | **The picture section is not there.** One picture serves every language |
+| Save on the Spanish tab, then return to English | The picture is unchanged |
 | **Add a card** | Exists. This is the only screen in the panel with it |
 | Add a card with no name | Refused, saying to give it a name first |
 | Add a card numbered the same as an existing one | Refused, saying there is already a card with that number |
@@ -183,9 +188,11 @@ curl -s -D- $API/api/v1/en/cards/random
 
 | Check | Expected |
 |---|---|
-| Listing | Written cards only, in number order, lowest first |
-| Each item | `id`, `number`, `name`, `short_description`, **and** `long_description` |
+| Listing | Written and pictured cards only, in number order, lowest first |
+| Each item | `id`, `number`, `name`, `short_description`, `long_description`, `image` |
+| `image` | An absolute URL that loads in a browser, never `null`. If it 403s, the bucket is not public |
 | A card with no descriptions | Absent from the listing, and **404** by its id |
+| A card with no picture | The same. Absent, and **404** by its id |
 | Single card | Identical to its entry in the listing, field for field |
 | `/api/v1/en/cards/999` | **404** |
 | `/api/v1/en/cards/the-fool` | **404**. Cards are addressed by number, not by name |
@@ -232,12 +239,12 @@ curl -s -D- $API/api/v1/en/cards/random
 - `/api/v1/user` returns a raw record. It is scaffolding, not part of the contract
 - Seeded readings start unpublished at zero, so `/products` is empty until one is published
 - There is no Create, Delete, or web address field for readings, and no way to add a language in the panel
-- Seeded cards arrive named and unwritten, so `/cards` is empty until descriptions are written
-- Cards carry no image yet. The artwork arrives with the video in M4
+- Seeded cards arrive named, unwritten and unpictured, so `/cards` is empty until both are supplied
+- Cards carry a picture but no video. Video and its access check arrive in M4
 - Adding anything, a card included, takes a live language down until it is translated. That is the rule working, not a fault
 
 ---
 
 ## 10. Not built yet
 
-Card artwork, video playback and signed URLs, the viewing room pass, checkout and orders, member accounts, gift codes, the 24 hour rush, FAQ and legal content, the newsletter, and AI fulfilment.
+Video playback and signed URLs, the viewing room pass, checkout and orders, member accounts, gift codes, the 24 hour rush, FAQ and legal content, the newsletter, and AI fulfilment.

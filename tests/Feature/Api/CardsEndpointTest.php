@@ -31,6 +31,7 @@ it('returns the agreed shape for a card on the website', function () {
                 'name' => 'The Fool',
                 'short_description' => 'A beginning.',
                 'long_description' => 'The longer meaning of the card.',
+                'image' => $card->imageUrl(),
             ],
         ]);
 });
@@ -77,6 +78,26 @@ it('leaves out a card that is not written yet', function () {
     $this->getJson('/api/v1/en/cards')
         ->assertOk()
         ->assertJsonCount(1);
+});
+
+it('leaves out a card with no picture, however well written', function () {
+    writtenCard(0);
+    $unpictured = writtenCard(1, ['image_path' => null]);
+
+    // The Library shows the card. One with no picture is not something anyone
+    // can be shown.
+    $this->getJson('/api/v1/en/cards')->assertJsonCount(1);
+    $this->getJson("/api/v1/en/cards/{$unpictured->id}")->assertNotFound();
+});
+
+it('always carries a real picture address, never null', function () {
+    writtenCard(0);
+
+    // A card with no picture never reaches the response at all, so the
+    // frontend never has to handle a missing image.
+    $this->getJson('/api/v1/en/cards')
+        ->assertOk()
+        ->assertJsonPath('0.image', fn (?string $image): bool => filled($image));
 });
 
 it('leaves out a card that is not published', function () {
@@ -151,6 +172,7 @@ it('draws a card at random from the ones on the website', function () {
     writtenCard(0);
     writtenCard(1);
     Card::factory()->withoutCopy()->create(['number' => 2]);
+    writtenCard(3, ['image_path' => null]);
 
     $drawn = collect(range(1, 20))
         ->map(fn (): int => $this->getJson('/api/v1/en/cards/random')->json('number'));

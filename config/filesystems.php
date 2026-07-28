@@ -17,6 +17,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Media Disk
+    |--------------------------------------------------------------------------
+    |
+    | Where anything the client uploads lives: card pictures now, video
+    | thumbnails from M4. Named separately from the default disk so one setting
+    | moves all of it, and so no upload can quietly land on the application's
+    | own filesystem.
+    |
+    | That matters on Laravel Cloud, where the filesystem is ephemeral. A local
+    | disk works here and loses every upload on the next deploy, so the deployed
+    | environments must point this at "r2".
+    |
+    */
+
+    'media' => env('MEDIA_DISK', 'public'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Filesystem Disks
     |--------------------------------------------------------------------------
     |
@@ -56,6 +74,28 @@ return [
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            'throw' => false,
+            'report' => false,
+        ],
+
+        /*
+         * Cloudflare R2, the destination for everything the client uploads.
+         *
+         * S3 compatible, so the same driver, with two differences that matter:
+         * the region is always "auto", and reads are served from a public
+         * bucket URL rather than from the endpoint credentials write to. Set
+         * R2_URL to that public address, or every image resolves to a link
+         * nobody outside this application can open.
+         */
+        'r2' => [
+            'driver' => 's3',
+            'key' => env('R2_ACCESS_KEY_ID'),
+            'secret' => env('R2_SECRET_ACCESS_KEY'),
+            'region' => 'auto',
+            'bucket' => env('R2_BUCKET'),
+            'url' => env('R2_URL'),
+            'endpoint' => env('R2_ENDPOINT'),
+            'use_path_style_endpoint' => true,
             'throw' => false,
             'report' => false,
         ],

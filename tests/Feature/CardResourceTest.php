@@ -9,6 +9,8 @@ use App\Models\Card;
 use App\Support\Locales;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -35,7 +37,54 @@ it('adds a card through the panel', function () {
 
     expect($card)->not->toBeNull()
         ->and($card->getTranslation('name', 'en'))->toBe('The Comet')
+        // Written but not pictured, so not on the website yet.
+        ->and($card->isAvailableIn('en'))->toBeFalse()
+        ->and($card->whatIsMissing('en'))->toBe(['a picture']);
+});
+
+it('puts a card on the website once its picture is uploaded', function () {
+    Storage::fake(config('filesystems.media'));
+
+    $card = Card::factory()->withoutImage()->create();
+
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->fillForm(['image_path' => [UploadedFile::fake()->image('the-fool.jpg')]])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $card->refresh();
+
+    expect($card->hasImage())->toBeTrue()
         ->and($card->isAvailableIn('en'))->toBeTrue();
+
+    Storage::disk(config('filesystems.media'))->assertExists($card->image_path);
+});
+
+it('says a card is waiting for its picture', function () {
+    $card = Card::factory()->withoutImage()->create();
+
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->assertSee('Not on the website yet')
+        ->assertSee('a picture');
+});
+
+it('keeps the picture out of the language tabs', function () {
+    $card = Card::factory()->create(['image_path' => 'cards/the-fool.jpg']);
+
+    // The same artwork in every language, so it is uploaded once, on the
+    // original. It is also the only safe arrangement: a file field on a
+    // translation tab comes back empty from the language switcher, and saving
+    // then deleted the picture.
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->assertFormFieldExists('image_path')
+        ->set('activeLocale', 'es')
+        ->assertFormFieldDoesNotExist('image_path')
+        ->fillForm(['name' => 'El Loco'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($card->refresh()->image_path)->toBe('cards/the-fool.jpg')
+        ->and($card->getTranslation('name', 'es'))->toBe('El Loco');
 });
 
 it('will not add a card with no name', function () {

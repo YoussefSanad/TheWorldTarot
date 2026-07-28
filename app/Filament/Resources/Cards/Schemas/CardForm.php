@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Cards\Schemas;
 
+use App\Support\Locales;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
@@ -46,6 +48,31 @@ class CardForm
                             ->rows(10),
                     ]),
 
+                Section::make('The picture')
+                    ->description('The same picture in every language, so it is only uploaded once.')
+                    // Shown on the original language only. The picture belongs
+                    // to the card rather than to a language, and a file field
+                    // sitting on a translation tab is emptied by the language
+                    // switcher, which would delete the picture on the next save.
+                    ->visible(fn (mixed $livewire): bool => self::onOriginalLanguage($livewire))
+                    ->schema([
+                        FileUpload::make('image_path')
+                            ->label('Card picture')
+                            ->helperText('The card as it appears in the Library. Until this is here, the card is not on the website.')
+                            ->image()
+                            ->imageEditor()
+                            ->disk(config('filesystems.media'))
+                            ->directory('cards')
+                            ->visibility('public')
+                            ->maxSize(10240)
+                            // Belt and braces: never written from a translation
+                            // tab, whatever the form happens to be showing.
+                            ->dehydrated(fn (mixed $livewire): bool => self::onOriginalLanguage($livewire))
+                            ->validationMessages([
+                                'max' => 'That picture is too large. Keep it under 10MB.',
+                            ]),
+                    ]),
+
                 Section::make('Where it sits in the deck')
                     ->schema([
                         TextInput::make('number')
@@ -67,5 +94,15 @@ class CardForm
                             ]),
                     ]),
             ]);
+    }
+
+    /**
+     * Whether the screen is showing the language everything is written from.
+     *
+     * True while adding a card, which has no language tabs at all.
+     */
+    private static function onOriginalLanguage(mixed $livewire): bool
+    {
+        return ($livewire->activeLocale ?? Locales::default()) === Locales::default();
     }
 }

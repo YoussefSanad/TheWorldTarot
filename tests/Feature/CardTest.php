@@ -104,6 +104,25 @@ it('treats copy that is only whitespace as missing', function () {
         ->and(Card::availableIn('en')->count())->toBe(0);
 });
 
+it('is absent everywhere until it has a picture', function () {
+    $card = Card::factory()->withoutImage()->translatedInto('es')->create();
+
+    // A card needs its copy and its picture, the way a reading needs its copy
+    // and a price in every currency.
+    expect($card->isAvailableIn('en'))->toBeFalse()
+        ->and($card->isAvailableIn('es'))->toBeFalse()
+        ->and(Card::availableIn('en')->count())->toBe(0)
+        ->and($card->whatIsMissing('en'))->toBe(['a picture']);
+});
+
+it('holds the path alone, so the bucket can move without touching a row', function () {
+    $card = Card::factory()->create(['image_path' => 'cards/the-fool.jpg']);
+
+    expect($card->image_path)->toBe('cards/the-fool.jpg')
+        ->and($card->imageUrl())->toContain('cards/the-fool.jpg')
+        ->and(Card::factory()->withoutImage()->create()->imageUrl())->toBeNull();
+});
+
 it('is absent when unpublished, however finished it is', function () {
     $card = Card::factory()->unpublished()->translatedInto('es')->create();
 

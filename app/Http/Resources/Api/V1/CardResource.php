@@ -42,6 +42,11 @@ class CardResource extends JsonResource
             'name' => (string) $this->name,
             'short_description' => (string) $this->short_description,
             'long_description' => (string) $this->long_description,
+
+            // Always a real address, never null: a card with no picture is not
+            // on the website, so it never reaches this resource. The same
+            // picture in every language.
+            'image' => $this->imageUrl(),
         ];
     }
 }

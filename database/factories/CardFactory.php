@@ -37,8 +37,18 @@ class CardFactory extends Factory
             'name' => ['en' => 'Card '.$number],
             'short_description' => ['en' => fake()->sentence()],
             'long_description' => ['en' => fake()->paragraph()],
+            'image_path' => 'cards/card-'.$number.'.jpg',
             'is_published' => true,
         ];
+    }
+
+    /**
+     * A card whose picture has not been uploaded yet, which is how every card
+     * starts.
+     */
+    public function withoutImage(): static
+    {
+        return $this->state(fn (): array => ['image_path' => null]);
     }
 
     public function unpublished(): static
