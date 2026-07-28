@@ -2,6 +2,7 @@
 
 namespace App\Models\Concerns;
 
+use App\Support\CopyFields;
 use App\Support\Locales;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -62,6 +63,35 @@ trait HasTranslationCompleteness
             static::requiredTranslations(),
             fn (string $field): bool => blank($this->getTranslation($field, $locale, false)),
         ));
+    }
+
+    /**
+     * The missing fields in the client's words, for telling her what a record
+     * is waiting for.
+     *
+     * @return array<int, string>
+     */
+    public function missingCopy(string $locale): array
+    {
+        return array_map(
+            fn (string $field): string => CopyFields::describe($field),
+            $this->missingTranslations($locale),
+        );
+    }
+
+    /**
+     * Why this record is not on the website yet, in her words. Empty when it
+     * is.
+     *
+     * Copy is all it takes for most things. A model with another requirement,
+     * like a product needing a price in every currency, overrides this and adds
+     * its own.
+     *
+     * @return array<int, string>
+     */
+    public function whatIsMissing(string $locale): array
+    {
+        return $this->missingCopy($locale);
     }
 
     /**
