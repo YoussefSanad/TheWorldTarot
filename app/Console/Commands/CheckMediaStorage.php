@@ -136,9 +136,42 @@ class CheckMediaStorage extends Command
         );
 
         $this->newLine();
-        $this->components->warn(
-            'AWS_BUCKET is the one thing the platform cannot infer. If it is missing, the bucket is attached '
-            .'to a different environment than this one, or its variables have not been added here yet.'
-        );
+        $this->reportCandidates();
+    }
+
+    /**
+     * Anything in the environment that looks like it might name a bucket.
+     *
+     * Names only, never values. The platform provides credentials and a region
+     * without a bucket name, which means either it publishes that name under a
+     * variable of its own choosing, or the bucket belongs to another
+     * environment. This tells the two apart without a second trip to the shell.
+     */
+    private function reportCandidates(): void
+    {
+        $known = ['AWS_BUCKET', 'AWS_URL', 'AWS_ENDPOINT', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_DEFAULT_REGION', 'AWS_REGION'];
+
+        $candidates = collect(array_keys(array_merge($_ENV, $_SERVER)))
+            ->filter(fn (string $name): bool => (bool) preg_match('/BUCKET|STORAGE|S3|R2|MEDIA|CLOUD/i', $name))
+            ->reject(fn (string $name): bool => in_array($name, $known, true))
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($candidates->isEmpty()) {
+            $this->components->warn(
+                'Nothing in this environment names a bucket under any name. The bucket is attached to a '
+                .'different environment than this one.'
+            );
+
+            return;
+        }
+
+        $this->components->info('These variables might carry the bucket name under another name:');
+
+        $candidates->each(fn (string $name) => $this->components->twoColumnDetail($name, 'present'));
+
+        $this->newLine();
+        $this->components->warn('Tell me which of those is the bucket and the disk will read it directly.');
     }
 }

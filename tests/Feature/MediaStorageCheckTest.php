@@ -42,6 +42,30 @@ it('says the bucket is missing rather than throwing from inside flysystem', func
         ->assertFailed();
 });
 
+it('finds a bucket name hiding under another variable', function () {
+    config()->set('filesystems.media', 's3');
+    config()->set('filesystems.disks.s3.bucket', null);
+    $_SERVER['LARAVEL_CLOUD_BUCKET_NAME'] = 'a-bucket';
+
+    // The platform provides credentials and a region without a bucket name, so
+    // the useful question is whether it publishes that name under a variable of
+    // its own choosing or the bucket belongs elsewhere.
+    $this->artisan('media:check')
+        ->expectsOutputToContain('LARAVEL_CLOUD_BUCKET_NAME')
+        ->assertFailed();
+
+    unset($_SERVER['LARAVEL_CLOUD_BUCKET_NAME']);
+});
+
+it('says plainly when no variable names a bucket at all', function () {
+    config()->set('filesystems.media', 's3');
+    config()->set('filesystems.disks.s3.bucket', null);
+
+    $this->artisan('media:check')
+        ->expectsOutputToContain('different environment')
+        ->assertFailed();
+});
+
 it('does not report platform credentials as a fault', function () {
     config()->set('filesystems.media', 's3');
     config()->set('filesystems.disks.s3.bucket', null);
