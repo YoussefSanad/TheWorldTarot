@@ -2,6 +2,7 @@
 
 namespace App\Models\Concerns;
 
+use App\Support\Locales;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -22,6 +23,19 @@ trait HasTranslationCompleteness
      * @return array<int, string>
      */
     abstract public static function requiredTranslations(): array;
+
+    /**
+     * What to call this record when telling someone it is unfinished.
+     *
+     * The name in the original language, which is what everything else is
+     * written from. A record with no name yet has nothing to be called, so
+     * models that can exist in that state override this with something else,
+     * rather than leaving a refusal that reads " needs a name".
+     */
+    public function translationLabel(): string
+    {
+        return (string) $this->getTranslation('name', Locales::default(), false);
+    }
 
     /**
      * Every language is checked, the default one included.

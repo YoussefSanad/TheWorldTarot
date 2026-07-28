@@ -35,7 +35,7 @@ final class TranslationCoverage
         return self::translatableRecords()
             ->map(fn (Model $record) => [
                 'record' => $record,
-                'label' => self::labelFor($record),
+                'label' => $record->translationLabel(),
                 'fields' => $record->missingTranslations($locale),
             ])
             ->filter(fn (array $row) => $row['fields'] !== [])
@@ -75,10 +75,5 @@ final class TranslationCoverage
     {
         return collect(config('translatable.models'))
             ->flatMap(fn (string $model) => $model::query()->published()->get()->all());
-    }
-
-    private static function labelFor(Model $record): string
-    {
-        return (string) $record->getTranslation('name', Locales::default(), false);
     }
 }
