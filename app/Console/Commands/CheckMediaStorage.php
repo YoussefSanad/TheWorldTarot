@@ -16,6 +16,15 @@ use Throwable;
  */
 class CheckMediaStorage extends Command
 {
+    /**
+     * What a variable carrying a bucket name might be called.
+     *
+     * Public because the test has to create their absence deliberately: this
+     * reads the real environment, and a CI runner has variables of its own that
+     * match.
+     */
+    public const CANDIDATE_PATTERN = '/BUCKET|STORAGE|S3|R2|MEDIA|CLOUD/i';
+
     protected $signature = 'media:check';
 
     protected $description = 'Write, read back and delete a file on the media disk';
@@ -177,7 +186,7 @@ class CheckMediaStorage extends Command
         $known = ['AWS_BUCKET', 'AWS_URL', 'AWS_ENDPOINT', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_DEFAULT_REGION', 'AWS_REGION'];
 
         $candidates = collect(array_keys(array_merge($_ENV, $_SERVER)))
-            ->filter(fn (string $name): bool => (bool) preg_match('/BUCKET|STORAGE|S3|R2|MEDIA|CLOUD/i', $name))
+            ->filter(fn (string $name): bool => (bool) preg_match(self::CANDIDATE_PATTERN, $name))
             ->reject(fn (string $name): bool => in_array($name, $known, true))
             ->unique()
             ->sort()

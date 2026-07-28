@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\CheckMediaStorage;
 use Illuminate\Support\Facades\Storage;
 
 it('passes when the media disk can be written to and read back', function () {
@@ -76,9 +77,28 @@ it('says plainly when no variable names a bucket at all', function () {
     config()->set('filesystems.media', 's3');
     config()->set('filesystems.disks.s3.bucket', null);
 
-    $this->artisan('media:check')
-        ->expectsOutputToContain('different environment')
-        ->assertFailed();
+    // The command reads the real environment, and a CI runner carries variables
+    // of its own that look bucket-shaped, so their absence has to be created
+    // deliberately rather than assumed. This passed locally by luck.
+    $env = $_ENV;
+    $server = $_SERVER;
+
+    foreach (['_ENV', '_SERVER'] as $global) {
+        foreach (array_keys($GLOBALS[$global]) as $name) {
+            if (preg_match(CheckMediaStorage::CANDIDATE_PATTERN, (string) $name)) {
+                unset($GLOBALS[$global][$name]);
+            }
+        }
+    }
+
+    try {
+        $this->artisan('media:check')
+            ->expectsOutputToContain('different environment')
+            ->assertFailed();
+    } finally {
+        $_ENV = $env;
+        $_SERVER = $server;
+    }
 });
 
 it('does not report platform credentials as a fault', function () {
