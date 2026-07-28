@@ -1,8 +1,12 @@
 <?php
+
 use App\Enums\LocaleStatus;
 use App\Filament\Resources\Locales\Pages\ListLocales;
-use App\Models\{Admin, Locale, Product};
+use App\Models\Admin;
+use App\Models\Locale;
+use App\Models\Product;
 use App\Support\Locales;
+use Database\Seeders\ProductSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -13,7 +17,7 @@ it('refuses to publish spanish while any reading is untranslated, seeded state a
     $this->actingAs(Admin::factory()->create(), 'admin');
     Filament::setCurrentPanel('admin');
 
-    (new Database\Seeders\ProductSeeder)->run();
+    (new ProductSeeder)->run();
 
     // Exactly the screenshots: two readings priced and translated, two seeded.
     Product::where('key', 'one-card')->update([
