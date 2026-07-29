@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\BunnyWebhookController;
 use App\Http\Controllers\Api\V1\CardController;
+use App\Http\Controllers\Api\V1\CardVideoController;
 use App\Http\Controllers\Api\V1\CurrencyController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\ProductController;
@@ -56,5 +57,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/cards/{card}', [CardController::class, 'show'])
             ->whereNumber('card')
             ->name('cards.show');
+
+        // The Viewing Room. The only content route behind authentication, and
+        // the only one that answers with a credential rather than with content.
+        Route::get('/cards/{card}/video', CardVideoController::class)
+            ->middleware('auth:sanctum')
+            ->whereNumber('card')
+            ->name('cards.video');
     });
 });

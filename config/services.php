@@ -47,6 +47,16 @@ return [
         // A master runs 20 to 40MB, so the upload needs longer than a normal
         // request. Everything else here is a small JSON call.
         'upload_timeout' => (int) env('BUNNY_UPLOAD_TIMEOUT', 300),
+
+        // How long a playback URL works for, in seconds. Two hours, decided
+        // 29 July 2026: long enough that nobody is cut off mid-video, including
+        // a phone leaving wifi for mobile data, and short enough that a copied
+        // link is worthless by the evening.
+        //
+        // The exposure this accepts, in writing: a pass holder can share a
+        // working link for that long. IP binding and a fifteen minute token were
+        // both offered and declined in favour of never interrupting a viewer.
+        'playback_ttl' => (int) env('BUNNY_PLAYBACK_TTL', 7200),
     ],
 
     'ses' => [

@@ -18,6 +18,15 @@
         </include>
     </source>
     <php>
+        <!--
+            Filament tests render real Livewire components, and four hundred of
+            them do not fit inside PHP's default 128M. Set here rather than left
+            to whichever php.ini the suite happens to run under, because a suite
+            that passes on CI and dies on a laptop is a suite people stop
+            trusting.
+        -->
+        <ini name="memory_limit" value="512M"/>
+
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
