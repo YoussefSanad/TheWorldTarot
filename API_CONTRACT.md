@@ -101,7 +101,9 @@ The Library: every card on the website in that language, in deck order.
     "name": "The Fool",
     "short_description": "A beginning.",
     "long_description": "The longer meaning of the card.",
-    "image": "https://media.theworldtarot.com/cards/the-fool.jpg"
+    "image": "https://media.theworldtarot.com/cards/the-fool.jpg",
+    "in_viewing_room": true,
+    "poster": "https://media.theworldtarot.com/posters/the-fool.jpg"
   }
 ]
 ```
@@ -111,6 +113,9 @@ The Library: every card on the website in that language, in deck order.
 - `id` is how you fetch a single card. **There is no slug**, because a card is never reached by a URL a person reads. If you need per-card addresses, say so now rather than after launch
 - **`image` is an absolute URL and is never null.** A card is on the website only once it has both its copy and its picture, so a card you receive always has one. It is the same picture in every language
 - **A card appears only in the languages it is finished in**, on the same rule as readings, and only once it has a picture
+- **`in_viewing_room` says whether there is a film to watch**, and `poster` is the frame the player rests on, or `null`. This is what lets you build the Viewing Room in one request: render all twenty-two, locked, and invite people to buy the pass
+- **It is not an access check.** It says a film exists, not that this visitor may watch it. Whether they may is answered by the video endpoint, every time, and a `true` here for somebody without a pass is expected rather than a mistake
+- `in_viewing_room` is false while a film is still being prepared, so a card never advertises a video that would 404
 
 ### GET /api/v1/{locale}/cards/{id}
 

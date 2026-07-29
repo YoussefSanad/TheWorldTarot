@@ -32,6 +32,8 @@ it('returns the agreed shape for a card on the website', function () {
                 'short_description' => 'A beginning.',
                 'long_description' => 'The longer meaning of the card.',
                 'image' => $card->imageUrl(),
+                'in_viewing_room' => false,
+                'poster' => null,
             ],
         ]);
 });
@@ -210,4 +212,47 @@ it('is not mistaken for a card called random', function () {
     $this->getJson('/api/v1/en/cards/random')
         ->assertOk()
         ->assertJsonPath('number', 0);
+});
+
+it('says which cards have a film, and shows the frame it rests on', function () {
+    $watchable = Card::factory()->watchable()->create(['number' => 30]);
+    $unwatchable = writtenCard(31);
+
+    $library = $this->getJson('/api/v1/en/cards')->assertOk()->json();
+
+    // The Viewing Room is advertised: the site shows all twenty-two, locked,
+    // and invites people to buy the pass. This is what lets it do that in one
+    // request rather than asking for every video and reading the refusals.
+    $filmed = collect($library)->firstWhere('id', $watchable->id);
+    $unfilmed = collect($library)->firstWhere('id', $unwatchable->id);
+
+    expect($filmed['in_viewing_room'])->toBeTrue()
+        ->and($filmed['poster'])->toContain($watchable->poster_path)
+        ->and($unfilmed['in_viewing_room'])->toBeFalse()
+        ->and($unfilmed['poster'])->toBeNull();
+});
+
+it('does not call a card watchable while its video is being prepared', function () {
+    $card = Card::factory()->videoProcessing()->create();
+
+    // Advertising a film that cannot be played yet would send a pass holder to
+    // an endpoint that answers 404.
+    $this->getJson('/api/v1/en/cards')
+        ->assertOk()
+        ->assertJsonPath('0.in_viewing_room', false);
+
+    expect($card->isViewableIn('en'))->toBeFalse();
+});
+
+it('never hands out the video itself alongside the library', function () {
+    $card = Card::factory()->watchable()->create();
+
+    $listed = $this->getJson('/api/v1/en/cards')->assertOk()->json('0');
+
+    // The listing is cached and public. A playback URL is a credential with a
+    // two hour life, and twenty-two of them in a cached response is both a leak
+    // and a caching bug.
+    expect($listed)->not->toHaveKey('url')
+        ->and($listed)->not->toHaveKey('video')
+        ->and(json_encode($listed))->not->toContain($card->bunny_video_id);
 });
