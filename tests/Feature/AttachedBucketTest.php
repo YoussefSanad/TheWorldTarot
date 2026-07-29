@@ -67,6 +67,22 @@ it('reads pictures from the public address, not the endpoint they are written to
     expect($disk['url'])->toBe('https://fls-a25eab55.laravel.cloud');
 });
 
+it('applies every bucket attached, not only the first', function () {
+    $blob = json_encode([
+        json_decode(bucketBlob(), true)[0],
+        json_decode(bucketBlob(['disk' => 'uploads', 'bucket' => 'fls-private', 'is_default' => false]), true)[0],
+    ]);
+
+    $config = filesystemsWith($blob);
+
+    // M4 needs two: pictures public and cacheable, video masters private. The
+    // blob is a list, and this is what makes a second bucket a dashboard action
+    // rather than a code change.
+    expect($config['disks']['public']['bucket'])->toBe('fls-a25eab55')
+        ->and($config['disks']['uploads']['bucket'])->toBe('fls-private')
+        ->and($config['disks']['uploads']['driver'])->toBe('s3');
+});
+
 it('replaces whichever disk is named, not always public', function () {
     $config = filesystemsWith(bucketBlob(['disk' => 's3']));
 

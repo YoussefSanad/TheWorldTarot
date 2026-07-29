@@ -27,17 +27,55 @@ class CheckMediaStorage extends Command
 
     protected $signature = 'media:check';
 
-    protected $description = 'Write, read back and delete a file on the media disk';
+    protected $description = 'Write, read back and delete a file on each storage disk';
 
     public function handle(): int
     {
-        $name = config('filesystems.media');
+        $media = config('filesystems.media');
+        $uploads = config('filesystems.uploads');
+
+        // Two disks that want opposite things: pictures are public and want
+        // caching, video masters are the asset the paywall exists to protect.
+        // One disk serving both means the videos are in a public bucket.
+        if ($media === $uploads) {
+            $this->components->error(
+                "The pictures and the video masters are both on the \"{$media}\" disk. "
+                .'Whatever is true of one is true of the other, and video masters must never be public.'
+            );
+
+            return self::FAILURE;
+        }
+
+        $this->components->info('Pictures, publicly readable:');
+        $pictures = $this->checkDisk($media, public: true);
+
+        $this->newLine();
+        $this->components->info('Video masters, never public:');
+        $masters = $this->checkDisk($uploads, public: false);
+
+        return $pictures && $masters ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * Write, read back and delete on one disk, and say what it is.
+     */
+    private function checkDisk(string $name, bool $public): bool
+    {
         $driver = config("filesystems.disks.{$name}.driver");
         $bucket = config("filesystems.disks.{$name}.bucket");
 
         $this->components->twoColumnDetail('Disk', $name);
         $this->components->twoColumnDetail('Driver', (string) $driver);
         $this->components->twoColumnDetail('Bucket', (string) ($bucket ?: 'not applicable'));
+
+        // The one thing a private disk must never be: the disk Laravel serves
+        // over the web from public/storage. It would put every video master a
+        // URL away, which is the exact finding this project was hired to fix.
+        if (! $public && $name === 'public') {
+            $this->components->error('The video masters are on the disk the web server serves. Anyone could fetch them.');
+
+            return false;
+        }
 
         // Before touching the disk, because building an s3 disk with no bucket
         // throws a type error from inside Flysystem, and a stack trace is a
@@ -46,7 +84,7 @@ class CheckMediaStorage extends Command
             $this->components->error('This environment has no bucket configured, so uploads cannot work at all.');
             $this->reportEnvironment();
 
-            return self::FAILURE;
+            return false;
         }
 
         $disk = Storage::disk($name);
@@ -56,11 +94,11 @@ class CheckMediaStorage extends Command
         // that does not survive a deploy.
         if ($driver === 'local' && ! app()->environment('local', 'testing')) {
             $this->components->error(
-                'Uploads are going to this machine\'s own filesystem, which is wiped on every deploy. '
-                .'Set MEDIA_DISK=s3.'
+                'These files are going to this machine\'s own filesystem, which is wiped on every deploy. '
+                .'This environment needs a bucket attached for them.'
             );
 
-            return self::FAILURE;
+            return false;
         }
 
         $path = 'health/media-check-'.now()->timestamp.'.txt';
@@ -72,25 +110,29 @@ class CheckMediaStorage extends Command
             if ($disk->get($path) !== $written) {
                 $this->components->error('The file came back different from what was written.');
 
-                return self::FAILURE;
+                return false;
             }
 
-            $this->components->twoColumnDetail('Public URL', $disk->url($path));
             $this->components->info('Wrote and read back a file successfully.');
 
-            // Says what the command cannot check for itself. Reachability is a
-            // bucket setting, not a credentials problem, and it fails in a way
-            // that looks identical from in here.
-            $this->components->warn('Open that URL in a browser. A 403 means the bucket is not publicly readable, and every card picture will be a broken image.');
+            // Says what the command cannot check for itself. Whether a bucket
+            // answers the public is a dashboard setting, and from in here a
+            // private bucket and a public one behave identically.
+            if ($public) {
+                $this->components->twoColumnDetail('Public URL', $disk->url($path));
+                $this->components->warn('Open that URL. A 403 means the bucket is not publicly readable, and every card picture is a broken image.');
+            } else {
+                $this->components->warn('Confirm in the dashboard that this bucket is private. Nothing here can tell the difference, and everything the paywall protects lives on it.');
+            }
         } catch (Throwable $e) {
             $this->components->error($e->getMessage());
 
-            return self::FAILURE;
+            return false;
         } finally {
             $disk->delete($path);
         }
 
-        return self::SUCCESS;
+        return true;
     }
 
     /**

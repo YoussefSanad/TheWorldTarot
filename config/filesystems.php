@@ -85,6 +85,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Uploads Disk
+    |--------------------------------------------------------------------------
+    |
+    | Where files the public must never reach are kept: the master copy of every
+    | Living Tarot video. Separate from the media disk because these two want
+    | opposite things. Card pictures are public and want caching; video masters
+    | are the asset the whole paywall exists to protect.
+    |
+    | Locally this is "local", which is storage/app/private and is not served by
+    | the web server. Deployed, it is the second, private bucket, and the disk
+    | name it replaces is whatever the platform gives it.
+    |
+    */
+
+    'uploads' => env('UPLOADS_DISK', 'local'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Filesystem Disks
     |--------------------------------------------------------------------------
     |

@@ -3,21 +3,62 @@
 use App\Console\Commands\CheckMediaStorage;
 use Illuminate\Support\Facades\Storage;
 
-it('passes when the media disk can be written to and read back', function () {
+it('passes when both disks can be written to and read back', function () {
     Storage::fake(config('filesystems.media'));
+    Storage::fake(config('filesystems.uploads'));
 
     $this->artisan('media:check')
         ->assertSuccessful();
 });
 
-it('leaves nothing behind', function () {
-    $disk = Storage::fake(config('filesystems.media'));
+it('leaves nothing behind on either disk', function () {
+    $media = Storage::fake(config('filesystems.media'));
+    $uploads = Storage::fake(config('filesystems.uploads'));
 
     $this->artisan('media:check');
 
-    // A health check that litters the bucket is a health check nobody runs
-    // twice.
-    expect($disk->allFiles())->toBeEmpty();
+    // A health check that litters a bucket is a health check nobody runs twice.
+    expect($media->allFiles())->toBeEmpty()
+        ->and($uploads->allFiles())->toBeEmpty();
+});
+
+it('refuses to let one disk hold both the pictures and the video masters', function () {
+    config()->set('filesystems.uploads', config('filesystems.media'));
+
+    // Whatever is true of one is true of the other, and a public bucket holding
+    // video masters is the finding this project was hired to fix.
+    $this->artisan('media:check')
+        ->expectsOutputToContain('must never be public')
+        ->assertFailed();
+});
+
+it('refuses to keep video masters on the disk the web server serves', function () {
+    Storage::fake('public');
+
+    // Faked, or the check writes to a real bucket that is not there and the
+    // SDK spends twenty seconds retrying. Never a real service from a test.
+    Storage::fake('s3');
+    config()->set('filesystems.media', 's3');
+    config()->set('filesystems.disks.s3.bucket', 'a-bucket');
+    config()->set('filesystems.uploads', 'public');
+
+    // storage/app/public is a URL away from anyone. Nothing the paywall
+    // protects belongs there.
+    $this->artisan('media:check')
+        ->expectsOutputToContain('web server serves')
+        ->assertFailed();
+});
+
+it('checks the private disk as well as the public one', function () {
+    Storage::fake(config('filesystems.media'));
+    config()->set('filesystems.uploads', 's3');
+    config()->set('filesystems.disks.s3.bucket', null);
+
+    // A private disk with no bucket fails just as loudly. It used to be
+    // possible for the pictures to work while every video master went nowhere.
+    $this->artisan('media:check')
+        ->expectsOutputToContain('no bucket configured')
+        ->assertFailed();
 });
 
 it('fails when a deployed environment is writing to its own filesystem', function () {
