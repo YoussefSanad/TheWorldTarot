@@ -126,7 +126,29 @@ One card drawn at random, for the reveal on the homepage. The identical shape ag
 - **This endpoint does not remember anyone.** It will hand the same visitor a hundred cards. The rule that a visitor gets one reveal per session is yours, in a cookie or local storage
 - 404 when no card is on the website yet, which is the state of a freshly seeded site
 
-All seven endpoints are public and need no authentication.
+Those seven endpoints are public and need no authentication.
+
+### GET /api/v1/{locale}/cards/{id}/video
+
+**The Viewing Room.** One card's Living Tarot film, as a signed URL that expires. Requires an authenticated customer who holds the viewing room pass.
+
+```json
+{
+  "card_id": 1,
+  "url": "https://vz-xxxx.b-cdn.net/<video>/playlist.m3u8?token=...&expires=...",
+  "expires_at": "2026-07-30T14:22:00+00:00"
+}
+```
+
+- **`url` is a credential with a timer, valid for two hours.** Do not cache it, do not store it, do not put it anywhere it can be shared. The response carries `Cache-Control: no-store` and your side must respect that: a service worker or a persisted store turns two hours of exposure into however long it keeps it
+- **Ask for a fresh one rather than reusing an old one.** `expires_at` is there so a player can renew before it dies rather than stalling mid-video
+- **404 for a card whose video is not ready**, which includes one still transcoding, one with no poster frame, and one not on the website in that language. There is genuinely nothing to serve
+- **403 for a signed-in customer without a pass**, not 404. The Viewing Room is advertised, and hiding it would only confuse somebody who paid and is signed in as the wrong account
+- **401 with no authentication at all**
+
+**Access is decided here, every time.** Do not gate the player on anything the browser knows. If your UI shows a locked state, that is presentation, and this endpoint is the enforcement.
+
+Both cookie auth and bearer tokens work, as with every protected route.
 
 ## 3. Locale
 
@@ -213,6 +235,7 @@ On 422, `errors` is keyed by field name with an array of messages per field, and
 - `/api/v1/languages` is identical for every visitor and fully cacheable, but **cache it briefly**. It is what tells you a language has been taken down, so a long cache delays the switch you are relying on
 - Content URLs carry the language in the path, so each language caches separately with no configuration at all. Currency is the only remaining variance: sending `?currency=` explicitly makes them cleanly cacheable, relying on country detection does not
 - **`/api/v1/{locale}/cards/random` must never be cached, by you or by anything between us.** It says so in its own headers. Everything else on the cards endpoints is as cacheable as the readings
+- **`/api/v1/{locale}/cards/{id}/video` must never be cached or stored either**, for a stronger reason: the answer is a signed credential rather than content
 - `/api/v1/currencies` contains `detected`, which is per-visitor. It must not be cached at a shared edge on URL alone, or one visitor's currency gets served to the next. The CDN cache key accounts for this
 
 The country header only exists once traffic flows through the CDN. Before DNS cutover, and in local development, detection falls back to USD. That is expected, not a bug.
@@ -221,8 +244,7 @@ The country header only exists once traffic flows through the CDN. Before DNS cu
 
 Nothing here has a shape yet, and we would rather agree them with you before writing them than after.
 
-- Video playback and signed URLs
-- The viewing room pass, which is a product you fetch by its key
+- The viewing room pass as a purchase. The product row exists and is fetched by its key like any other; buying it, and the account that holds it, arrive with checkout
 - Checkout, orders, member accounts, gift codes
 - FAQ and legal content, newsletter signup
 - Editable page copy, delivered as named blocks per page
@@ -235,6 +257,7 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 2. **Cookie auth or token auth for the website.** Cookie is our assumption
 3. **Confirmation that your language switcher reads `/api/v1/languages` at runtime**, since that is what makes taking a language down actually work
 4. **Confirmation of the shapes above**, or a counter-proposal
-5. **Whether a card ever needs an address of its own.** Cards are identified by number today, on the assumption that the Library opens them in a pop-up. If any card is ever linkable, shareable or indexed on its own URL, adding a readable identifier is cheap now and awkward once you have built against ids
+5. **Confirmation that your player handles an expiring HLS URL**, renewing rather than holding one. Two hours is generous for a single film and is not forever
+6. **Whether a card ever needs an address of its own.** Cards are identified by number today, on the assumption that the Library opens them in a pop-up. If any card is ever linkable, shareable or indexed on its own URL, adding a readable identifier is cheap now and awkward once you have built against ids
 
 One question from us: your application can read the visitor's country directly at the edge. If you would rather detect currency yourself and always send `?currency=`, we can drop `detected` and the caching complication with it.
