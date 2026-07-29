@@ -67,6 +67,67 @@ it('reads pictures from the public address, not the endpoint they are written to
     expect($disk['url'])->toBe('https://fls-a25eab55.laravel.cloud');
 });
 
+function twoBuckets(array $secondOverrides = []): string
+{
+    return json_encode([
+        json_decode(bucketBlob(), true)[0],
+        json_decode(bucketBlob(array_merge([
+            'disk' => 'video_storage_staging',
+            'bucket' => 'fls-private',
+            'is_default' => false,
+        ], $secondOverrides)), true)[0],
+    ]);
+}
+
+it('applies every bucket attached, not only the first', function () {
+    $config = filesystemsWith(twoBuckets());
+
+    // M4 needs two: pictures public and cacheable, video masters private. The
+    // blob is a list, and this is what makes a second bucket a dashboard action
+    // rather than a code change.
+    expect($config['disks']['public']['bucket'])->toBe('fls-a25eab55')
+        ->and($config['disks']['video_storage_staging']['bucket'])->toBe('fls-private')
+        ->and($config['disks']['video_storage_staging']['driver'])->toBe('s3');
+});
+
+it('gives the private bucket a name that does not change between environments', function () {
+    $config = filesystemsWith(twoBuckets());
+
+    // The platform names disks after the bucket, so staging says
+    // "video_storage_staging" and production will say something else. Whether a
+    // bucket is the default one is the only stable handle.
+    expect($config['uploads'])->toBe('uploads')
+        ->and($config['disks']['uploads']['bucket'])->toBe('fls-private')
+        ->and($config['media'])->toBe('public');
+});
+
+it('refuses to guess when more than one bucket could be the private one', function () {
+    $blob = json_encode([
+        json_decode(bucketBlob(), true)[0],
+        json_decode(bucketBlob(['disk' => 'video_storage', 'bucket' => 'fls-video', 'is_default' => false]), true)[0],
+        json_decode(bucketBlob(['disk' => 'thumbnail_storage', 'bucket' => 'fls-thumbs', 'is_default' => false]), true)[0],
+    ]);
+
+    $config = filesystemsWith($blob);
+
+    // Both are attached and neither is the default, so there is nothing to
+    // guess. It falls back to the local disk, which media:check refuses in a
+    // deployed environment, rather than silently picking one of them.
+    expect($config['uploads'])->toBe('local')
+        ->and($config['disks'])->not->toHaveKey('uploads');
+});
+
+it('lets an explicit setting win over the alias', function () {
+    $_SERVER['UPLOADS_DISK'] = 'video_storage_staging';
+    $_ENV['UPLOADS_DISK'] = 'video_storage_staging';
+
+    try {
+        expect(filesystemsWith(twoBuckets())['uploads'])->toBe('video_storage_staging');
+    } finally {
+        unset($_SERVER['UPLOADS_DISK'], $_ENV['UPLOADS_DISK']);
+    }
+});
+
 it('replaces whichever disk is named, not always public', function () {
     $config = filesystemsWith(bucketBlob(['disk' => 's3']));
 

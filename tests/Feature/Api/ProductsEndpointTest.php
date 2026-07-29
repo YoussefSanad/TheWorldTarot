@@ -258,3 +258,28 @@ it('serves a language in preview to an admin and to nobody else', function () {
         ->assertOk()
         ->assertJsonPath('0.name', 'Lectura de Una Carta');
 });
+
+it('does not list the viewing room pass among the readings', function () {
+    Product::factory()->create(['key' => ProductKey::OneCard]);
+    Product::factory()->pass()->create();
+
+    // It is sellable, priced, and written, and it still does not belong in a
+    // list of readings. It has a page of its own and is fetched by its key.
+    $this->getJson('/api/v1/en/products')
+        ->assertOk()
+        ->assertJsonCount(1)
+        ->assertJsonPath('0.key', 'one-card');
+});
+
+it('serves the pass by its own key once it is finished', function () {
+    Product::factory()->pass()->create([
+        'name' => ['en' => 'Viewing Room Pass'],
+        'short_description' => ['en' => 'Every Living Tarot film.'],
+        'long_description' => ['en' => 'The longer pitch.'],
+    ]);
+
+    $this->getJson('/api/v1/en/products/viewing-room-pass')
+        ->assertOk()
+        ->assertJsonPath('type', 'pass')
+        ->assertJsonPath('allows_question', false);
+});

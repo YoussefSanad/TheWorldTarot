@@ -18,6 +18,7 @@ API=https://staging-api.theworldtarot.com
 | Push a commit to `main` | A deploy starts and finishes without manual steps |
 | Deploy log | Migrations applied, `ProductSeeder` and `CardSeeder` ran |
 | Laravel Cloud, Queues tab | The managed queue exists, workers at zero, nothing failed |
+| Laravel Cloud, scheduler | It runs `schedule:run` **every minute**. The frequency of each task lives in the code, so a daily tick would make every scheduled task daily |
 | Environment variables | `APP_DEBUG` is **false**. `MEDIA_DISK` is not set at all: the attached bucket replaces the disk it names |
 | `php artisan media:check` from the environment's console | Passes, names the bucket, and prints a public URL |
 | `php artisan config:cache`, then `media:check`, then `config:clear` | It says the cache is hiding everything, rather than listing variables as missing. This branch cannot be covered by an automated test |
@@ -206,6 +207,40 @@ curl -s -D- $API/api/v1/en/cards/random
 
 ---
 
+## 6c. Video in the admin panel
+
+| Check | Expected |
+|---|---|
+| Upload a video on a card, save | Returns immediately, status shows **Waiting to be sent**, no spinner |
+| Within a minute | Status becomes **Being prepared**, and the video appears in the Bunny library named like `0. The Fool` |
+| Once Bunny finishes | Status becomes **Ready to watch** with no action from you. If it does not, the webhook URL is not registered in that library |
+| `php artisan cards:reconcile-videos` | Finishes anything the callback missed. It should normally print "Nothing is waiting" |
+| A card with a video and no poster | Says it is not in the Viewing Room yet and names the poster frame |
+| Upload a replacement on a card that is ready | Status returns to being prepared, and **the card stays in the Viewing Room the whole time** |
+| Upload something that is not a video | Refused, saying an MP4 or QuickTime file is expected |
+| Switch to the Spanish tab | **No video or poster fields.** One film serves every language |
+
+---
+
+## 6d. The Viewing Room over the API
+
+Member login arrives in M5, so mint a token by hand for this section. See `docs/plans/milestone-4-plan.md` for the exact commands.
+
+| Check | Expected |
+|---|---|
+| A pass holder asks for a ready card's video | **200**, with `url` and `expires_at` about two hours out |
+| The response's `Cache-Control` | Contains **`no-store`**. It is a credential, not content |
+| Open the `url` | The video plays, or `curl` returns 200 |
+| The same URL with one character of the token changed | **403 from Bunny.** This is what proves it is signed rather than merely long |
+| The same URL with `expires` set to a past timestamp | **403 from Bunny** |
+| No token at all | **401** |
+| A signed-in customer with no pass | **403**, not 404 |
+| An admin session | **401.** Running the panel is not the same as holding a pass |
+| A card still being prepared, or with no poster | **404** |
+| A card that is not on the website in that language | **404** |
+
+---
+
 ## 7. Languages end to end
 
 | Check | Expected |
@@ -243,11 +278,13 @@ curl -s -D- $API/api/v1/en/cards/random
 - Seeded readings start unpublished at zero, so `/products` is empty until one is published
 - There is no Create, Delete, or web address field for readings, and no way to add a language in the panel
 - Seeded cards arrive named, unwritten and unpictured, so `/cards` is empty until both are supplied
-- Cards carry a picture but no video. Video and its access check arrive in M4
+- A card can be on the website and not in the Viewing Room. Copy and a picture put it in the Library; a prepared video and a poster put it in the Viewing Room
+- A pass holder can save a video they are watching. Signing stops people without a pass, not the person holding one, and that was decided knowingly
+- The viewing room pass counts toward translation like everything else, so Spanish needs its copy before Spanish can go live
 - Adding anything, a card included, takes a live language down until it is translated. That is the rule working, not a fault
 
 ---
 
 ## 10. Not built yet
 
-Video playback and signed URLs, the viewing room pass, checkout and orders, member accounts, gift codes, the 24 hour rush, FAQ and legal content, the newsletter, and AI fulfilment.
+Buying the viewing room pass, checkout and orders, member accounts, gift codes, the 24 hour rush, FAQ and legal content, the newsletter, and AI fulfilment.

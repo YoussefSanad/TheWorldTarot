@@ -11,11 +11,11 @@
  * Found on 29 July 2026, after a long hunt for AWS_BUCKET in an environment
  * that was never going to have one. Empty everywhere except Laravel Cloud.
  */
-$attachedBuckets = (function (): array {
+$attached = (function (): array {
     $raw = env('LARAVEL_CLOUD_DISK_CONFIG');
 
     if (blank($raw)) {
-        return [];
+        return ['disks' => [], 'private' => []];
     }
 
     $decoded = json_decode((string) $raw, true);
@@ -23,28 +23,54 @@ $attachedBuckets = (function (): array {
     // Never fail here. A malformed blob must not take the application down at
     // boot, and `php artisan media:check` reports the consequence in words.
     if (! is_array($decoded)) {
-        return [];
+        return ['disks' => [], 'private' => []];
     }
 
-    return collect($decoded)
-        ->filter(fn ($bucket): bool => is_array($bucket) && filled($bucket['disk'] ?? null))
-        ->mapWithKeys(fn (array $bucket): array => [$bucket['disk'] => [
-            'driver' => 's3',
-            'key' => $bucket['access_key_id'] ?? null,
-            'secret' => $bucket['access_key_secret'] ?? null,
-            'region' => $bucket['default_region'] ?? 'auto',
-            'bucket' => $bucket['bucket'] ?? null,
+    $buckets = collect($decoded)
+        ->filter(fn ($bucket): bool => is_array($bucket) && filled($bucket['disk'] ?? null));
 
-            // What the pictures are read from, which is not the endpoint they
-            // are written to.
-            'url' => $bucket['url'] ?? null,
-            'endpoint' => $bucket['endpoint'] ?? null,
-            'use_path_style_endpoint' => $bucket['use_path_style_endpoint'] ?? false,
-            'throw' => false,
-            'report' => false,
-        ]])
-        ->all();
+    return [
+        'disks' => $buckets
+            ->mapWithKeys(fn (array $bucket): array => [$bucket['disk'] => [
+                'driver' => 's3',
+                'key' => $bucket['access_key_id'] ?? null,
+                'secret' => $bucket['access_key_secret'] ?? null,
+                'region' => $bucket['default_region'] ?? 'auto',
+                'bucket' => $bucket['bucket'] ?? null,
+
+                // What files are read from, which is not the endpoint they are
+                // written to.
+                'url' => $bucket['url'] ?? null,
+                'endpoint' => $bucket['endpoint'] ?? null,
+                'use_path_style_endpoint' => $bucket['use_path_style_endpoint'] ?? false,
+                'throw' => false,
+                'report' => false,
+            ]])
+            ->all(),
+
+        // Everything that is not the environment's default bucket. The platform
+        // names disks after the bucket, so staging says "video_storage_staging"
+        // and production will say something else, which makes the name useless
+        // as a handle. Whether it is the default is stable.
+        'private' => $buckets
+            ->reject(fn (array $bucket): bool => (bool) ($bucket['is_default'] ?? false))
+            ->pluck('disk')
+            ->all(),
+    ];
 })();
+
+/*
+ * The private bucket, under a name that does not change between environments.
+ *
+ * Aliased only when there is exactly one, because with two there is nothing to
+ * guess and UPLOADS_DISK has to say which. That case fails loudly in
+ * `media:check` rather than picking one.
+ */
+$privateDisk = count($attached['private']) === 1 ? $attached['private'][0] : null;
+
+if ($privateDisk !== null) {
+    $attached['disks']['uploads'] = $attached['disks'][$privateDisk];
+}
 
 return [
 
@@ -82,6 +108,25 @@ return [
     */
 
     'media' => env('MEDIA_DISK', 'public'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Uploads Disk
+    |--------------------------------------------------------------------------
+    |
+    | Where files the public must never reach are kept: the master copy of every
+    | Living Tarot video. Separate from the media disk because these two want
+    | opposite things. Card pictures are public and want caching; video masters
+    | are the asset the whole paywall exists to protect.
+    |
+    | Locally this is "local", which is storage/app/private and is not served by
+    | the web server. Deployed, it resolves to the attached bucket that is not
+    | the environment's default one, aliased above so the name stays the same
+    | everywhere. Set UPLOADS_DISK only to override that.
+    |
+    */
+
+    'uploads' => env('UPLOADS_DISK') ?: ($privateDisk !== null ? 'uploads' : 'local'),
 
     /*
     |--------------------------------------------------------------------------
@@ -140,7 +185,7 @@ return [
         // Last, so an attached bucket replaces the disk it names. On Laravel
         // Cloud that is "public", which is why nothing above needed changing
         // and why the same MEDIA_DISK setting is right in every environment.
-        ...$attachedBuckets,
+        ...$attached['disks'],
 
     ],
 

@@ -14,14 +14,14 @@ function seedProducts(): void
     (new ProductSeeder)->run();
 }
 
-it('creates the four readings', function () {
+it('creates the four readings and the viewing room pass', function () {
     seedProducts();
 
     // Ordered explicitly. Without it Postgres returns rows in whatever order
     // they physically sit in, which shifts as rows are updated, so the same
     // assertion passes or fails depending on what ran before it.
     expect(Product::orderBy('sort_order')->pluck('key')->all())
-        ->toBe(ProductKey::readings());
+        ->toBe(ProductKey::seedable());
 });
 
 it('creates them with no price and no copy, so nobody can see them yet', function () {
@@ -40,14 +40,37 @@ it('creates them with no price and no copy, so nobody can see them yet', functio
         ->and($product->whatIsMissing('en'))->toContain('a price in every currency');
 });
 
-it('gives every reading the same structure', function () {
+it('takes each product\'s structure from the catalogue', function () {
     seedProducts();
 
+    // Structure belongs to code, and the catalogue is where code says what each
+    // product is. The seeder only turns that into rows.
     Product::all()->each(function (Product $product) {
-        expect($product->type)->toBe(ProductType::Reading)
-            ->and($product->fulfilment)->toBe(Fulfilment::ManualPdf)
-            ->and($product->allows_question)->toBeTrue();
+        expect($product->type)->toBe($product->key->type())
+            ->and($product->fulfilment)->toBe($product->key->fulfilment())
+            ->and($product->allows_question)->toBe($product->key->allowsQuestion());
     });
+});
+
+it('makes the pass a pass, and nothing to ask a question about', function () {
+    seedProducts();
+
+    $pass = Product::firstWhere('key', ProductKey::ViewingRoomPass);
+
+    // It grants access instead of delivering anything, which is what M5 reads
+    // when it stamps the customer.
+    expect($pass->type)->toBe(ProductType::Pass)
+        ->and($pass->fulfilment)->toBe(Fulfilment::AccessGrant)
+        ->and($pass->allows_question)->toBeFalse();
+});
+
+it('keeps the pass out of the list of readings', function () {
+    seedProducts();
+
+    // One table for everything sellable, and the readings endpoint asks for
+    // readings. The pass has a page of its own.
+    expect(Product::ofType(ProductType::Reading)->count())->toBe(4)
+        ->and(Product::ofType(ProductType::Pass)->count())->toBe(1);
 });
 
 it('can be run repeatedly without duplicating anything', function () {
@@ -56,7 +79,7 @@ it('can be run repeatedly without duplicating anything', function () {
     seedProducts();
 
     // It runs on every deploy, so this is the property that matters most.
-    expect(Product::count())->toBe(4);
+    expect(Product::count())->toBe(5);
 });
 
 it('never overwrites copy or prices the client has edited', function () {

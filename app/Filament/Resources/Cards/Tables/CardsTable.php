@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Cards\Tables;
 
+use App\Enums\VideoStatus;
 use App\Models\Card;
 use App\Models\Locale;
 use App\Support\Locales;
@@ -39,6 +40,16 @@ class CardsTable
                     ->label('On the website')
                     ->boolean()
                     ->state(fn (Card $record): bool => $record->isAvailableIn(Locales::default())),
+
+                // Status has to be obvious without opening a record, per
+                // .claude/filament.md. A card being prepared and a card that
+                // failed look identical if nobody says which is which.
+                TextColumn::make('video_status')
+                    ->label('Video')
+                    ->badge()
+                    ->placeholder('None yet')
+                    ->formatStateUsing(fn (VideoStatus $state): string => $state->label())
+                    ->color(fn (VideoStatus $state): string => $state->colour()),
 
                 TextColumn::make('translations')
                     ->label('Translated into')

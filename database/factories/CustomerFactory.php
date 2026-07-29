@@ -42,4 +42,17 @@ class CustomerFactory extends Factory
             'email_verified_at' => null,
         ]);
     }
+
+    /**
+     * Somebody who has bought the pass.
+     *
+     * The state every Viewing Room test needs, and its absence is the state that
+     * matters more: a customer without this must never reach a video.
+     */
+    public function withViewingRoomAccess(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'viewing_room_access_at' => now(),
+        ]);
+    }
 }

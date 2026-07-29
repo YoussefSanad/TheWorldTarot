@@ -28,6 +28,37 @@ class Customer extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'viewing_room_access_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Whether this customer may watch the Living Tarot videos.
+     *
+     * The pass is bought once and never expires, so the presence of the stamp is
+     * the whole answer. If it ever becomes a subscription, this is the one place
+     * that has to learn about time.
+     */
+    public function hasViewingRoomAccess(): bool
+    {
+        return $this->viewing_room_access_at !== null;
+    }
+
+    /**
+     * Let somebody in, recording when.
+     *
+     * Called by M5 when the pass is paid for, and by support putting right an
+     * order that went wrong. Never by anything a customer can reach.
+     *
+     * Access already granted is left as it was rather than refreshed, so the date
+     * keeps meaning when they first got in.
+     */
+    public function grantViewingRoomAccess(): void
+    {
+        if ($this->hasViewingRoomAccess()) {
+            return;
+        }
+
+        $this->forceFill(['viewing_room_access_at' => now()])->save();
     }
 }

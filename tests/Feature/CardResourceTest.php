@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\VideoStatus;
 use App\Filament\Resources\Cards\CardResource;
 use App\Filament\Resources\Cards\Pages\CreateCard;
 use App\Filament\Resources\Cards\Pages\EditCard;
@@ -10,6 +11,7 @@ use App\Support\Locales;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -215,6 +217,91 @@ it('removes a card without losing the row', function () {
     // M4 attaches a video to the row, so it is kept rather than dropped.
     expect(Card::find($card->id))->toBeNull()
         ->and(Card::withTrashed()->find($card->id))->not->toBeNull();
+});
+
+it('uploads a video to the private disk and marks it waiting to be sent', function () {
+    // Held, or the inline queue sends it to Bunny before the assertion runs.
+    Queue::fake();
+
+    Storage::fake(config('filesystems.media'));
+    Storage::fake(config('filesystems.uploads'));
+
+    $card = Card::factory()->create();
+
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->fillForm(['video_master_path' => [UploadedFile::fake()->create('the-fool.mp4', 100, 'video/mp4')]])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $card->refresh();
+
+    // The master goes where the public cannot reach it, and it is not on the
+    // pictures disk.
+    Storage::disk(config('filesystems.uploads'))->assertExists($card->video_master_path);
+    Storage::disk(config('filesystems.media'))->assertMissing($card->video_master_path);
+
+    expect($card->video_status)->toBe(VideoStatus::Pending)
+        ->and($card->video_uploaded_at)->not->toBeNull()
+        ->and($card->isViewableIn('en'))->toBeFalse();
+});
+
+it('uploads a poster to the public disk', function () {
+    Storage::fake(config('filesystems.media'));
+    Storage::fake(config('filesystems.uploads'));
+
+    $card = Card::factory()->create();
+
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->fillForm(['poster_path' => [UploadedFile::fake()->image('the-fool.jpg')]])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    // A still rather than the thing the paywall protects, so it sits with the
+    // pictures and needs no signing.
+    Storage::disk(config('filesystems.media'))->assertExists($card->refresh()->poster_path);
+});
+
+it('keeps the video and poster fields off the language tabs', function () {
+    $card = Card::factory()->watchable()->create();
+    $master = $card->video_master_path;
+
+    // The trap that already cost a card picture once: a file field on a
+    // translation tab comes back empty and the save deletes the file.
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->assertFormFieldExists('video_master_path')
+        ->set('activeLocale', 'es')
+        ->assertFormFieldDoesNotExist('video_master_path')
+        ->assertFormFieldDoesNotExist('poster_path')
+        ->fillForm(['name' => 'El Loco'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($card->refresh()->video_master_path)->toBe($master)
+        ->and($card->poster_path)->not->toBeNull();
+});
+
+it('says what the viewing room is waiting for', function () {
+    $card = Card::factory()->create();
+
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->assertSee('Not in the Viewing Room yet')
+        ->assertSee('a video');
+});
+
+it('says a finished card is in the viewing room', function () {
+    $card = Card::factory()->watchable()->create();
+
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->assertSee('In the Viewing Room too');
+});
+
+it('shows the video status in the list', function () {
+    Card::factory()->videoProcessing()->create();
+
+    // Being prepared and having failed look identical unless the list says
+    // which, and one of them needs her to do something.
+    Livewire::test(ListCards::class)
+        ->assertSee('Being prepared');
 });
 
 it('offers no switch for taking a card off the website', function () {
