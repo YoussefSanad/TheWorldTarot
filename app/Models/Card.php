@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\VideoStatus;
+use App\Jobs\SendCardVideoToBunny;
 use App\Models\Concerns\HasTranslationCompleteness;
 use App\Support\Locales;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -66,6 +67,15 @@ class Card extends Model
                 && ! $card->isDirty('video_status')) {
                 $card->video_status = VideoStatus::Pending;
                 $card->video_uploaded_at = now();
+            }
+        });
+
+        // Sending it is the queue's job, so she is never left waiting on a
+        // 40MB upload to a third party. After the transaction commits, or a
+        // worker can pick the job up before the row it describes exists.
+        static::saved(function (self $card): void {
+            if ($card->wasChanged('video_master_path') && $card->video_status === VideoStatus::Pending) {
+                SendCardVideoToBunny::dispatch($card)->afterCommit();
             }
         });
     }

@@ -11,6 +11,7 @@ use App\Support\Locales;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -219,6 +220,9 @@ it('removes a card without losing the row', function () {
 });
 
 it('uploads a video to the private disk and marks it waiting to be sent', function () {
+    // Held, or the inline queue sends it to Bunny before the assertion runs.
+    Queue::fake();
+
     Storage::fake(config('filesystems.media'));
     Storage::fake(config('filesystems.uploads'));
 

@@ -6,6 +6,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
 
@@ -81,6 +82,10 @@ it('swaps the replacement in only when it is ready', function () {
 });
 
 it('marks a newly uploaded master as waiting to be sent', function () {
+    // Held, because uploading now dispatches the job that sends it, and the
+    // queue runs inline in tests. This is the state at the moment of upload.
+    Queue::fake();
+
     $card = Card::factory()->create();
 
     $card->update(['video_master_path' => 'masters/the-fool.mp4']);
