@@ -35,18 +35,69 @@ it('is in the viewing room when the video is ready and a poster exists', functio
         ->and($card->whatTheViewingRoomIsWaitingFor('en'))->toBe([]);
 });
 
-it('keeps a card out of the viewing room while its video is still being prepared', function (string $state, string $expected) {
+it('keeps a card out of the viewing room while its first video is being prepared', function (string $state, string $expected) {
     $card = Card::factory()->{$state}()->create();
 
-    // The state a card sits in for minutes after every upload, and the one a
+    // The state a card sits in for minutes after its first upload, and the one a
     // test about what customers can watch is most likely to forget.
     expect($card->isViewableIn('en'))->toBeFalse()
         ->and(Card::viewableIn('en')->count())->toBe(0)
         ->and($card->whatTheViewingRoomIsWaitingFor('en'))->toContain($expected);
 })->with([
     'processing' => ['videoProcessing', 'its video to finish being prepared'],
-    'failed' => ['videoFailed', 'its video to finish being prepared'],
+    'failed' => ['videoFailed', 'its video uploading again, because the last one went wrong'],
 ]);
+
+it('keeps playing the old video while a replacement is prepared', function () {
+    $card = Card::factory()->videoBeingReplaced()->create();
+
+    // The gap this design exists to prevent. She uploaded the wrong file, then
+    // the right one, and nobody watching should notice anything at all.
+    expect($card->isViewableIn('en'))->toBeTrue()
+        ->and(Card::viewableIn('en')->pluck('id'))->toContain($card->id)
+        ->and($card->whatTheViewingRoomIsWaitingFor('en'))->toBe([]);
+});
+
+it('leaves the old video playing when a replacement fails', function () {
+    $card = Card::factory()->videoBeingReplaced()->create(['video_status' => VideoStatus::Failed]);
+
+    // A failed upload must cost her a retry, not a card.
+    expect($card->isViewableIn('en'))->toBeTrue()
+        ->and($card->video_status)->toBe(VideoStatus::Failed);
+});
+
+it('swaps the replacement in only when it is ready', function () {
+    $card = Card::factory()->videoBeingReplaced()->create();
+    $old = $card->bunny_video_id;
+    $new = $card->bunny_incoming_video_id;
+
+    $card->promoteIncomingVideo();
+
+    expect($card->fresh()->bunny_video_id)->toBe($new)
+        ->and($card->fresh()->bunny_video_id)->not->toBe($old)
+        ->and($card->fresh()->bunny_incoming_video_id)->toBeNull()
+        ->and($card->fresh()->video_status)->toBe(VideoStatus::Ready)
+        ->and($card->fresh()->isViewableIn('en'))->toBeTrue();
+});
+
+it('marks a newly uploaded master as waiting to be sent', function () {
+    $card = Card::factory()->create();
+
+    $card->update(['video_master_path' => 'masters/the-fool.mp4']);
+
+    // However the file arrived, panel or console, a new master is a video
+    // nobody has sent to Bunny yet.
+    expect($card->fresh()->video_status)->toBe(VideoStatus::Pending)
+        ->and($card->fresh()->video_uploaded_at)->not->toBeNull();
+});
+
+it('does not overrule a caller who says what the status is', function () {
+    $card = Card::factory()->watchable()->create();
+
+    // Which is how a factory builds a card that is already watchable, and how
+    // the webhook records a status without looking like a fresh upload.
+    expect($card->video_status)->toBe(VideoStatus::Ready);
+});
 
 it('keeps a card with no poster frame out of the viewing room', function () {
     $card = Card::factory()->withoutPoster()->create();

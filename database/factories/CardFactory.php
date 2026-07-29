@@ -67,21 +67,37 @@ class CardFactory extends Factory
     }
 
     /**
-     * Uploaded, handed to Bunny, and not finished. The state a card sits in for
-     * a few minutes after every upload, and the one most likely to be forgotten
-     * when writing a test about what a customer can watch.
+     * A first video, handed to Bunny and not finished. The state a card sits in
+     * for a few minutes after its first upload, and the one most likely to be
+     * forgotten when writing a test about what a customer can watch.
      */
     public function videoProcessing(): static
     {
         return $this->watchable()->state(fn (): array => [
+            'bunny_video_id' => null,
+            'bunny_incoming_video_id' => fake()->uuid(),
             'video_status' => VideoStatus::Processing,
         ]);
     }
 
     public function videoFailed(): static
     {
-        return $this->watchable()->state(fn (): array => [
+        return $this->videoProcessing()->state(fn (): array => [
             'video_status' => VideoStatus::Failed,
+        ]);
+    }
+
+    /**
+     * Watchable now, with a replacement being prepared.
+     *
+     * The case the two columns exist for: she uploaded the wrong file, uploaded
+     * the right one, and nobody should notice a gap in between.
+     */
+    public function videoBeingReplaced(): static
+    {
+        return $this->watchable()->state(fn (): array => [
+            'bunny_incoming_video_id' => fake()->uuid(),
+            'video_status' => VideoStatus::Processing,
         ]);
     }
 

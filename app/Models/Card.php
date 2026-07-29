@@ -25,8 +25,8 @@ use Spatie\Translatable\HasTranslations;
  */
 #[Fillable([
     'number', 'name', 'short_description', 'long_description', 'image_path',
-    'is_published', 'bunny_video_id', 'video_status', 'video_master_path',
-    'poster_path', 'video_uploaded_at',
+    'is_published', 'bunny_video_id', 'bunny_incoming_video_id', 'video_status',
+    'video_master_path', 'poster_path', 'video_uploaded_at',
 ])]
 class Card extends Model
 {
@@ -48,6 +48,26 @@ class Card extends Model
     public static function requiredTranslations(): array
     {
         return ['name', 'short_description', 'long_description'];
+    }
+
+    /**
+     * A newly uploaded master is a video waiting to be sent to Bunny.
+     *
+     * On the model rather than on the edit screen, so it holds however the file
+     * arrived: the panel, a console command, a test. What it must not do is
+     * overrule a caller who said what the status is, which is how a factory
+     * builds a card that is already watchable.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $card): void {
+            if ($card->isDirty('video_master_path')
+                && filled($card->video_master_path)
+                && ! $card->isDirty('video_status')) {
+                $card->video_status = VideoStatus::Pending;
+                $card->video_uploaded_at = now();
+            }
+        });
     }
 
     protected function casts(): array
@@ -95,24 +115,62 @@ class Card extends Model
      * with a finished video and no written copy would otherwise appear in the
      * Viewing Room and not the Library, which contradicts the rule the whole
      * site runs on: a language shows everything or nothing.
+     *
+     * Does not look at the status, and that is the point. `bunny_video_id` only
+     * ever holds a video that is ready, so a replacement being prepared cannot
+     * take a card off the site while it transcodes.
      */
     public function scopeViewableIn(Builder $query, string $locale): Builder
     {
         return $query->availableIn($locale)
-            ->where('video_status', VideoStatus::Ready)
+            ->whereNotNull('bunny_video_id')
             ->whereNotNull('poster_path');
     }
 
     public function isViewableIn(string $locale): bool
     {
         return $this->isAvailableIn($locale)
-            && $this->video_status === VideoStatus::Ready
+            && $this->isPlayable()
             && $this->hasPoster();
+    }
+
+    /**
+     * There is a video customers can watch right now.
+     */
+    public function isPlayable(): bool
+    {
+        return filled($this->bunny_video_id);
+    }
+
+    /**
+     * A replacement is being prepared while the old one keeps playing.
+     */
+    public function hasIncomingVideo(): bool
+    {
+        return filled($this->bunny_incoming_video_id);
     }
 
     public function hasVideo(): bool
     {
-        return filled($this->bunny_video_id) || filled($this->video_master_path);
+        return $this->isPlayable()
+            || $this->hasIncomingVideo()
+            || filled($this->video_master_path);
+    }
+
+    /**
+     * The prepared video takes over from the one it was replacing.
+     *
+     * The only place `bunny_video_id` is ever written after the first upload, so
+     * there is one moment where a customer's video changes underneath them and
+     * it is this one.
+     */
+    public function promoteIncomingVideo(): void
+    {
+        $this->forceFill([
+            'bunny_video_id' => $this->bunny_incoming_video_id,
+            'bunny_incoming_video_id' => null,
+            'video_status' => VideoStatus::Ready,
+        ])->save();
     }
 
     public function hasPoster(): bool
@@ -135,8 +193,13 @@ class Card extends Model
 
         if (! $this->hasVideo()) {
             $missing[] = 'a video';
-        } elseif ($this->video_status !== VideoStatus::Ready) {
-            $missing[] = 'its video to finish being prepared';
+        } elseif (! $this->isPlayable()) {
+            // Something has been uploaded and nothing is watchable yet, which is
+            // the first upload still being prepared or one that failed. A
+            // replacement never lands here, because the old video is playable.
+            $missing[] = $this->video_status === VideoStatus::Failed
+                ? 'its video uploading again, because the last one went wrong'
+                : 'its video to finish being prepared';
         }
 
         if (! $this->hasPoster()) {
