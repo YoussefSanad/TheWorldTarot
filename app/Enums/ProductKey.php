@@ -39,6 +39,57 @@ enum ProductKey: string
     }
 
     /**
+     * Everything the seeder creates today: the four readings and the viewing
+     * room pass, which arrives with M4. The rush add-on waits for M5.
+     *
+     * @return array<int, self>
+     */
+    public static function seedable(): array
+    {
+        return [...self::readings(), self::ViewingRoomPass];
+    }
+
+    /**
+     * What kind of thing this is, which the frontend maps presentation to.
+     *
+     * Declared here rather than in the seeder because it is structure, and
+     * structure belongs to code. The seeder re-applies it on every run, so a
+     * value corrected here reaches production on the next deploy.
+     */
+    public function type(): ProductType
+    {
+        return match ($this) {
+            self::ViewingRoomPass => ProductType::Pass,
+            self::Rush24h => ProductType::Addon,
+            default => ProductType::Reading,
+        };
+    }
+
+    /**
+     * How an order for it is completed. Internal, never exposed.
+     */
+    public function fulfilment(): Fulfilment
+    {
+        return match ($this) {
+            // Grants access rather than delivering anything. M5 stamps the
+            // customer at payment, and M4 reads that stamp to open the door.
+            self::ViewingRoomPass => Fulfilment::AccessGrant,
+            default => Fulfilment::ManualPdf,
+        };
+    }
+
+    /**
+     * Whether a customer may attach a question when buying.
+     *
+     * Every reading accepts one and none demands one. A pass and an add-on have
+     * nothing to ask about.
+     */
+    public function allowsQuestion(): bool
+    {
+        return $this->type() === ProductType::Reading;
+    }
+
+    /**
      * The English name a product starts life with. Copy after that belongs to
      * the client, so this is only ever used when seeding a row for the first
      * time.

@@ -19,7 +19,8 @@ it('refuses to publish spanish while any reading is untranslated, seeded state a
 
     (new ProductSeeder)->run();
 
-    // Exactly the screenshots: two readings priced and translated, two seeded.
+    // Exactly the screenshots: two readings priced and translated, the rest
+    // seeded and untouched.
     Product::where('key', 'one-card')->update([
         'name' => ['en' => 'One Card', 'es' => 'Una Carta'],
         'short_description' => ['en' => 's', 'es' => 's'],
@@ -35,7 +36,9 @@ it('refuses to publish spanish while any reading is untranslated, seeded state a
     Locales::forget();
 
     Livewire::test(ListLocales::class)
-        ->assertSee('2 of 4')
+        // Two of five now: the viewing room pass counts too, and Spanish cannot
+        // go live until it is translated either.
+        ->assertSee('2 of 5')
         ->callTableAction('publish', Locale::firstWhere('code', 'es'))
         ->assertNotified('Spanish is not finished yet');
 

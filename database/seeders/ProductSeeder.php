@@ -2,9 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Enums\Fulfilment;
 use App\Enums\ProductKey;
-use App\Enums\ProductType;
 use App\Models\Product;
 use Illuminate\Database\Seeder;
 
@@ -24,9 +22,10 @@ class ProductSeeder extends Seeder
 {
     public function run(): void
     {
-        // Readings only. The viewing room pass arrives with M4 and the rush
-        // add-on with M5, each seeded by the milestone that builds it.
-        foreach (ProductKey::readings() as $key) {
+        // The four readings and the viewing room pass, which joined on
+        // 30 July 2026. The rush add-on arrives with M5, seeded by the
+        // milestone that builds it.
+        foreach (ProductKey::seedable() as $key) {
             $product = Product::withTrashed()->firstOrNew(['key' => $key]);
 
             // Values, set once so a later run never overwrites an edit.
@@ -46,14 +45,16 @@ class ProductSeeder extends Seeder
                 ]);
             }
 
-            // Structure, re-applied every run because code owns it.
+            // Structure, re-applied every run because code owns it, and taken
+            // from the catalogue rather than written out here so there is one
+            // description of what each product is.
             $product->fill([
-                'type' => ProductType::Reading,
-                'fulfilment' => Fulfilment::ManualPdf,
+                'type' => $key->type(),
+                'fulfilment' => $key->fulfilment(),
 
-                // A question is always optional. Every reading accepts one, and
-                // no reading demands one.
-                'allows_question' => true,
+                // A question is always optional. Every reading accepts one, no
+                // reading demands one, and a pass has nothing to ask about.
+                'allows_question' => $key->allowsQuestion(),
             ]);
 
             $product->save();
