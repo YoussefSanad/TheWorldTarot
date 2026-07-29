@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\VideoStatus;
 use App\Models\Concerns\HasTranslationCompleteness;
 use App\Support\Locales;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -24,7 +25,8 @@ use Spatie\Translatable\HasTranslations;
  */
 #[Fillable([
     'number', 'name', 'short_description', 'long_description', 'image_path',
-    'is_published',
+    'is_published', 'bunny_video_id', 'video_status', 'video_master_path',
+    'poster_path', 'video_uploaded_at',
 ])]
 class Card extends Model
 {
@@ -53,6 +55,8 @@ class Card extends Model
         return [
             'number' => 'integer',
             'is_published' => 'boolean',
+            'video_status' => VideoStatus::class,
+            'video_uploaded_at' => 'datetime',
         ];
     }
 
@@ -82,6 +86,83 @@ class Card extends Model
     public function hasImage(): bool
     {
         return filled($this->image_path);
+    }
+
+    /**
+     * What a pass holder reading the site in this language can watch.
+     *
+     * Built on being in the Library rather than beside it, deliberately. A card
+     * with a finished video and no written copy would otherwise appear in the
+     * Viewing Room and not the Library, which contradicts the rule the whole
+     * site runs on: a language shows everything or nothing.
+     */
+    public function scopeViewableIn(Builder $query, string $locale): Builder
+    {
+        return $query->availableIn($locale)
+            ->where('video_status', VideoStatus::Ready)
+            ->whereNotNull('poster_path');
+    }
+
+    public function isViewableIn(string $locale): bool
+    {
+        return $this->isAvailableIn($locale)
+            && $this->video_status === VideoStatus::Ready
+            && $this->hasPoster();
+    }
+
+    public function hasVideo(): bool
+    {
+        return filled($this->bunny_video_id) || filled($this->video_master_path);
+    }
+
+    public function hasPoster(): bool
+    {
+        return filled($this->poster_path);
+    }
+
+    /**
+     * Why this card is not in the Viewing Room yet, in her words. Empty when it
+     * is.
+     *
+     * Deliberately separate from what keeps it out of the Library, since a card
+     * can be finished for readers and unfinished for watchers.
+     *
+     * @return array<int, string>
+     */
+    public function whatTheViewingRoomIsWaitingFor(string $locale): array
+    {
+        $missing = [];
+
+        if (! $this->hasVideo()) {
+            $missing[] = 'a video';
+        } elseif ($this->video_status !== VideoStatus::Ready) {
+            $missing[] = 'its video to finish being prepared';
+        }
+
+        if (! $this->hasPoster()) {
+            $missing[] = 'a poster frame';
+        }
+
+        // Last, because it reads oddly first and because it is the one thing
+        // she fixes on a different screen.
+        if (! $this->isAvailableIn($locale)) {
+            $missing[] = 'to be on the website first';
+        }
+
+        return $missing;
+    }
+
+    /**
+     * Where the poster is served from. A still rather than the thing the
+     * paywall protects, so it sits with the pictures.
+     */
+    public function posterUrl(): ?string
+    {
+        if (! $this->hasPoster()) {
+            return null;
+        }
+
+        return Storage::disk(config('filesystems.media'))->url($this->poster_path);
     }
 
     /**

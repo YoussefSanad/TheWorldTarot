@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\VideoStatus;
 use App\Models\Card;
 use App\Support\Locales;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -49,6 +50,48 @@ class CardFactory extends Factory
     public function withoutImage(): static
     {
         return $this->state(fn (): array => ['image_path' => null]);
+    }
+
+    /**
+     * A card in the Viewing Room: video prepared, poster uploaded.
+     */
+    public function watchable(): static
+    {
+        return $this->state(fn (): array => [
+            'bunny_video_id' => fake()->uuid(),
+            'video_status' => VideoStatus::Ready,
+            'video_master_path' => 'masters/'.fake()->uuid().'.mp4',
+            'poster_path' => 'posters/'.fake()->uuid().'.jpg',
+            'video_uploaded_at' => now(),
+        ]);
+    }
+
+    /**
+     * Uploaded, handed to Bunny, and not finished. The state a card sits in for
+     * a few minutes after every upload, and the one most likely to be forgotten
+     * when writing a test about what a customer can watch.
+     */
+    public function videoProcessing(): static
+    {
+        return $this->watchable()->state(fn (): array => [
+            'video_status' => VideoStatus::Processing,
+        ]);
+    }
+
+    public function videoFailed(): static
+    {
+        return $this->watchable()->state(fn (): array => [
+            'video_status' => VideoStatus::Failed,
+        ]);
+    }
+
+    /**
+     * A video with no poster frame, which is watchable in every sense except
+     * the one that counts.
+     */
+    public function withoutPoster(): static
+    {
+        return $this->watchable()->state(fn (): array => ['poster_path' => null]);
     }
 
     public function unpublished(): static
