@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\BunnyWebhookController;
 use App\Http\Controllers\Api\V1\CardController;
 use App\Http\Controllers\Api\V1\CurrencyController;
 use App\Http\Controllers\Api\V1\LanguageController;
@@ -21,6 +22,17 @@ Route::prefix('v1')->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
     })->middleware('auth:sanctum');
+
+    /*
+    | Bunny telling us a transcode finished. Unauthenticated by necessity, since
+    | Bunny holds no credentials of ours, and untrusted by design: the payload
+    | only names a video, and the answer comes from asking Bunny directly.
+    |
+    | Rate limited because it is public and triggers an outbound API call.
+    */
+    Route::post('/webhooks/bunny', BunnyWebhookController::class)
+        ->middleware('throttle:60,1')
+        ->name('webhooks.bunny');
 
     /*
     | Content, addressed per language: /api/v1/en/products. Every language is
