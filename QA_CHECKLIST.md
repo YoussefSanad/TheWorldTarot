@@ -18,6 +18,7 @@ API=https://staging-api.theworldtarot.com
 | Push a commit to `main` | A deploy starts and finishes without manual steps |
 | Deploy log | Migrations applied, `ProductSeeder` and `CardSeeder` ran |
 | Laravel Cloud, Queues tab | The managed queue exists, workers at zero, nothing failed |
+| Laravel Cloud, scheduler | It runs `schedule:run` **every minute**. The frequency of each task lives in the code, so a daily tick would make every scheduled task daily |
 | Environment variables | `APP_DEBUG` is **false**. `MEDIA_DISK` is not set at all: the attached bucket replaces the disk it names |
 | `php artisan media:check` from the environment's console | Passes, names the bucket, and prints a public URL |
 | `php artisan config:cache`, then `media:check`, then `config:clear` | It says the cache is hiding everything, rather than listing variables as missing. This branch cannot be covered by an automated test |
