@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Contracts\RevealVideoSource;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\CardCollection;
 use App\Http\Resources\Api\V1\CardResource;
+use App\Http\Resources\Api\V1\RevealCardResource;
 use App\Models\Card;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -28,27 +30,50 @@ class CardController extends Controller
     }
 
     /**
-     * One card, drawn at random, for the reveal on the homepage.
+     * The draw. One card, taken at random, with its film, for the homepage.
      *
      * Stateless on purpose. It has no idea who is asking, so the rule that a
      * visitor gets one reveal per session belongs to the frontend, in a cookie.
      * This will hand the same person a hundred cards if they ask for them.
+     *
+     * **Which means it will hand out a hundred films.** This endpoint is public
+     * and serves the same Living Tarot film the Viewing Room sells, decided
+     * 2 August 2026 with the consequence written down rather than discovered:
+     * there is no server-side limit here to lean on, so nothing stops a visitor
+     * collecting the deck. What signing still buys is that no film is reachable
+     * by guessing an address and a copied link stops working. The reasoning and
+     * the declined alternatives are in docs/plans/reveal-video-plan.md.
+     *
+     * What plays is `App\Contracts\RevealVideoSource`, so replacing the full
+     * film with a preview or a purpose-made clip changes a config line and
+     * nothing here.
      */
-    public function random(): JsonResponse
+    public function draw(RevealVideoSource $source): JsonResponse
     {
-        $card = Card::availableIn(app()->getLocale())
+        // The source narrows the pool to what it can actually play, on top of
+        // the language gate and never instead of it. Drawing a card it has
+        // nothing for would produce a reveal with nothing to show.
+        $card = $source->eligible(Card::availableIn(app()->getLocale()))
             ->inRandomOrder()
             ->first();
 
-        if ($card === null) {
+        $playback = $card === null ? null : $source->playbackFor($card);
+
+        // No fallback to a card without a film, decided 2 August 2026 on the
+        // basis that one will not exist in the system. So an empty pool is the
+        // 404 this endpoint already gave when nothing was on the website, and
+        // a freshly seeded environment 404s here until a card has both a film
+        // and a poster.
+        if ($playback === null) {
             throw new NotFoundHttpException;
         }
 
-        return (new CardResource($card))
+        return (new RevealCardResource($card, $playback))
             ->response()
-            // The one endpoint here that must never be cached. A CDN or a
+            // Never cached, now for two reasons rather than one. A CDN or a
             // browser holding this would reveal the same card to everybody,
-            // which is the only thing a reveal must not do.
+            // which is the only thing a reveal must not do, and it now carries
+            // a credential with a timer rather than only a card.
             ->header('Cache-Control', 'no-store');
     }
 

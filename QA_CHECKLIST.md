@@ -187,7 +187,7 @@ Navigation is **Tarot cards**.
 ```bash
 curl -s $API/api/v1/en/cards
 curl -s $API/api/v1/en/cards/1
-curl -s -D- $API/api/v1/en/cards/random
+curl -s -D- $API/api/v1/en/cards/draw
 ```
 
 | Check | Expected |
@@ -200,10 +200,15 @@ curl -s -D- $API/api/v1/en/cards/random
 | Single card | Identical to its entry in the listing, field for field |
 | `/api/v1/en/cards/999` | **404** |
 | `/api/v1/en/cards/the-fool` | **404**. Cards are addressed by number, not by name |
-| `/api/v1/en/cards/random`, ten times | Different cards, only ever ones that are written |
+| `/api/v1/en/cards/draw`, ten times | Different cards, only ever ones that are written and filmed |
 | Its `Cache-Control` header | Contains **`no-store`** |
 | The listing's `Cache-Control` | Does **not** contain `no-store` |
-| `/api/v1/en/cards/random` with nothing written yet | **404** |
+| `/api/v1/en/cards/draw` with nothing written yet | **404** |
+| Its `video.url` | Plays. It is the full film, served publicly, by decision |
+| That URL with one character of its token changed | **403 from Bunny** |
+| `/api/v1/en/cards/draw` with cards written but no films uploaded | **404**, never a card with nothing to play |
+| The listing and a single card | **No `video` field on either.** A signed URL in a cacheable response is the fault the separate resource exists to prevent |
+| `/api/v1/en/cards/draw` thirty-one times inside a minute | **429** on the last one |
 
 ---
 

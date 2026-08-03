@@ -52,14 +52,23 @@ Route::prefix('v1')->group(function () {
 
         // Above the single card route, and the id is constrained to digits.
         // Either alone would keep the reveal from being read as a card called
-        // "random". Both together mean changing one later cannot break it.
-        Route::get('/cards/random', [CardController::class, 'random'])->name('cards.random');
+        // "draw". Both together mean changing one later cannot break it.
+        //
+        // Rate limited because it now hands a signed film to anybody who asks.
+        // **This is not the paywall and does not pretend to be one.** The limit
+        // on reveals per visitor lives in a frontend cookie by an earlier
+        // decision, and twenty-two requests is the whole deck, so no ceiling
+        // worth having stops somebody collecting it. What this does is keep one
+        // caller from signing thousands of URLs an hour.
+        Route::get('/cards/draw', [CardController::class, 'draw'])
+            ->middleware('throttle:30,1')
+            ->name('cards.draw');
         Route::get('/cards/{card}', [CardController::class, 'show'])
             ->whereNumber('card')
             ->name('cards.show');
 
-        // The Viewing Room. The only content route behind authentication, and
-        // the only one that answers with a credential rather than with content.
+        // The Viewing Room, and no longer the only route answering with a
+        // credential. It is still the only one that charges for it.
         Route::get('/cards/{card}/video', CardVideoController::class)
             ->middleware('auth:sanctum')
             ->whereNumber('card')

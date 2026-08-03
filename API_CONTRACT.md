@@ -123,15 +123,31 @@ One card, the identical shape. 404 for a card that does not exist, is unpublishe
 
 Worth having even though the listing carries everything: video playback and its access check will hang off this endpoint, so build against it now rather than moving to it later.
 
-### GET /api/v1/{locale}/cards/random
+### GET /api/v1/{locale}/cards/draw
 
-One card drawn at random, for the reveal on the homepage. The identical shape again, so one component renders a card wherever it came from.
+One card drawn at random, with its film, for the reveal on the homepage. The identical card shape, plus one block:
 
-- **Never cached. It carries `Cache-Control: no-store`, and you must not cache it either.** A held response reveals the same card to every visitor, which is the one thing the reveal must not do
-- **This endpoint does not remember anyone.** It will hand the same visitor a hundred cards. The rule that a visitor gets one reveal per session is yours, in a cookie or local storage
-- 404 when no card is on the website yet, which is the state of a freshly seeded site
+```json
+{
+  "id": 1,
+  "number": 0,
+  "name": "The Fool",
+  "…": "every other card field, unchanged",
+  "video": {
+    "url": "https://vz-xxxx.b-cdn.net/<video>/playlist.m3u8?token=…&expires=…",
+    "expires_at": "2026-08-03T14:22:00+00:00"
+  }
+}
+```
 
-Those seven endpoints are public and need no authentication.
+- **`video.url` is a credential with a timer, valid for two hours.** Everything the Viewing Room endpoint below says about handling applies here word for word: do not cache it, do not store it, do not put it anywhere it can be shared. The response carries `Cache-Control: no-store` and your side must respect it
+- **`video` is never null.** A card with no film to play is never drawn, so there is no empty case to handle
+- **Never cached, for two reasons.** A held response reveals the same card to every visitor, which is the one thing a reveal must not do, and it now carries a credential rather than only a card
+- **This endpoint does not remember anyone.** It will hand the same visitor a hundred cards. The rule that a visitor gets one reveal per session is yours, in a cookie or local storage. It is rate limited per IP, which is abuse protection and not that rule
+- 404 when no card on the website has a finished film and a poster frame, which is the state of a freshly seeded site. There is no fallback to a card without one
+- **Renamed from `/cards/random` on 3 August 2026**, before anything consumed it
+
+**Six of these seven endpoints are public and carry nothing sensitive. `/cards/draw` is the exception:** it needs no authentication, and it answers with a credential that must be handled like the one below.
 
 ### GET /api/v1/{locale}/cards/{id}/video
 
@@ -239,8 +255,9 @@ On 422, `errors` is keyed by field name with an array of messages per field, and
 
 - `/api/v1/languages` is identical for every visitor and fully cacheable, but **cache it briefly**. It is what tells you a language has been taken down, so a long cache delays the switch you are relying on
 - Content URLs carry the language in the path, so each language caches separately with no configuration at all. Currency is the only remaining variance: sending `?currency=` explicitly makes them cleanly cacheable, relying on country detection does not
-- **`/api/v1/{locale}/cards/random` must never be cached, by you or by anything between us.** It says so in its own headers. Everything else on the cards endpoints is as cacheable as the readings
-- **`/api/v1/{locale}/cards/{id}/video` must never be cached or stored either**, for a stronger reason: the answer is a signed credential rather than content
+- **`/api/v1/{locale}/cards/draw` must never be cached or stored, by you or by anything between us.** It says so in its own headers, and it holds a signed film as well as a card. Everything else on the cards endpoints is as cacheable as the readings
+- **`/api/v1/{locale}/cards/{id}/video` must never be cached or stored either**, for the same reason: the answer is a signed credential rather than content
+- **Both of those mean a service worker and a persisted store too.** Either one turns two hours of exposure into however long it keeps the URL, which is the single easiest way to undo the paywall from your side
 - `/api/v1/currencies` contains `detected`, which is per-visitor. It must not be cached at a shared edge on URL alone, or one visitor's currency gets served to the next. The CDN cache key accounts for this
 
 The country header only exists once traffic flows through the CDN. Before DNS cutover, and in local development, detection falls back to USD. That is expected, not a bug.
