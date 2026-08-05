@@ -74,23 +74,58 @@ class BunnyStream
     }
 
     /**
-     * A URL somebody may watch, until it expires.
+     * A URL one person may watch, until it expires.
      *
-     * **The signing scheme here is the one Bunny documents and it has never been
-     * proved against a real library.** If playback answers 403 while the expiry
-     * is plainly in the future, this method is where the fault is, and nothing
-     * else has to change. Verified on staging before it is trusted.
+     * **Proved against the real library on 3 August 2026**, master manifest,
+     * rendition and segment. The version before it was never proved and never
+     * worked, so playback was broken from M4 until that date while the tests
+     * stayed green. See `docs/plans/bunny-playback-fix-plan.md`.
+     *
+     * Three things have to be right at once, and getting any one wrong gives an
+     * identical 403 with no clue which:
+     *
+     * - **The token is scoped to the directory, not the file.** HLS resolves
+     *   renditions and segments relative to the manifest, so a file-scoped token
+     *   loads `playlist.m3u8` and then 403s on everything it points at. That
+     *   failure looks exactly like success from `curl`
+     * - **The viewer's IP is part of the hash**, because the zone has
+     *   `ZoneSecurityIncludeHashRemoteIP` on. A URL signed for one person does
+     *   not work for anyone else, which is the point, and it also means signing
+     *   with a proxy's address locks everybody out
+     * - **`token_path` appears twice, encoded differently.** Raw inside the
+     *   hash, percent-encoded in the query. Swapping them is a silent 403
+     *
+     * The zone additionally refuses requests with no `Referer`, so one of these
+     * cannot be opened in a browser tab directly. It only works from a page.
      */
-    public function playbackUrl(string $videoId, CarbonInterface $expiresAt): string
+    public function playbackUrl(string $videoId, CarbonInterface $expiresAt, string $viewerIp): string
     {
         $hostname = $this->configured('cdn_hostname');
         $expires = $expiresAt->getTimestamp();
 
-        // Signed over the video and the expiry together, so a token cannot be
-        // moved to another video or have its deadline edited.
-        $token = hash('sha256', $this->configured('token_key').$videoId.$expires);
+        // Everything belonging to this video, so the renditions and segments the
+        // manifest names inherit the token instead of each needing their own.
+        $directory = "/{$videoId}/";
 
-        return "https://{$hostname}/{$videoId}/playlist.m3u8?token={$token}&expires={$expires}";
+        $token = $this->urlSafeBase64(hash(
+            'sha256',
+            $this->configured('token_key').$directory.$expires.$viewerIp.'token_path='.$directory,
+            true,
+        ));
+
+        return "https://{$hostname}/bcdn_token=".rawurlencode($token)
+            ."&expires={$expires}"
+            .'&token_path='.rawurlencode($directory)
+            ."{$directory}playlist.m3u8";
+    }
+
+    /**
+     * Base64 as a URL wants it: no padding, and none of the two characters that
+     * would otherwise have to be escaped.
+     */
+    private function urlSafeBase64(string $raw): string
+    {
+        return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
     }
 
     /**

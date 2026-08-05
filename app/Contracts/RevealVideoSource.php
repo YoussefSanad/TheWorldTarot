@@ -35,10 +35,16 @@ interface RevealVideoSource
     public function eligible(Builder $query): Builder;
 
     /**
-     * Permission to watch, or null when this source cannot produce one.
+     * Permission for one viewer to watch, or null when this source cannot
+     * produce one.
      *
      * Null is not an error. It is a card this source has nothing for, which the
      * caller decides what to do about.
+     *
+     * **The viewer's address is a parameter rather than something a source digs
+     * out of the current request**, because Bunny binds a token to it and a URL
+     * signed for the wrong address refuses everybody. Passing it explicitly puts
+     * that decision at every call site where it can be seen.
      */
-    public function playbackFor(Card $card): ?RevealPlayback;
+    public function playbackFor(Card $card, string $viewerIp): ?RevealPlayback;
 }

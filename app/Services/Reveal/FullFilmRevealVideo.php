@@ -40,7 +40,7 @@ class FullFilmRevealVideo implements RevealVideoSource
             ->whereNotNull('poster_path');
     }
 
-    public function playbackFor(Card $card): ?RevealPlayback
+    public function playbackFor(Card $card, string $viewerIp): ?RevealPlayback
     {
         if (! $card->isPlayable()) {
             return null;
@@ -53,7 +53,7 @@ class FullFilmRevealVideo implements RevealVideoSource
         $expiresAt = now()->addSeconds(config('services.bunny.reveal_ttl'));
 
         return new RevealPlayback(
-            $this->bunny->playbackUrl($card->bunny_video_id, $expiresAt),
+            $this->bunny->playbackUrl($card->bunny_video_id, $expiresAt, $viewerIp),
             $expiresAt,
         );
     }

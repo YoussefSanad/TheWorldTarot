@@ -8,7 +8,9 @@ use App\Http\Resources\Api\V1\CardCollection;
 use App\Http\Resources\Api\V1\CardResource;
 use App\Http\Resources\Api\V1\RevealCardResource;
 use App\Models\Card;
+use App\Support\ViewerIp;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class CardController extends Controller
@@ -48,7 +50,7 @@ class CardController extends Controller
      * film with a preview or a purpose-made clip changes a config line and
      * nothing here.
      */
-    public function draw(RevealVideoSource $source): JsonResponse
+    public function draw(Request $request, RevealVideoSource $source): JsonResponse
     {
         // The source narrows the pool to what it can actually play, on top of
         // the language gate and never instead of it. Drawing a card it has
@@ -57,7 +59,13 @@ class CardController extends Controller
             ->inRandomOrder()
             ->first();
 
-        $playback = $card === null ? null : $source->playbackFor($card);
+        // Signed for the visitor who asked, since Bunny binds the token to their
+        // address. This is also why the frontend must call it from the browser:
+        // fetched from a server, the token would be bound to that server and
+        // refuse every real viewer.
+        $playback = $card === null
+            ? null
+            : $source->playbackFor($card, ViewerIp::from($request));
 
         // No fallback to a card without a film, decided 2 August 2026 on the
         // basis that one will not exist in the system. So an empty pool is the

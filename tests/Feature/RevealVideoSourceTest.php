@@ -73,11 +73,11 @@ it('narrows the language gate rather than replacing it', function () {
 it('signs the card live film and says when it expires', function () {
     $card = Card::factory()->watchable()->create();
 
-    $playback = app(FullFilmRevealVideo::class)->playbackFor($card);
+    $playback = app(FullFilmRevealVideo::class)->playbackFor($card, '203.0.113.9');
 
     expect($playback)->toBeInstanceOf(RevealPlayback::class)
         ->and($playback->url)->toContain($card->bunny_video_id)
-        ->and($playback->url)->toContain('token=')
+        ->and($playback->url)->toContain('bcdn_token=')
         ->and($playback->url)->toContain('expires='.$playback->expiresAt->getTimestamp())
         ->and($playback->expiresAt->timestamp)->toEqual(now()->addSeconds(7200)->timestamp);
 });
@@ -88,7 +88,7 @@ it('reads its own expiry key and not the viewing rooms', function () {
     config()->set('services.bunny.reveal_ttl', 900);
 
     $playback = app(FullFilmRevealVideo::class)
-        ->playbackFor(Card::factory()->watchable()->create());
+        ->playbackFor(Card::factory()->watchable()->create(), '203.0.113.9');
 
     expect($playback->expiresAt->timestamp)->toEqual(now()->addSeconds(900)->timestamp)
         ->and(config('services.bunny.playback_ttl'))->toBe(7200);
@@ -97,8 +97,21 @@ it('reads its own expiry key and not the viewing rooms', function () {
 it('has nothing to offer for a card with no watchable film', function () {
     // Not an error. A card this source cannot play, which the caller decides
     // what to do about.
-    expect(app(FullFilmRevealVideo::class)->playbackFor(Card::factory()->videoProcessing()->create()))
-        ->toBeNull();
+    expect(app(FullFilmRevealVideo::class)->playbackFor(
+        Card::factory()->videoProcessing()->create(),
+        '203.0.113.9',
+    ))->toBeNull();
+});
+
+it('signs for the viewer it was given, not for whoever asks next', function () {
+    $card = Card::factory()->watchable()->create();
+    $source = app(FullFilmRevealVideo::class);
+
+    // Bunny binds a playback token to an address, so two viewers must never
+    // receive the same URL. If they did, one of them would be watching on the
+    // other's signature and both would break the moment either moved network.
+    expect($source->playbackFor($card, '203.0.113.9')?->url)
+        ->not->toBe($source->playbackFor($card, '198.51.100.4')?->url);
 });
 
 class FakeRevealVideoSource implements RevealVideoSource
@@ -108,7 +121,7 @@ class FakeRevealVideoSource implements RevealVideoSource
         return $query;
     }
 
-    public function playbackFor(Card $card): ?RevealPlayback
+    public function playbackFor(Card $card, string $viewerIp): ?RevealPlayback
     {
         return null;
     }
