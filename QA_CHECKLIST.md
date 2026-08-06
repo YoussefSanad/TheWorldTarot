@@ -187,7 +187,7 @@ Navigation is **Tarot cards**.
 ```bash
 curl -s $API/api/v1/en/cards
 curl -s $API/api/v1/en/cards/1
-curl -s -D- $API/api/v1/en/cards/random
+curl -s -D- $API/api/v1/en/cards/draw
 ```
 
 | Check | Expected |
@@ -200,10 +200,16 @@ curl -s -D- $API/api/v1/en/cards/random
 | Single card | Identical to its entry in the listing, field for field |
 | `/api/v1/en/cards/999` | **404** |
 | `/api/v1/en/cards/the-fool` | **404**. Cards are addressed by number, not by name |
-| `/api/v1/en/cards/random`, ten times | Different cards, only ever ones that are written |
+| `/api/v1/en/cards/draw`, ten times | Different cards, only ever ones that are written and filmed |
 | Its `Cache-Control` header | Contains **`no-store`** |
 | The listing's `Cache-Control` | Does **not** contain `no-store` |
-| `/api/v1/en/cards/random` with nothing written yet | **404** |
+| `/api/v1/en/cards/draw` with nothing written yet | **404** |
+| Its `video.url` | Plays. It is the full film, served publicly, by decision. Same handling rules as section 6d, read the note there first |
+| That URL with one character of its token changed | **403 from Bunny** |
+| A segment under that URL's prefix | **200.** The manifest alone proves nothing |
+| `/api/v1/en/cards/draw` with cards written but no films uploaded | **404**, never a card with nothing to play |
+| The listing and a single card | **No `video` field on either.** A signed URL in a cacheable response is the fault the separate resource exists to prevent |
+| `/api/v1/en/cards/draw` thirty-one times inside a minute | **429** on the last one |
 
 ---
 
@@ -226,13 +232,24 @@ curl -s -D- $API/api/v1/en/cards/random
 
 Member login arrives in M5, so mint a token by hand for this section. See `docs/plans/milestone-4-plan.md` for the exact commands.
 
+> **Read this before testing a playback URL, or every check below fails and tells you nothing.**
+> Playback URLs are bound to the viewer's IP and the CDN refuses requests with no referrer. So:
+>
+> - **Pasting the URL into a browser tab always 403s.** No referrer. This is not a bug and it is not a broken token
+> - **A URL fetched on one machine will not work on another.** Different IP
+> - Test with `curl -e 'https://theworldtarot.com/' "$URL"` from the same machine that requested it, or from a page
+> - **Check a segment, not just the manifest.** A wrongly scoped token returns 200 for `playlist.m3u8` and 403 for everything it points at, which looks exactly like success. This is what M4 got wrong and nobody caught for five days
+
 | Check | Expected |
 |---|---|
 | A pass holder asks for a ready card's video | **200**, with `url` and `expires_at` about two hours out |
 | The response's `Cache-Control` | Contains **`no-store`**. It is a credential, not content |
-| Open the `url` | The video plays, or `curl` returns 200 |
+| Fetch the `url` with a referrer, from the same machine | **200**, and the body starts `#EXTM3U` |
+| Fetch a rendition, `<prefix>/360p/video.m3u8` | **200.** If this 403s while the manifest works, the token is scoped to the file rather than the directory |
+| Fetch the first segment the rendition lists | **200.** This is the check that proves playback rather than implying it |
 | The same URL with one character of the token changed | **403 from Bunny.** This is what proves it is signed rather than merely long |
 | The same URL with `expires` set to a past timestamp | **403 from Bunny** |
+| The same URL from a different machine or network | **403.** It is bound to whoever asked, by decision of 3 August 2026 |
 | No token at all | **401** |
 | A signed-in customer with no pass | **403**, not 404 |
 | An admin session | **401.** Running the panel is not the same as holding a pass |

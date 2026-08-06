@@ -6,17 +6,45 @@ use App\Models\Card;
 use App\Models\Locale;
 use App\Support\Locales;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
-function writtenCard(int $number, array $attributes = []): Card
+beforeEach(function () {
+    // The reveal signs a URL, so these tests need Bunny configured even though
+    // signing never leaves the process. Never a real request, per
+    // .claude/testing.md.
+    Http::preventStrayRequests();
+
+    config()->set('services.bunny.token_key', 'a-token-key');
+    config()->set('services.bunny.cdn_hostname', 'vz-example.b-cdn.net');
+    config()->set('services.bunny.reveal_ttl', 7200);
+});
+
+function cardCopy(int $number): array
 {
-    return Card::factory()->create(array_merge([
+    return [
         'number' => $number,
         'name' => ['en' => 'The Fool'],
         'short_description' => ['en' => 'A beginning.'],
         'long_description' => ['en' => 'The longer meaning of the card.'],
-    ], $attributes));
+    ];
+}
+
+function writtenCard(int $number, array $attributes = []): Card
+{
+    return Card::factory()->create(array_merge(cardCopy($number), $attributes));
+}
+
+/**
+ * A card the reveal can draw: written and pictured, with a film and a poster.
+ *
+ * The reveal draws from a narrower pool than the Library since 2 August 2026, so
+ * being on the website is no longer enough for it.
+ */
+function revealableCard(int $number, array $attributes = []): Card
+{
+    return Card::factory()->watchable()->create(array_merge(cardCopy($number), $attributes));
 }
 
 it('returns the agreed shape for a card on the website', function () {
@@ -49,16 +77,17 @@ it('carries the long copy in the listing, so opening a card costs nothing', func
 });
 
 it('returns the same shape from all three endpoints', function () {
-    $card = writtenCard(0);
+    $card = revealableCard(0);
 
     $listed = $this->getJson('/api/v1/en/cards')->json('0');
     $shown = $this->getJson("/api/v1/en/cards/{$card->id}")->json();
-    $drawn = $this->getJson('/api/v1/en/cards/random')->json();
+    $drawn = $this->getJson('/api/v1/en/cards/draw')->json();
 
     // One shape means the frontend renders one component wherever a card came
-    // from.
+    // from. The reveal adds to it and changes nothing in it, so a card is still
+    // a card whatever endpoint handed it over.
     expect($shown)->toBe($listed)
-        ->and($drawn)->toBe($listed);
+        ->and(collect($drawn)->except('video')->all())->toBe($listed);
 });
 
 it('lists the deck in order', function () {
@@ -148,7 +177,7 @@ it('serves no card at all in a language that is not public', function () {
 
     // Spanish is a draft. A language that is not public is not an address.
     $this->getJson('/api/v1/es/cards')->assertNotFound();
-    $this->getJson('/api/v1/es/cards/random')->assertNotFound();
+    $this->getJson('/api/v1/es/cards/draw')->assertNotFound();
     $this->getJson('/api/v1/fr/cards')->assertNotFound();
 });
 
@@ -171,22 +200,36 @@ it('serves a language in preview to a signed in admin only', function () {
 });
 
 it('draws a card at random from the ones on the website', function () {
-    writtenCard(0);
-    writtenCard(1);
-    Card::factory()->withoutCopy()->create(['number' => 2]);
-    writtenCard(3, ['image_path' => null]);
+    revealableCard(0);
+    revealableCard(1);
+    Card::factory()->watchable()->withoutCopy()->create(['number' => 2]);
+    revealableCard(3, ['image_path' => null]);
 
     $drawn = collect(range(1, 20))
-        ->map(fn (): int => $this->getJson('/api/v1/en/cards/random')->json('number'));
+        ->map(fn (): int => $this->getJson('/api/v1/en/cards/draw')->json('number'));
 
-    // A card nobody has written must never be the one revealed.
+    // A card nobody has written must never be the one revealed, film or no film.
     expect($drawn->unique()->sort()->values()->all())->toBe([0, 1]);
 });
 
-it('refuses to be cached, so the reveal is not the same card for everybody', function () {
-    writtenCard(0);
+it('draws only cards with a film to play', function () {
+    revealableCard(0);
+    writtenCard(1);
+    Card::factory()->videoProcessing()->create(cardCopy(2));
+    Card::factory()->withoutPoster()->create(cardCopy(3));
 
-    $response = $this->getJson('/api/v1/en/cards/random')->assertOk();
+    $drawn = collect(range(1, 20))
+        ->map(fn (): int => $this->getJson('/api/v1/en/cards/draw')->json('number'));
+
+    // A card with no film, one still transcoding, and one with no frame to rest
+    // on are each a reveal with nothing to show.
+    expect($drawn->unique()->all())->toBe([0]);
+});
+
+it('refuses to be cached, so the reveal is not the same card for everybody', function () {
+    revealableCard(0);
+
+    $response = $this->getJson('/api/v1/en/cards/draw')->assertOk();
 
     // Laravel adds `private` of its own accord. What matters is that no-store
     // is in there, so no CDN and no browser keeps the answer.
@@ -201,17 +244,68 @@ it('refuses to be cached, so the reveal is not the same card for everybody', fun
 it('is a 404 when there is no card to reveal', function () {
     Card::factory()->withoutCopy()->create(['number' => 0]);
 
-    $this->getJson('/api/v1/en/cards/random')->assertNotFound();
+    $this->getJson('/api/v1/en/cards/draw')->assertNotFound();
 });
 
-it('is not mistaken for a card called random', function () {
+it('is a 404 when the deck is on the website with no films yet', function () {
     writtenCard(0);
+    writtenCard(1);
 
-    // The literal route sits above the id route. Without that, the reveal is a
+    // No fallback to a card without a film, decided 2 August 2026 on the basis
+    // that one will not exist in the system. Recorded as a test because it is
+    // the state a freshly seeded environment is in, and the homepage reveal is
+    // a 404 in it rather than a card with nothing to play.
+    $this->getJson('/api/v1/en/cards/draw')->assertNotFound();
+});
+
+it('is not mistaken for a card called draw', function () {
+    revealableCard(0);
+
+    // The literal route sits above the id route. Without that, the draw is a
     // lookup for a card that cannot exist.
-    $this->getJson('/api/v1/en/cards/random')
+    $this->getJson('/api/v1/en/cards/draw')
         ->assertOk()
         ->assertJsonPath('number', 0);
+});
+
+it('hands the drawn card a signed film that expires', function () {
+    $card = revealableCard(0);
+
+    $response = $this->getJson('/api/v1/en/cards/draw')->assertOk();
+
+    expect($response->json('video.url'))
+        ->toContain($card->bunny_video_id)
+        ->toContain('token=')
+        ->and($response->json('video.expires_at'))
+        ->toBe(now()->addSeconds(7200)->toIso8601String());
+});
+
+it('keeps the film credential out of every endpoint that is meant to be cached', function () {
+    $card = revealableCard(0);
+
+    // **The rule this whole resource split exists for.** The Library carries
+    // every card and is meant to be cached, so twenty-two short-lived
+    // credentials in a held response would be a leak and a caching bug at once.
+    // Asserted directly because it is the thing a careless change would break
+    // quietly, and because a signed URL in a cached listing is not the kind of
+    // fault anybody notices by looking at the site.
+    $listed = $this->getJson('/api/v1/en/cards')->assertOk()->json('0');
+    $shown = $this->getJson("/api/v1/en/cards/{$card->id}")->assertOk()->json();
+
+    expect($listed)->not->toHaveKey('video')
+        ->and($shown)->not->toHaveKey('video')
+        ->and(json_encode([$listed, $shown]))->not->toContain('token=');
+});
+
+it('limits how fast one caller can be handed films', function () {
+    revealableCard(0);
+
+    // Not the paywall and not pretending to be one: the deck is twenty-two
+    // requests and the per-visitor limit lives in a frontend cookie. This stops
+    // one caller signing thousands of URLs an hour, which is all it claims.
+    collect(range(1, 30))->each(fn () => $this->getJson('/api/v1/en/cards/draw')->assertOk());
+
+    $this->getJson('/api/v1/en/cards/draw')->assertStatus(429);
 });
 
 it('says which cards have a film, and shows the frame it rests on', function () {

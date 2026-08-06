@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\CardVideoResource;
 use App\Models\Card;
 use App\Services\Bunny\BunnyStream;
+use App\Support\ViewerIp;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -47,7 +48,11 @@ class CardVideoController extends Controller
 
         $expiresAt = now()->addSeconds(config('services.bunny.playback_ttl'));
 
-        return (new CardVideoResource($card, $bunny->playbackUrl($card->bunny_video_id, $expiresAt), $expiresAt))
+        // Signed for the person asking, since Bunny binds the token to their
+        // address. A URL minted here works for nobody else.
+        $url = $bunny->playbackUrl($card->bunny_video_id, $expiresAt, ViewerIp::from($request));
+
+        return (new CardVideoResource($card, $url, $expiresAt))
             ->response()
             // A credential with a timer. Anything holding on to it, a CDN, a
             // browser cache, a service worker, turns two hours of exposure into

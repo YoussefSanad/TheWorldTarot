@@ -57,6 +57,21 @@ return [
         // working link for that long. IP binding and a fifteen minute token were
         // both offered and declined in favour of never interrupting a viewer.
         'playback_ttl' => (int) env('BUNNY_PLAYBACK_TTL', 7200),
+
+        // How long a homepage reveal URL works for, in seconds. The same two
+        // hours, decided 2 August 2026, and deliberately a second key rather
+        // than a reference to the one above.
+        //
+        // They are the same figure and not the same decision. A reveal URL is
+        // public and a playback URL is sold, so shortening what anybody can get
+        // must never reach into what a paying viewer gets, and lengthening the
+        // Viewing Room must never lengthen a public credential. One key each is
+        // what keeps moving either one out of the code.
+        //
+        // What two hours accepts here, in writing: a reveal URL copied out of
+        // developer tools plays the full film from anywhere until it expires.
+        // Fifteen minutes was offered and declined.
+        'reveal_ttl' => (int) env('BUNNY_REVEAL_TTL', 7200),
     ],
 
     'ses' => [

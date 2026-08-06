@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\RevealVideoSource;
 use App\Observers\TranslatableContentObserver;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -13,7 +14,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // What the homepage reveal plays, named in config/reveal.php so changing
+        // it is one line and a deploy. Resolved fresh each time rather than as a
+        // singleton, so a test can swap the config and get what it asked for.
+        // See docs/plans/reveal-video-plan.md.
+        $this->app->bind(
+            RevealVideoSource::class,
+            fn () => $this->app->make(config('reveal.source')),
+        );
     }
 
     /**
