@@ -224,6 +224,26 @@ it('draws only cards with a film to play', function () {
     expect($drawn->unique()->all())->toBe([0]);
 });
 
+it('never draws a card with a film and no picture', function () {
+    revealableCard(0);
+    $unpictured = revealableCard(1, ['image_path' => null]);
+
+    $drawn = collect(range(1, 20))
+        ->map(fn (): int => $this->getJson('/api/v1/en/cards/draw')->json('number'));
+
+    // The reveal shows the card as well as playing its film, so one with
+    // nothing to show is a reveal with a hole in it. Since 7 August 2026 the
+    // picture is also what a player rests on, the poster frame having left the
+    // system, which makes this the only still there is.
+    //
+    // Worth its own test rather than leaning on the random-draw one: the gate
+    // lives in `availableIn` on the caller's side, and `FullFilmRevealVideo`
+    // narrows only on the film. A source that was handed a bare query, or a new
+    // source written later, would widen the pool with nothing here failing.
+    expect($drawn->unique()->all())->toBe([0])
+        ->and($unpictured->isAvailableIn('en'))->toBeFalse();
+});
+
 it('refuses to be cached, so the reveal is not the same card for everybody', function () {
     revealableCard(0);
 
