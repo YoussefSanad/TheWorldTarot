@@ -16,8 +16,8 @@ beforeEach(function () {
 
     config()->set('services.bunny.token_key', 'a-token-key');
     config()->set('services.bunny.cdn_hostname', 'vz-example.b-cdn.net');
-    config()->set('services.bunny.playback_ttl', 7200);
-    config()->set('services.bunny.reveal_ttl', 7200);
+    config()->set('services.bunny.playback_ttl', 1800);
+    config()->set('services.bunny.reveal_ttl', 1800);
 });
 
 it('resolves whatever source the config names', function () {
@@ -33,13 +33,12 @@ it('resolves whatever source the config names', function () {
 it('draws only cards with a film somebody could watch', function () {
     $watchable = Card::factory()->watchable()->create();
     Card::factory()->videoProcessing()->create();
-    Card::factory()->withoutPoster()->create();
     Card::factory()->create();
 
     $drawn = app(FullFilmRevealVideo::class)->eligible(Card::query())->pluck('id');
 
-    // A first upload still transcoding, a film with no poster frame, and a card
-    // with no video at all are each a reveal with nothing to play.
+    // A first upload still transcoding and a card with no video at all are each
+    // a reveal with nothing to play.
     expect($drawn)->toHaveCount(1)
         ->and($drawn->first())->toBe($watchable->id);
 });
@@ -73,13 +72,13 @@ it('narrows the language gate rather than replacing it', function () {
 it('signs the card live film and says when it expires', function () {
     $card = Card::factory()->watchable()->create();
 
-    $playback = app(FullFilmRevealVideo::class)->playbackFor($card, '203.0.113.9');
+    $playback = app(FullFilmRevealVideo::class)->playbackFor($card);
 
     expect($playback)->toBeInstanceOf(RevealPlayback::class)
         ->and($playback->url)->toContain($card->bunny_video_id)
         ->and($playback->url)->toContain('bcdn_token=')
         ->and($playback->url)->toContain('expires='.$playback->expiresAt->getTimestamp())
-        ->and($playback->expiresAt->timestamp)->toEqual(now()->addSeconds(7200)->timestamp);
+        ->and($playback->expiresAt->timestamp)->toEqual(now()->addSeconds(1800)->timestamp);
 });
 
 it('reads its own expiry key and not the viewing rooms', function () {
@@ -88,10 +87,10 @@ it('reads its own expiry key and not the viewing rooms', function () {
     config()->set('services.bunny.reveal_ttl', 900);
 
     $playback = app(FullFilmRevealVideo::class)
-        ->playbackFor(Card::factory()->watchable()->create(), '203.0.113.9');
+        ->playbackFor(Card::factory()->watchable()->create());
 
     expect($playback->expiresAt->timestamp)->toEqual(now()->addSeconds(900)->timestamp)
-        ->and(config('services.bunny.playback_ttl'))->toBe(7200);
+        ->and(config('services.bunny.playback_ttl'))->toBe(1800);
 });
 
 it('has nothing to offer for a card with no watchable film', function () {
@@ -99,19 +98,19 @@ it('has nothing to offer for a card with no watchable film', function () {
     // what to do about.
     expect(app(FullFilmRevealVideo::class)->playbackFor(
         Card::factory()->videoProcessing()->create(),
-        '203.0.113.9',
     ))->toBeNull();
 });
 
-it('signs for the viewer it was given, not for whoever asks next', function () {
+it('hands two viewers of the same card the same url', function () {
     $card = Card::factory()->watchable()->create();
     $source = app(FullFilmRevealVideo::class);
 
-    // Bunny binds a playback token to an address, so two viewers must never
-    // receive the same URL. If they did, one of them would be watching on the
-    // other's signature and both would break the moment either moved network.
-    expect($source->playbackFor($card, '203.0.113.9')?->url)
-        ->not->toBe($source->playbackFor($card, '198.51.100.4')?->url);
+    // The reverse of what this asserted until 7 August 2026, and the point of
+    // the change. A URL signed for one address refused everybody reaching the
+    // video zone from a different one, which is every visitor with IPv6, since
+    // the zone is IPv4 only and this API is not.
+    expect($source->playbackFor($card)?->url)
+        ->toBe($source->playbackFor($card)?->url);
 });
 
 class FakeRevealVideoSource implements RevealVideoSource
@@ -121,7 +120,7 @@ class FakeRevealVideoSource implements RevealVideoSource
         return $query;
     }
 
-    public function playbackFor(Card $card, string $viewerIp): ?RevealPlayback
+    public function playbackFor(Card $card): ?RevealPlayback
     {
         return null;
     }

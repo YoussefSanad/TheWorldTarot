@@ -41,10 +41,8 @@ interface RevealVideoSource
      * Null is not an error. It is a card this source has nothing for, which the
      * caller decides what to do about.
      *
-     * **The viewer's address is a parameter rather than something a source digs
-     * out of the current request**, because Bunny binds a token to it and a URL
-     * signed for the wrong address refuses everybody. Passing it explicitly puts
-     * that decision at every call site where it can be seen.
+     * Took the viewer's address until 7 August 2026, when binding a token to it
+     * turned out to refuse every visitor with IPv6. See `BunnyStream`.
      */
-    public function playbackFor(Card $card, string $viewerIp): ?RevealPlayback;
+    public function playbackFor(Card $card): ?RevealPlayback;
 }

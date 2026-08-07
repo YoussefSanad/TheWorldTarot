@@ -102,8 +102,7 @@ The Library: every card on the website in that language, in deck order.
     "short_description": "A beginning.",
     "long_description": "The longer meaning of the card.",
     "image": "https://media.theworldtarot.com/cards/the-fool.jpg",
-    "in_viewing_room": true,
-    "poster": "https://media.theworldtarot.com/posters/the-fool.jpg"
+    "in_viewing_room": true
   }
 ]
 ```
@@ -113,7 +112,8 @@ The Library: every card on the website in that language, in deck order.
 - `id` is how you fetch a single card. **There is no slug**, because a card is never reached by a URL a person reads. If you need per-card addresses, say so now rather than after launch
 - **`image` is an absolute URL and is never null.** A card is on the website only once it has both its copy and its picture, so a card you receive always has one. It is the same picture in every language
 - **A card appears only in the languages it is finished in**, on the same rule as readings, and only once it has a picture
-- **`in_viewing_room` says whether there is a film to watch**, and `poster` is the frame the player rests on, or `null`. This is what lets you build the Viewing Room in one request: render all twenty-two, locked, and invite people to buy the pass
+- **`in_viewing_room` says whether there is a film to watch.** This is what lets you build the Viewing Room in one request: render all twenty-two, locked, and invite people to buy the pass
+- **`poster` was removed on 7 August 2026.** It carried a still the player could rest on, it was a second per-card upload gating the Viewing Room and the draw, and `image` is what a player rests on instead. Nothing on your side read it
 - **It is not an access check.** It says a film exists, not that this visitor may watch it. Whether they may is answered by the video endpoint, every time, and a `true` here for somebody without a pass is expected rather than a mistake
 - `in_viewing_room` is false while a film is still being prepared, so a card never advertises a video that would 404
 
@@ -140,27 +140,30 @@ One card drawn at random, with its film, for the reveal on the homepage. The ide
 }
 ```
 
-- **`video.url` is a credential with a timer, valid for two hours.** Everything the Viewing Room endpoint below says about handling applies here word for word: do not cache it, do not store it, do not put it anywhere it can be shared. The response carries `Cache-Control: no-store` and your side must respect it
+- **`video.url` is a credential with a timer, valid for thirty minutes.** Everything the Viewing Room endpoint below says about handling applies here word for word: do not cache it, do not store it, do not put it anywhere it can be shared. The response carries `Cache-Control: no-store` and your side must respect it
 - **It is HLS**, an `.m3u8` manifest with adaptive renditions, not a progressive MP4. Safari plays it natively in a `<video>`, Chrome and Firefox need a library such as `hls.js`
 - **`video` is never null.** A card with no film to play is never drawn, so there is no empty case to handle
 - **Never cached, for two reasons.** A held response reveals the same card to every visitor, which is the one thing a reveal must not do, and it now carries a credential rather than only a card
 - **This endpoint does not remember anyone.** It will hand the same visitor a hundred cards. The rule that a visitor gets one reveal per session is yours, in a cookie or local storage. It is rate limited per IP, which is abuse protection and not that rule
-- 404 when no card on the website has a finished film and a poster frame, which is the state of a freshly seeded site. There is no fallback to a card without one
+- 404 when no card on the website has a finished film, which is the state of a freshly seeded site. There is no fallback to a card without one. **The body says which kind of nothing it is** as of 7 August 2026, either no cards on the website in that language or no film among them, so a 404 here can be read rather than guessed at. Treat any 404 as nothing to draw; the message is for a person, not for branching on
 - **Renamed from `/cards/random` on 3 August 2026**, before anything consumed it
 
 **Six of these seven endpoints are public and carry nothing sensitive. `/cards/draw` is the exception:** it needs no authentication, and it answers with a credential that must be handled like the one below.
 
-### Three rules about playback URLs, from both endpoints, that will cost you a day each
+### Rules about playback URLs, from both endpoints
 
-These come from how the video CDN is configured. They are not negotiable from our side, and each one fails as a plain **403 with no explanation**, so they are close to undiagnosable if you do not know them in advance.
+These come from how the video CDN is configured. They fail as a plain **403 with no explanation**, so they are close to undiagnosable if you do not know them in advance.
 
-1. **A playback URL is bound to the viewer's IP address.** It works for the person who asked for it and for nobody else. Do not fetch one on one device and use it on another, do not share them between users, and expect playback to break if a viewer's apparent IP changes mid-film, for instance a VPN toggling or a phone leaving wifi for mobile data. Ask for a fresh URL rather than trying to keep one alive
+1. **A playback URL is short lived: thirty minutes.** Ask for a fresh one rather than keeping one alive, and do not put one anywhere it outlives that. `expires_at` is there so a player can renew before it dies rather than stalling mid-film
 
-2. **You must request it from the browser, never from a server.** Because the URL binds to whoever asked, a call made from your Next.js server, a route handler, a server component or a build step binds the token to *that machine* and it will then refuse every real visitor. This one is easy to introduce later as an "optimisation" and it breaks playback for 100% of users while working perfectly in whatever environment you tested it from
+2. **A playback URL is not tied to a device or a person.** It works for anyone who holds it until it expires, which is exactly why the thirty minutes matters and why the handling rules below are not decoration
 
-3. **A playback URL cannot be opened directly in a browser tab.** The CDN refuses requests that arrive with no referrer, which is exactly what pasting a URL into the address bar produces. These only work when loaded from a page. Neither you nor we can debug one by clicking it, so do not read a 403 in a fresh tab as a broken token
+**Two rules were removed on 7 August 2026, and both make your life easier:**
 
-Related: do not set `Referrer-Policy: no-referrer` on pages that play video, or requests to the CDN lose their referrer and every one is refused.
+- **URLs are no longer bound to the viewer's IP address.** They were from 3 August, and it could never have worked: this API sits behind a dual-stack Cloudflare and the video zone is reachable only over IPv4, so a visitor with IPv6 had a token signed for their v6 address and then arrived at the CDN over v4. That is a 403 for every visitor with working IPv6, on every film, every time
+- **Which means the "fetch it from the browser, never from a server" rule is gone.** A URL fetched by a server component or a route handler now works for the visitor you hand it to. Caching one still does not become safe, for the reasons below, but the binding that made server-side fetching fatal is no longer there
+
+**Still true:** the CDN currently refuses requests that arrive with no referrer, so a URL pasted into an address bar 403s and cannot be debugged by clicking it, and you should not set `Referrer-Policy: no-referrer` on pages that play video. **This is being turned off**, so treat it as a temporary hazard rather than a design constraint. If it is still biting when you read this, say so.
 
 ### GET /api/v1/{locale}/cards/{id}/video
 
@@ -174,11 +177,11 @@ Related: do not set `Referrer-Policy: no-referrer` on pages that play video, or 
 }
 ```
 
-- **`url` is a credential with a timer, valid for two hours.** Do not cache it, do not store it, do not put it anywhere it can be shared. The response carries `Cache-Control: no-store` and your side must respect that: a service worker or a persisted store turns two hours of exposure into however long it keeps it
-- **The three rules above apply here too**: bound to the viewer's IP, fetched from the browser only, and never openable in a browser tab
+- **`url` is a credential with a timer, valid for thirty minutes.** Do not cache it, do not store it, do not put it anywhere it can be shared. The response carries `Cache-Control: no-store` and your side must respect that: a service worker or a persisted store turns half an hour of exposure into however long it keeps it
+- **The rules above apply here too**, and matter more: this URL is the thing the pass is sold for, and since 7 August 2026 it works for anyone holding it rather than only for the person who asked
 - **HLS, not MP4.** Same as the draw
 - **Ask for a fresh one rather than reusing an old one.** `expires_at` is there so a player can renew before it dies rather than stalling mid-video
-- **404 for a card whose video is not ready**, which includes one still transcoding, one with no poster frame, and one not on the website in that language. There is genuinely nothing to serve
+- **404 for a card whose video is not ready**, which includes one still transcoding, one whose film has been removed, and one not on the website in that language. There is genuinely nothing to serve
 - **403 for a signed-in customer without a pass**, not 404. The Viewing Room is advertised, and hiding it would only confuse somebody who paid and is signed in as the wrong account
 - **401 with no authentication at all**
 
@@ -272,7 +275,7 @@ On 422, `errors` is keyed by field name with an array of messages per field, and
 - Content URLs carry the language in the path, so each language caches separately with no configuration at all. Currency is the only remaining variance: sending `?currency=` explicitly makes them cleanly cacheable, relying on country detection does not
 - **`/api/v1/{locale}/cards/draw` must never be cached or stored, by you or by anything between us.** It says so in its own headers, and it holds a signed film as well as a card. Everything else on the cards endpoints is as cacheable as the readings
 - **`/api/v1/{locale}/cards/{id}/video` must never be cached or stored either**, for the same reason: the answer is a signed credential rather than content
-- **Both of those mean a service worker and a persisted store too.** Either one turns two hours of exposure into however long it keeps the URL, which is the single easiest way to undo the paywall from your side
+- **Both of those mean a service worker and a persisted store too.** Either one turns half an hour of exposure into however long it keeps the URL, which is the single easiest way to undo the paywall from your side
 - `/api/v1/currencies` contains `detected`, which is per-visitor. It must not be cached at a shared edge on URL alone, or one visitor's currency gets served to the next. The CDN cache key accounts for this
 
 The country header only exists once traffic flows through the CDN. Before DNS cutover, and in local development, detection falls back to USD. That is expected, not a bug.

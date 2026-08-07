@@ -8,7 +8,6 @@ use App\Http\Resources\Api\V1\CardCollection;
 use App\Http\Resources\Api\V1\CardResource;
 use App\Http\Resources\Api\V1\RevealCardResource;
 use App\Models\Card;
-use App\Support\ViewerIp;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -43,8 +42,9 @@ class CardController extends Controller
      * 2 August 2026 with the consequence written down rather than discovered:
      * there is no server-side limit here to lean on, so nothing stops a visitor
      * collecting the deck. What signing still buys is that no film is reachable
-     * by guessing an address and a copied link stops working. The reasoning and
-     * the declined alternatives are in docs/plans/reveal-video-plan.md.
+     * by guessing an address, and that a copied link is dead within half an
+     * hour. The reasoning and the declined alternatives are in
+     * docs/plans/reveal-video-plan.md.
      *
      * What plays is `App\Contracts\RevealVideoSource`, so replacing the full
      * film with a preview or a purpose-made clip changes a config line and
@@ -59,21 +59,30 @@ class CardController extends Controller
             ->inRandomOrder()
             ->first();
 
-        // Signed for the visitor who asked, since Bunny binds the token to their
-        // address. This is also why the frontend must call it from the browser:
-        // fetched from a server, the token would be bound to that server and
-        // refuse every real viewer.
+        // Signed and short lived, and no longer bound to who asked: the video
+        // zone is IPv4 only and this API is not, so a token carrying the asker's
+        // address refused every visitor with IPv6.
         $playback = $card === null
             ? null
-            : $source->playbackFor($card, ViewerIp::from($request));
+            : $source->playbackFor($card);
 
         // No fallback to a card without a film, decided 2 August 2026 on the
         // basis that one will not exist in the system. So an empty pool is the
         // 404 this endpoint already gave when nothing was on the website, and
-        // a freshly seeded environment 404s here until a card has both a film
-        // and a poster.
+        // a freshly seeded environment 404s here until a card has a film.
+        //
+        // Which reason it was, in words, because the two are indistinguishable
+        // from outside and the empty body this used to send read like a routing
+        // mistake. It cost an afternoon on staging on 7 August 2026. The extra
+        // query only ever runs on the way to a 404, and the frontend treats any
+        // 404 here as nothing to draw, so this tells a person and changes
+        // nothing for the site.
         if ($playback === null) {
-            throw new NotFoundHttpException;
+            throw new NotFoundHttpException(
+                Card::availableIn(app()->getLocale())->exists()
+                    ? 'No card on the website has a film to play yet.'
+                    : 'There are no cards on the website in this language yet.'
+            );
         }
 
         return (new RevealCardResource($card, $playback))

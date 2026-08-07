@@ -53,7 +53,7 @@ class CardFactory extends Factory
     }
 
     /**
-     * A card in the Viewing Room: video prepared, poster uploaded.
+     * A card in the Viewing Room: its video prepared and ready to watch.
      */
     public function watchable(): static
     {
@@ -61,7 +61,6 @@ class CardFactory extends Factory
             'bunny_video_id' => fake()->uuid(),
             'video_status' => VideoStatus::Ready,
             'video_master_path' => 'masters/'.fake()->uuid().'.mp4',
-            'poster_path' => 'posters/'.fake()->uuid().'.jpg',
             'video_uploaded_at' => now(),
         ]);
     }
@@ -99,15 +98,6 @@ class CardFactory extends Factory
             'bunny_incoming_video_id' => fake()->uuid(),
             'video_status' => VideoStatus::Processing,
         ]);
-    }
-
-    /**
-     * A video with no poster frame, which is watchable in every sense except
-     * the one that counts.
-     */
-    public function withoutPoster(): static
-    {
-        return $this->watchable()->state(fn (): array => ['poster_path' => null]);
     }
 
     public function unpublished(): static

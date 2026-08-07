@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\VideoStatus;
+use App\Jobs\ForgetCardVideo;
 use App\Jobs\SendCardVideoToBunny;
 use App\Models\Concerns\HasTranslationCompleteness;
 use App\Support\Locales;
@@ -27,7 +28,7 @@ use Spatie\Translatable\HasTranslations;
 #[Fillable([
     'number', 'name', 'short_description', 'long_description', 'image_path',
     'is_published', 'bunny_video_id', 'bunny_incoming_video_id', 'video_status',
-    'video_master_path', 'poster_path', 'video_uploaded_at',
+    'video_master_path', 'video_uploaded_at',
 ])]
 class Card extends Model
 {
@@ -52,32 +53,128 @@ class Card extends Model
     }
 
     /**
-     * A newly uploaded master is a video waiting to be sent to Bunny.
+     * What this save is throwing away, captured before the row forgets it.
+     *
+     * The columns are cleared during `saving` and the job that acts on them is
+     * dispatched during `saved`, by which point there is nothing left to read.
+     * So it is held here, for the length of one save, and cleared as it is used.
+     */
+    protected ?ForgetCardVideo $discarded = null;
+
+    /**
+     * Everything that happens to a card because its master changed.
      *
      * On the model rather than on the edit screen, so it holds however the file
-     * arrived: the panel, a console command, a test. What it must not do is
-     * overrule a caller who said what the status is, which is how a factory
-     * builds a card that is already watchable.
+     * arrived: the panel, a console command, a test.
+     *
+     * Three things a changed master can mean, and they are told apart by what
+     * was there before:
+     *
+     * - **Nothing, then a file.** A first upload. The card is waiting to be sent
+     * - **A file, then a different file.** A replacement. The old master is
+     *   thrown away and both video ids are left alone, because the old film is
+     *   still playing and must keep playing until the new one is ready
+     * - **A file, then nothing.** She removed it. Every video column is cleared
+     *   and the film and the master are both thrown away
+     *
+     * The first two must not overrule a caller who said what the status is,
+     * which is how a factory builds a card that is already watchable.
      */
     protected static function booted(): void
     {
         static::saving(function (self $card): void {
-            if ($card->isDirty('video_master_path')
-                && filled($card->video_master_path)
-                && ! $card->isDirty('video_status')) {
+            if (! $card->isDirty('video_master_path')) {
+                return;
+            }
+
+            $card->discarded = blank($card->video_master_path)
+                ? $card->forgetVideoEntirely()
+                : $card->forgetSupersededMaster();
+
+            if (filled($card->video_master_path) && ! $card->isDirty('video_status')) {
                 $card->video_status = VideoStatus::Pending;
                 $card->video_uploaded_at = now();
             }
         });
 
-        // Sending it is the queue's job, so she is never left waiting on a
-        // 40MB upload to a third party. After the transaction commits, or a
-        // worker can pick the job up before the row it describes exists.
+        // Both after the transaction commits, or a worker can pick a job up
+        // before the row it describes exists.
         static::saved(function (self $card): void {
+            // First, because a save that removes a video sets the status to
+            // null and so cannot reach the line below.
+            $card->dispatchDiscardedVideo();
+
+            // Sending it is the queue's job, so she is never left waiting on a
+            // 40MB upload to a third party.
             if ($card->wasChanged('video_master_path') && $card->video_status === VideoStatus::Pending) {
                 SendCardVideoToBunny::dispatch($card)->afterCommit();
             }
         });
+    }
+
+    /**
+     * She removed the film. The card goes back to having no video at all.
+     *
+     * Every video column, not only the master, which is the whole point. The row
+     * kept its status before this existed, which is why the panel went on saying
+     * "Ready to watch" about a card with nothing to watch, and it kept
+     * `bunny_video_id`, which is why the film stayed in Bunny's library and the
+     * Viewing Room went on serving it.
+     *
+     * Absence rather than a fifth status, matching a card that never had a
+     * video: `video_status` is null, and the list column already says "None yet"
+     * for that.
+     */
+    private function forgetVideoEntirely(): ForgetCardVideo
+    {
+        $discarded = new ForgetCardVideo(
+            videoIds: [$this->bunny_video_id, $this->bunny_incoming_video_id],
+            masterPath: $this->getOriginal('video_master_path'),
+            cardId: $this->id,
+        );
+
+        $this->bunny_video_id = null;
+        $this->bunny_incoming_video_id = null;
+        $this->video_status = null;
+        $this->video_uploaded_at = null;
+
+        return $discarded;
+    }
+
+    /**
+     * A new master over an old one. Only the old file goes.
+     *
+     * The video ids are deliberately untouched. The film Bunny already has keeps
+     * playing while the replacement transcodes, which is what the two columns
+     * exist for, and the one it replaces is thrown away at the moment of
+     * promotion instead.
+     *
+     * Filament leaves the superseded object in the bucket, since a file field
+     * with no `deleteUploadedFileUsing` only clears the path. Every replacement
+     * before this leaked one.
+     */
+    private function forgetSupersededMaster(): ForgetCardVideo
+    {
+        return new ForgetCardVideo(
+            masterPath: $this->getOriginal('video_master_path'),
+            cardId: $this->id,
+        );
+    }
+
+    /**
+     * Hands whatever this save threw away to the queue, once.
+     */
+    private function dispatchDiscardedVideo(): void
+    {
+        $discarded = $this->discarded;
+        $this->discarded = null;
+
+        // The job that was built during `saving` is the one that goes, rather
+        // than a new one built from arguments repeated here. There is nothing
+        // left on the row to rebuild it from anyway.
+        if ($discarded?->hasSomethingToForget()) {
+            dispatch($discarded)->afterCommit();
+        }
     }
 
     protected function casts(): array
@@ -133,15 +230,13 @@ class Card extends Model
     public function scopeViewableIn(Builder $query, string $locale): Builder
     {
         return $query->availableIn($locale)
-            ->whereNotNull('bunny_video_id')
-            ->whereNotNull('poster_path');
+            ->whereNotNull('bunny_video_id');
     }
 
     public function isViewableIn(string $locale): bool
     {
         return $this->isAvailableIn($locale)
-            && $this->isPlayable()
-            && $this->hasPoster();
+            && $this->isPlayable();
     }
 
     /**
@@ -173,19 +268,35 @@ class Card extends Model
      * The only place `bunny_video_id` is ever written after the first upload, so
      * there is one moment where a customer's video changes underneath them and
      * it is this one.
+     *
+     * **It is also the moment the old film stops being anybody's.** Until
+     * 7 August 2026 the superseded id was dropped on the floor, so every
+     * replacement ever done left a film in Bunny's library that nothing pointed
+     * at. Cleaning it up makes promotion destructive, which is the cost taken
+     * knowingly: this runs from a webhook and a scheduled sweep rather than from
+     * anything Jennifer does, so a promotion firing on a card it should not have
+     * used to be recoverable and no longer is.
+     *
+     * **The order is load-bearing.** The row is saved pointing at its
+     * replacement before anything is queued to delete the old one, so a job that
+     * runs the instant it is dispatched cannot delete a film the card still
+     * points at.
      */
     public function promoteIncomingVideo(): void
     {
+        $superseded = $this->bunny_video_id;
+
         $this->forceFill([
             'bunny_video_id' => $this->bunny_incoming_video_id,
             'bunny_incoming_video_id' => null,
             'video_status' => VideoStatus::Ready,
         ])->save();
-    }
 
-    public function hasPoster(): bool
-    {
-        return filled($this->poster_path);
+        // Null on a first upload, which is most promotions. There was nothing
+        // before it to throw away.
+        if (filled($superseded)) {
+            ForgetCardVideo::dispatch([$superseded], cardId: $this->id)->afterCommit();
+        }
     }
 
     /**
@@ -212,10 +323,6 @@ class Card extends Model
                 : 'its video to finish being prepared';
         }
 
-        if (! $this->hasPoster()) {
-            $missing[] = 'a poster frame';
-        }
-
         // Last, because it reads oddly first and because it is the one thing
         // she fixes on a different screen.
         if (! $this->isAvailableIn($locale)) {
@@ -223,19 +330,6 @@ class Card extends Model
         }
 
         return $missing;
-    }
-
-    /**
-     * Where the poster is served from. A still rather than the thing the
-     * paywall protects, so it sits with the pictures.
-     */
-    public function posterUrl(): ?string
-    {
-        if (! $this->hasPoster()) {
-            return null;
-        }
-
-        return Storage::disk(config('filesystems.media'))->url($this->poster_path);
     }
 
     /**

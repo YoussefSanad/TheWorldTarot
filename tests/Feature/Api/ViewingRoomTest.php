@@ -24,7 +24,7 @@ beforeEach(function () {
         'cdn_hostname' => 'vz-example.b-cdn.net',
         'api_url' => 'https://video.bunnycdn.com',
         'upload_timeout' => 300,
-        'playback_ttl' => 7200,
+        'playback_ttl' => 1800,
     ]);
 });
 
@@ -45,9 +45,10 @@ it('gives a pass holder a signed url that expires', function () {
         ->and($response->json('url'))->toContain('token=')
         ->and($response->json('url'))->toContain('expires=')
         ->and($response->json('expires_at'))->not->toBeNull()
-        // Two hours, so nobody is cut off mid-video and a copied link is
-        // worthless by the evening.
-        ->and(now()->diffInMinutes($response->json('expires_at')))->toEqualWithDelta(120, 1);
+        // Half an hour, cut from two on 7 August 2026. Long enough for a film
+        // and a pause, and short enough to be worth something now the window is
+        // the only thing limiting a copied link.
+        ->and(now()->diffInMinutes($response->json('expires_at')))->toEqualWithDelta(30, 1);
 });
 
 it('refuses anybody who is not signed in', function () {
@@ -94,7 +95,6 @@ it('has nothing to serve for a card whose video is not ready', function (string 
 })->with([
     'still being prepared' => 'videoProcessing',
     'the upload failed' => 'videoFailed',
-    'no poster frame' => 'withoutPoster',
 ]);
 
 it('has nothing to serve for a card nobody has filmed', function () {

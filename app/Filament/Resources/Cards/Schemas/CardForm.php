@@ -74,7 +74,7 @@ class CardForm
                     ]),
 
                 Section::make('The Living Tarot video')
-                    ->description('The film for this card, and the picture the player shows before it starts.')
+                    ->description('The film for this card.')
                     // Same rule as the picture: the video belongs to the card
                     // rather than to a language, and a file field on a
                     // translation tab is emptied by the language switcher.
@@ -82,7 +82,11 @@ class CardForm
                     ->schema([
                         FileUpload::make('video_master_path')
                             ->label('Card video')
-                            ->helperText('It takes a few minutes to be prepared for playing after you save. You can carry on working while it does.')
+                            // Says what saving costs, because saving is the
+                            // point of no return and the X on its own is not.
+                            // Removing the film deletes it for good, and this
+                            // is the only place she is told before it happens.
+                            ->helperText('It takes a few minutes to be prepared for playing after you save. You can carry on working while it does. Removing the film here takes the card out of the Viewing Room and deletes the film for good when you save, so keep your own copy.')
                             ->disk(config('filesystems.uploads'))
                             ->directory('masters')
                             ->visibility('private')
@@ -92,20 +96,6 @@ class CardForm
                             ->validationMessages([
                                 'max' => 'That file is too large. Videos should be under 200MB.',
                                 'mimetypes' => 'That is not a video file. An MP4 or a QuickTime file is expected.',
-                            ]),
-
-                        FileUpload::make('poster_path')
-                            ->label('Poster frame')
-                            ->helperText('The still the player shows before the video plays. Without it, the card stays out of the Viewing Room.')
-                            ->image()
-                            ->imageEditor()
-                            ->disk(config('filesystems.media'))
-                            ->directory('posters')
-                            ->visibility('public')
-                            ->maxSize(10240)
-                            ->dehydrated(fn (mixed $livewire): bool => self::onOriginalLanguage($livewire))
-                            ->validationMessages([
-                                'max' => 'That picture is too large. Keep it under 10MB.',
                             ]),
                     ]),
 

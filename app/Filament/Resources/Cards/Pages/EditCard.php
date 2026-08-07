@@ -25,9 +25,9 @@ class EditCard extends EditRecord
      * Two different questions a card can be unfinished for.
      *
      * Being on the website is about copy and a picture. Being in the Viewing
-     * Room is about a video and a poster. A card is routinely one and not the
-     * other, and saying only the first would leave her wondering why a finished
-     * card is not watchable.
+     * Room is about a video. A card is routinely one and not the other, and
+     * saying only the first would leave her wondering why a finished card is
+     * not watchable.
      */
     public function getSubheading(): ?string
     {

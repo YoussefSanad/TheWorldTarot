@@ -221,10 +221,12 @@ curl -s -D- $API/api/v1/en/cards/draw
 | Within a minute | Status becomes **Being prepared**, and the video appears in the Bunny library named like `0. The Fool` |
 | Once Bunny finishes | Status becomes **Ready to watch** with no action from you. If it does not, the webhook URL is not registered in that library |
 | `php artisan cards:reconcile-videos` | Finishes anything the callback missed. It should normally print "Nothing is waiting" |
-| A card with a video and no poster | Says it is not in the Viewing Room yet and names the poster frame |
+| Remove the video from a card that is ready, save | Status goes back to **None yet**, the card leaves the Viewing Room, and the film is gone from the Bunny library and the master from the private bucket within a minute |
+| The same card afterwards | Still **on the website**. Removing a film never takes a card out of the Library |
+| Upload a replacement, wait for it to be ready | The superseded film is gone from the Bunny library, and the old master is gone from the bucket |
 | Upload a replacement on a card that is ready | Status returns to being prepared, and **the card stays in the Viewing Room the whole time** |
 | Upload something that is not a video | Refused, saying an MP4 or QuickTime file is expected |
-| Switch to the Spanish tab | **No video or poster fields.** One film serves every language |
+| Switch to the Spanish tab | **No video field.** One film serves every language |
 
 ---
 
@@ -253,7 +255,7 @@ Member login arrives in M5, so mint a token by hand for this section. See `docs/
 | No token at all | **401** |
 | A signed-in customer with no pass | **403**, not 404 |
 | An admin session | **401.** Running the panel is not the same as holding a pass |
-| A card still being prepared, or with no poster | **404** |
+| A card still being prepared, or whose film was removed | **404** |
 | A card that is not on the website in that language | **404** |
 
 ---
@@ -295,7 +297,7 @@ Member login arrives in M5, so mint a token by hand for this section. See `docs/
 - Seeded readings start unpublished at zero, so `/products` is empty until one is published
 - There is no Create, Delete, or web address field for readings, and no way to add a language in the panel
 - Seeded cards arrive named, unwritten and unpictured, so `/cards` is empty until both are supplied
-- A card can be on the website and not in the Viewing Room. Copy and a picture put it in the Library; a prepared video and a poster put it in the Viewing Room
+- A card can be on the website and not in the Viewing Room. Copy and a picture put it in the Library; a prepared video puts it in the Viewing Room. A poster frame was a third requirement until 7 August 2026, when it left the system
 - A pass holder can save a video they are watching. Signing stops people without a pass, not the person holding one, and that was decided knowingly
 - The viewing room pass counts toward translation like everything else, so Spanish needs its copy before Spanish can go live
 - Adding anything, a card included, takes a live language down until it is translated. That is the rule working, not a fault

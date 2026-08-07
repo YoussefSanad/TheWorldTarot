@@ -28,7 +28,7 @@ it('has no status at all until a video exists', function () {
         ->and($card->isViewableIn('en'))->toBeFalse();
 });
 
-it('is in the viewing room when the video is ready and a poster exists', function () {
+it('is in the viewing room when the video is ready', function () {
     $card = Card::factory()->watchable()->create();
 
     expect($card->isViewableIn('en'))->toBeTrue()
@@ -104,19 +104,12 @@ it('does not overrule a caller who says what the status is', function () {
     expect($card->video_status)->toBe(VideoStatus::Ready);
 });
 
-it('keeps a card with no poster frame out of the viewing room', function () {
-    $card = Card::factory()->withoutPoster()->create();
-
-    expect($card->isViewableIn('en'))->toBeFalse()
-        ->and(Card::viewableIn('en')->count())->toBe(0)
-        ->and($card->whatTheViewingRoomIsWaitingFor('en'))->toBe(['a poster frame']);
-});
-
 it('says a card needs a video when it has none', function () {
     $card = Card::factory()->create();
 
-    expect($card->whatTheViewingRoomIsWaitingFor('en'))
-        ->toBe(['a video', 'a poster frame']);
+    // The only thing the Viewing Room waits for now. A poster frame sat beside
+    // it until 7 August 2026, when it left the system entirely.
+    expect($card->whatTheViewingRoomIsWaitingFor('en'))->toBe(['a video']);
 });
 
 it('will not put a card in the viewing room that is not on the website', function () {
@@ -146,7 +139,6 @@ it('holds a card out of a language it is not translated into', function () {
 it('filters the viewing room in the query and in php identically', function () {
     Card::factory()->watchable()->create();
     Card::factory()->videoProcessing()->create();
-    Card::factory()->withoutPoster()->create();
     Card::factory()->create();
     Card::factory()->watchable()->withoutCopy()->create();
 
@@ -178,13 +170,12 @@ it('allows any number of cards with no video yet', function () {
     expect(Card::whereNull('bunny_video_id')->count())->toBe(3);
 });
 
-it('keeps the master path and the poster on separate disks', function () {
+it('keeps the master on a different disk from the pictures', function () {
     $card = Card::factory()->watchable()->create();
 
-    // The master is the asset the paywall protects and never gets a public URL.
-    // The poster is a still and sits with the pictures.
-    expect($card->posterUrl())->toContain($card->poster_path)
-        ->and($card->video_master_path)->toStartWith('masters/')
+    // The master is the asset the paywall protects and never gets a public URL,
+    // so it must not share a bucket with anything that does.
+    expect($card->video_master_path)->toStartWith('masters/')
         ->and(config('filesystems.uploads'))->not->toBe(config('filesystems.media'));
 });
 

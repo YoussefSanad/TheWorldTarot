@@ -48,19 +48,23 @@ return [
         // request. Everything else here is a small JSON call.
         'upload_timeout' => (int) env('BUNNY_UPLOAD_TIMEOUT', 300),
 
-        // How long a playback URL works for, in seconds. Two hours, decided
-        // 29 July 2026: long enough that nobody is cut off mid-video, including
-        // a phone leaving wifi for mobile data, and short enough that a copied
-        // link is worthless by the evening.
+        // How long a playback URL works for, in seconds. Thirty minutes, cut
+        // from two hours on 7 August 2026 when IP binding was removed.
+        //
+        // The two are one decision. Binding a token to the viewer's address was
+        // what allowed a long life, and it could never work here, so the window
+        // itself is now the only thing limiting a copied link and it has to be
+        // sized accordingly. Comfortably longer than any film plus a pause, and
+        // short enough that a link pasted into a chat is dead before anybody
+        // reads it.
         //
         // The exposure this accepts, in writing: a pass holder can share a
-        // working link for that long. IP binding and a fifteen minute token were
-        // both offered and declined in favour of never interrupting a viewer.
-        'playback_ttl' => (int) env('BUNNY_PLAYBACK_TTL', 7200),
+        // working link for half an hour.
+        'playback_ttl' => (int) env('BUNNY_PLAYBACK_TTL', 1800),
 
-        // How long a homepage reveal URL works for, in seconds. The same two
-        // hours, decided 2 August 2026, and deliberately a second key rather
-        // than a reference to the one above.
+        // How long a homepage reveal URL works for, in seconds. The same thirty
+        // minutes, and deliberately a second key rather than a reference to the
+        // one above.
         //
         // They are the same figure and not the same decision. A reveal URL is
         // public and a playback URL is sold, so shortening what anybody can get
@@ -68,10 +72,11 @@ return [
         // Viewing Room must never lengthen a public credential. One key each is
         // what keeps moving either one out of the code.
         //
-        // What two hours accepts here, in writing: a reveal URL copied out of
-        // developer tools plays the full film from anywhere until it expires.
-        // Fifteen minutes was offered and declined.
-        'reveal_ttl' => (int) env('BUNNY_REVEAL_TTL', 7200),
+        // What this accepts, in writing: a reveal URL copied out of developer
+        // tools plays the full film from anywhere until it expires. That was
+        // true of the two hours it replaced as well, since the IP binding that
+        // was supposed to prevent it never worked.
+        'reveal_ttl' => (int) env('BUNNY_REVEAL_TTL', 1800),
     ],
 
     'ses' => [

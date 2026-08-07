@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\Log;
 /**
  * Everything this application knows about Bunny Stream.
  *
- * Four things: create a video, upload its bytes, ask what became of it, and sign
- * a URL somebody may watch. Nothing else talks to Bunny, so when their API
- * changes there is one file to fix.
+ * Five things: create a video, upload its bytes, ask what became of it, sign a
+ * URL somebody may watch, and delete one. Nothing else talks to Bunny, so when
+ * their API changes there is one file to fix.
  */
 class BunnyStream
 {
@@ -74,31 +74,64 @@ class BunnyStream
     }
 
     /**
-     * A URL one person may watch, until it expires.
+     * A video, gone from their library for good.
+     *
+     * **A 404 counts as done.** The only caller is a queued job, the queue
+     * delivers at least once, and "the video is not there" is precisely the
+     * outcome being asked for. Treating it as a failure would make every
+     * redelivery fail and leave a job in the dead letter queue describing work
+     * that succeeded.
+     *
+     * Nothing else here is destructive, and nothing else here needs to be. This
+     * is called when Jennifer removes a film and when a replacement takes over
+     * from the one it replaced.
+     */
+    public function deleteVideo(string $videoId): void
+    {
+        $response = $this->request()->delete($this->endpoint("videos/{$videoId}"));
+
+        if ($response->notFound()) {
+            return;
+        }
+
+        $this->failIfRefused($response, 'delete a video');
+    }
+
+    /**
+     * A URL that plays until it expires.
      *
      * **Proved against the real library on 3 August 2026**, master manifest,
      * rendition and segment. The version before it was never proved and never
      * worked, so playback was broken from M4 until that date while the tests
      * stayed green. See `docs/plans/bunny-playback-fix-plan.md`.
      *
-     * Three things have to be right at once, and getting any one wrong gives an
+     * Two things have to be right at once, and getting either wrong gives an
      * identical 403 with no clue which:
      *
      * - **The token is scoped to the directory, not the file.** HLS resolves
      *   renditions and segments relative to the manifest, so a file-scoped token
      *   loads `playlist.m3u8` and then 403s on everything it points at. That
      *   failure looks exactly like success from `curl`
-     * - **The viewer's IP is part of the hash**, because the zone has
-     *   `ZoneSecurityIncludeHashRemoteIP` on. A URL signed for one person does
-     *   not work for anyone else, which is the point, and it also means signing
-     *   with a proxy's address locks everybody out
      * - **`token_path` appears twice, encoded differently.** Raw inside the
      *   hash, percent-encoded in the query. Swapping them is a silent 403
      *
-     * The zone additionally refuses requests with no `Referer`, so one of these
-     * cannot be opened in a browser tab directly. It only works from a page.
+     * **The viewer's IP was a third, from 3 to 7 August 2026, and it could never
+     * have worked.** The API is behind Cloudflare, which is dual-stack, and the
+     * video zone is IPv4 only. So a visitor with IPv6 fetched their URL over v6,
+     * had it signed for a v6 address, and then reached the zone over v4, which
+     * is the only way there is to reach it. Bunny hashed the v4 address it saw,
+     * got a different answer, and refused. That is every visitor with working
+     * IPv6, which is most home broadband and effectively all mobile, on every
+     * film, every time. It survived being "proved" on staging because curl
+     * defaults to IPv4 and the proof went that way.
+     *
+     * Removed with `ZoneSecurityIncludeHashRemoteIP` turned off to match, and
+     * the two must move together: a hash that disagrees with the zone about
+     * whether an address is in it refuses everybody, in whichever direction it
+     * disagrees. What replaces it is a shorter life, in `services.bunny`, since
+     * the window a copied link works in is now the only thing limiting it.
      */
-    public function playbackUrl(string $videoId, CarbonInterface $expiresAt, string $viewerIp): string
+    public function playbackUrl(string $videoId, CarbonInterface $expiresAt): string
     {
         $hostname = $this->configured('cdn_hostname');
         $expires = $expiresAt->getTimestamp();
@@ -109,7 +142,7 @@ class BunnyStream
 
         $token = $this->urlSafeBase64(hash(
             'sha256',
-            $this->configured('token_key').$directory.$expires.$viewerIp.'token_path='.$directory,
+            $this->configured('token_key').$directory.$expires.'token_path='.$directory,
             true,
         ));
 
