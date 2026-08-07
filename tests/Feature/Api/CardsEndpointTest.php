@@ -18,7 +18,7 @@ beforeEach(function () {
 
     config()->set('services.bunny.token_key', 'a-token-key');
     config()->set('services.bunny.cdn_hostname', 'vz-example.b-cdn.net');
-    config()->set('services.bunny.reveal_ttl', 7200);
+    config()->set('services.bunny.reveal_ttl', 1800);
 });
 
 function cardCopy(int $number): array
@@ -295,7 +295,7 @@ it('hands the drawn card a signed film that expires', function () {
         ->toContain($card->bunny_video_id)
         ->toContain('token=')
         ->and($response->json('video.expires_at'))
-        ->toBe(now()->addSeconds(7200)->toIso8601String());
+        ->toBe(now()->addSeconds(1800)->toIso8601String());
 });
 
 it('keeps the film credential out of every endpoint that is meant to be cached', function () {

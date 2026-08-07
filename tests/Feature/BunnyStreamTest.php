@@ -3,7 +3,6 @@
 use App\Enums\VideoStatus;
 use App\Services\Bunny\BunnyRequestFailed;
 use App\Services\Bunny\BunnyStream;
-use Carbon\Carbon;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -129,40 +128,39 @@ it('says which setting is missing rather than letting bunny say no', function ()
 });
 
 it('reproduces a url bunny actually accepted', function () {
-    // **The only assertion here with any authority.** Every input below was sent
-    // to the real library on 3 August 2026 and answered 200, for the master
-    // manifest, a rendition and a segment. If this fails, our signing has
-    // drifted from what Bunny accepts and playback is broken, whatever the rest
-    // of this file says.
+    // **The only assertion here with any authority, and it is currently blank.**
     //
-    // The tests this replaced asserted that the URL contained the token our own
-    // code had just produced. They agreed with the implementation rather than
-    // with Bunny, stayed green for a week, and playback never worked once in
-    // that time. A self-consistent assertion about somebody else's format
-    // proves nothing. Do not replace this with one.
+    // The vector it held was captured from the real library on 3 August 2026 and
+    // included the viewer's IP in the hash. IP binding was removed on 7 August
+    // 2026, because the video zone is IPv4 only and this API is behind a
+    // dual-stack Cloudflare, so a token signed for a visitor's IPv6 address was
+    // refused by a zone that only ever saw them arrive over IPv4. That is every
+    // visitor with working IPv6, on every film.
     //
-    // Regenerating this vector means proving the new one against the live zone
-    // first. See docs/plans/bunny-playback-fix-plan.md.
-    config()->set('services.bunny.token_key', '0cb734b7-053a-49d1-be0c-b8211a76ad9d');
-    config()->set('services.bunny.cdn_hostname', 'vz-9f79c10d-ea5.b-cdn.net');
-
-    $url = app(BunnyStream::class)->playbackUrl(
-        '295593e0-b166-4f90-aded-eff7d9ba794c',
-        Carbon::createFromTimestamp(1893456000),
-        '31.151.68.82',
-    );
-
-    expect($url)->toBe(
-        'https://vz-9f79c10d-ea5.b-cdn.net'
-        .'/bcdn_token=uXBW6XfLNv3hkzTfnLb_JE1DgqYoIkb_fNoH3fzpg88'
-        .'&expires=1893456000'
-        .'&token_path=%2F295593e0-b166-4f90-aded-eff7d9ba794c%2F'
-        .'/295593e0-b166-4f90-aded-eff7d9ba794c/playlist.m3u8'
-    );
-});
+    // So the old vector no longer describes what we send, and **it must not be
+    // recomputed from the new code**. That is exactly the move that cost five
+    // days in M4: a test that agrees with the implementation whatever the
+    // implementation does, staying green through total failure. See
+    // .claude/testing.md.
+    //
+    // To restore it, in this order:
+    //
+    // 1. Turn off `ZoneSecurityIncludeHashRemoteIP` on the pull zone. Until it
+    //    is off, the zone still expects an address in the hash and every URL we
+    //    now mint is refused
+    // 2. Deploy and take a real URL from `GET /{locale}/cards/draw` on staging
+    // 3. Fetch its manifest, a rendition and a segment, and confirm all three
+    //    answer 200. A manifest alone proves nothing, since a wrongly scoped
+    //    token loads it and 403s on everything it points at
+    // 4. Pin that exact URL here with the guid and expiry that produced it, and
+    //    delete this skip
+    //
+    // Left skipped rather than deleted, and rather than weakened into something
+    // that passes, so the gap is visible in every run.
+})->skip('No vector since IP binding was removed on 7 August 2026. Capture one from the live zone, see the steps above.');
 
 it('scopes the token to the whole video, not just the manifest', function () {
-    $url = app(BunnyStream::class)->playbackUrl('a-video-id', now()->addHours(2), '203.0.113.9');
+    $url = app(BunnyStream::class)->playbackUrl('a-video-id', now()->addMinutes(30));
 
     // HLS resolves renditions and segments relative to the manifest, so a token
     // scoped to playlist.m3u8 alone loads the manifest and then 403s on
@@ -171,37 +169,36 @@ it('scopes the token to the whole video, not just the manifest', function () {
         ->and($url)->toEndWith('/a-video-id/playlist.m3u8');
 });
 
-it('signs differently for a different video, deadline or viewer', function () {
+it('signs differently for a different video or deadline', function () {
     $bunny = app(BunnyStream::class);
-    $expires = now()->addHours(2);
-    $ip = '203.0.113.9';
+    $expires = now()->addMinutes(30);
 
     $token = fn (string $url): string => (string) str($url)->after('bcdn_token=')->before('&');
 
-    $baseline = $token($bunny->playbackUrl('one-video', $expires, $ip));
+    $baseline = $token($bunny->playbackUrl('one-video', $expires));
 
-    // A token that survived being moved to another video, having its deadline
-    // edited, or being handed to somebody else would not be protecting anything.
+    // A token that survived being moved to another video or having its deadline
+    // edited would not be protecting anything. The viewer used to be a third
+    // case here, and is not, which is the change of 7 August 2026: the expiry
+    // is now the only thing limiting a copied link.
     expect($baseline)
-        ->not->toBe($token($bunny->playbackUrl('another-video', $expires, $ip)))
+        ->not->toBe($token($bunny->playbackUrl('another-video', $expires)))
         ->and($baseline)
-        ->not->toBe($token($bunny->playbackUrl('one-video', $expires->copy()->addHour(), $ip)))
-        ->and($baseline)
-        ->not->toBe($token($bunny->playbackUrl('one-video', $expires, '198.51.100.4')));
+        ->not->toBe($token($bunny->playbackUrl('one-video', $expires->copy()->addHour())));
 });
 
-it('signs the same way twice for the same viewer', function () {
+it('signs the same way twice for the same video and deadline', function () {
     $bunny = app(BunnyStream::class);
-    $expires = now()->addHours(2);
+    $expires = now()->addMinutes(30);
 
     // Not a property anyone asked for, but a signature that changed per call
     // would make a failure impossible to reproduce.
-    expect($bunny->playbackUrl('a-video-id', $expires, '203.0.113.9'))
-        ->toBe($bunny->playbackUrl('a-video-id', $expires, '203.0.113.9'));
+    expect($bunny->playbackUrl('a-video-id', $expires))
+        ->toBe($bunny->playbackUrl('a-video-id', $expires));
 });
 
 it('never signs with the api key by mistake', function () {
-    $url = app(BunnyStream::class)->playbackUrl('a-video-id', now()->addHours(2), '203.0.113.9');
+    $url = app(BunnyStream::class)->playbackUrl('a-video-id', now()->addMinutes(30));
 
     // The token key and the API key are different values, and confusing them
     // produces a 403 that reads like an expiry problem.
