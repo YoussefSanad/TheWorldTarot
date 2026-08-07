@@ -3,6 +3,7 @@
 use App\Enums\VideoStatus;
 use App\Services\Bunny\BunnyRequestFailed;
 use App\Services\Bunny\BunnyStream;
+use Carbon\Carbon;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -128,36 +129,50 @@ it('says which setting is missing rather than letting bunny say no', function ()
 });
 
 it('reproduces a url bunny actually accepted', function () {
-    // **The only assertion here with any authority, and it is currently blank.**
+    // **The only assertion in this file with any authority.**
     //
-    // The vector it held was captured from the real library on 3 August 2026 and
-    // included the viewer's IP in the hash. IP binding was removed on 7 August
-    // 2026, because the video zone is IPv4 only and this API is behind a
-    // dual-stack Cloudflare, so a token signed for a visitor's IPv6 address was
-    // refused by a zone that only ever saw them arrive over IPv4. That is every
-    // visitor with working IPv6, on every film.
+    // Captured 7 August 2026 from the deployed staging application, after IP
+    // binding was removed and `ZoneSecurityIncludeHashRemoteIP` was turned off
+    // to match. The URL below was minted by the running app and then fetched
+    // from the real zone at three levels, all answering 200:
     //
-    // So the old vector no longer describes what we send, and **it must not be
-    // recomputed from the new code**. That is exactly the move that cost five
-    // days in M4: a test that agrees with the implementation whatever the
-    // implementation does, staying green through total failure. See
-    // .claude/testing.md.
+    //   master manifest  ->  200
+    //   rendition        ->  200  (360p/video.m3u8)
+    //   segment          ->  200  (360p/video0.ts)
     //
-    // To restore it, in this order:
+    // All three, deliberately. A wrongly scoped token loads the manifest and
+    // then 403s on everything it points at, which from a single request is
+    // indistinguishable from working, and that is how M4 shipped five days of
+    // total failure.
     //
-    // 1. Turn off `ZoneSecurityIncludeHashRemoteIP` on the pull zone. Until it
-    //    is off, the zone still expects an address in the hash and every URL we
-    //    now mint is refused
-    // 2. Deploy and take a real URL from `GET /{locale}/cards/draw` on staging
-    // 3. Fetch its manifest, a rendition and a segment, and confirm all three
-    //    answer 200. A manifest alone proves nothing, since a wrongly scoped
-    //    token loads it and 403s on everything it points at
-    // 4. Pin that exact URL here with the guid and expiry that produced it, and
-    //    delete this skip
+    // **It was also minted over IPv6 and fetched over IPv4**, which is the exact
+    // journey that was broken from 3 to 7 August: the API is behind a dual-stack
+    // Cloudflare and the zone has no AAAA record, so every visitor with working
+    // IPv6 had a token signed for an address the zone never saw.
     //
-    // Left skipped rather than deleted, and rather than weakened into something
-    // that passes, so the gap is visible in every run.
-})->skip('No vector since IP binding was removed on 7 August 2026. Capture one from the live zone, see the steps above.');
+    // The vector this replaced included the viewer's IP and was captured on
+    // 3 August. It was not recomputed from the new code, it was thrown away and
+    // a new one taken from the live zone, because a vector recomputed from the
+    // implementation it exists to check protects nothing.
+    //
+    // Regenerating this means proving the new one against the live zone first,
+    // across all three levels. See .claude/testing.md.
+    config()->set('services.bunny.token_key', '0cb734b7-053a-49d1-be0c-b8211a76ad9d');
+    config()->set('services.bunny.cdn_hostname', 'vz-9f79c10d-ea5.b-cdn.net');
+
+    $url = app(BunnyStream::class)->playbackUrl(
+        '295593e0-b166-4f90-aded-eff7d9ba794c',
+        Carbon::createFromTimestamp(1786121766),
+    );
+
+    expect($url)->toBe(
+        'https://vz-9f79c10d-ea5.b-cdn.net'
+        .'/bcdn_token=V_o2EjDrfC94kb0xbW5e7oSJ0HcWLOU1ssh5b0gql_8'
+        .'&expires=1786121766'
+        .'&token_path=%2F295593e0-b166-4f90-aded-eff7d9ba794c%2F'
+        .'/295593e0-b166-4f90-aded-eff7d9ba794c/playlist.m3u8'
+    );
+});
 
 it('scopes the token to the whole video, not just the manifest', function () {
     $url = app(BunnyStream::class)->playbackUrl('a-video-id', now()->addMinutes(30));
