@@ -37,7 +37,7 @@ function writtenCard(int $number, array $attributes = []): Card
 }
 
 /**
- * A card the reveal can draw: written and pictured, with a film and a poster.
+ * A card the reveal can draw: written and pictured, with a film to play.
  *
  * The reveal draws from a narrower pool than the Library since 2 August 2026, so
  * being on the website is no longer enough for it.
@@ -61,7 +61,6 @@ it('returns the agreed shape for a card on the website', function () {
                 'long_description' => 'The longer meaning of the card.',
                 'image' => $card->imageUrl(),
                 'in_viewing_room' => false,
-                'poster' => null,
             ],
         ]);
 });
@@ -216,13 +215,12 @@ it('draws only cards with a film to play', function () {
     revealableCard(0);
     writtenCard(1);
     Card::factory()->videoProcessing()->create(cardCopy(2));
-    Card::factory()->withoutPoster()->create(cardCopy(3));
 
     $drawn = collect(range(1, 20))
         ->map(fn (): int => $this->getJson('/api/v1/en/cards/draw')->json('number'));
 
-    // A card with no film, one still transcoding, and one with no frame to rest
-    // on are each a reveal with nothing to show.
+    // A card with no film and one still transcoding are each a reveal with
+    // nothing to show.
     expect($drawn->unique()->all())->toBe([0]);
 });
 
@@ -244,7 +242,9 @@ it('refuses to be cached, so the reveal is not the same card for everybody', fun
 it('is a 404 when there is no card to reveal', function () {
     Card::factory()->withoutCopy()->create(['number' => 0]);
 
-    $this->getJson('/api/v1/en/cards/draw')->assertNotFound();
+    $this->getJson('/api/v1/en/cards/draw')
+        ->assertNotFound()
+        ->assertJsonPath('message', 'There are no cards on the website in this language yet.');
 });
 
 it('is a 404 when the deck is on the website with no films yet', function () {
@@ -255,7 +255,25 @@ it('is a 404 when the deck is on the website with no films yet', function () {
     // that one will not exist in the system. Recorded as a test because it is
     // the state a freshly seeded environment is in, and the homepage reveal is
     // a 404 in it rather than a card with nothing to play.
-    $this->getJson('/api/v1/en/cards/draw')->assertNotFound();
+    $this->getJson('/api/v1/en/cards/draw')
+        ->assertNotFound()
+        ->assertJsonPath('message', 'No card on the website has a film to play yet.');
+});
+
+it('says which kind of nothing it has, so a 404 here is not a mystery', function () {
+    // Staging spent 7 August 2026 answering `{"message": ""}`, which reads like
+    // a routing mistake and is not one. These are the only two ways to reach
+    // this 404 and they need different things done about them, so they must not
+    // look the same from outside.
+    $empty = $this->getJson('/api/v1/en/cards/draw')->assertNotFound()->json('message');
+
+    writtenCard(0);
+
+    $filmless = $this->getJson('/api/v1/en/cards/draw')->assertNotFound()->json('message');
+
+    expect($empty)->not->toBe('')
+        ->and($filmless)->not->toBe('')
+        ->and($empty)->not->toBe($filmless);
 });
 
 it('is not mistaken for a card called draw', function () {
@@ -308,7 +326,7 @@ it('limits how fast one caller can be handed films', function () {
     $this->getJson('/api/v1/en/cards/draw')->assertStatus(429);
 });
 
-it('says which cards have a film, and shows the frame it rests on', function () {
+it('says which cards have a film', function () {
     $watchable = Card::factory()->watchable()->create(['number' => 30]);
     $unwatchable = writtenCard(31);
 
@@ -321,9 +339,7 @@ it('says which cards have a film, and shows the frame it rests on', function () 
     $unfilmed = collect($library)->firstWhere('id', $unwatchable->id);
 
     expect($filmed['in_viewing_room'])->toBeTrue()
-        ->and($filmed['poster'])->toContain($watchable->poster_path)
-        ->and($unfilmed['in_viewing_room'])->toBeFalse()
-        ->and($unfilmed['poster'])->toBeNull();
+        ->and($unfilmed['in_viewing_room'])->toBeFalse();
 });
 
 it('does not call a card watchable while its video is being prepared', function () {

@@ -89,6 +89,36 @@ it('throws when bunny refuses a request', function (int $status) {
         ->toThrow(BunnyRequestFailed::class);
 })->with([[401], [404], [500]]);
 
+it('deletes a video from the library', function () {
+    Http::fake(['*' => Http::response(['success' => true])]);
+
+    app(BunnyStream::class)->deleteVideo('a-video-id');
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'DELETE'
+        && $request->url() === 'https://video.bunnycdn.com/library/12345/videos/a-video-id'
+        && $request->header('AccessKey')[0] === 'an-api-key');
+});
+
+it('counts a video bunny has already deleted as deleted', function () {
+    Http::fake(['*' => Http::response(['message' => 'Not Found'], 404)]);
+
+    // The only caller is a queued job and the queue delivers at least once, so
+    // the second run finds the video gone. That is the outcome being asked for.
+    // Throwing here would fail every redelivery and park a job in the dead
+    // letter queue describing work that succeeded.
+    expect(fn () => app(BunnyStream::class)->deleteVideo('a-video-id'))
+        ->not->toThrow(BunnyRequestFailed::class);
+});
+
+it('throws when bunny refuses to delete a video for any other reason', function (int $status) {
+    Http::fake(['*' => Http::response('nope', $status)]);
+
+    // A revoked key must not read as a successful cleanup, or a film stays in
+    // the library with nothing left pointing at it and nobody is told.
+    expect(fn () => app(BunnyStream::class)->deleteVideo('a-video-id'))
+        ->toThrow(BunnyRequestFailed::class);
+})->with([[401], [403], [500]]);
+
 it('says which setting is missing rather than letting bunny say no', function () {
     config()->set('services.bunny.key', null);
 

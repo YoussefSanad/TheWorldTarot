@@ -5,6 +5,7 @@ use App\Filament\Resources\Cards\CardResource;
 use App\Filament\Resources\Cards\Pages\CreateCard;
 use App\Filament\Resources\Cards\Pages\EditCard;
 use App\Filament\Resources\Cards\Pages\ListCards;
+use App\Jobs\ForgetCardVideo;
 use App\Models\Admin;
 use App\Models\Card;
 use App\Support\Locales;
@@ -245,23 +246,7 @@ it('uploads a video to the private disk and marks it waiting to be sent', functi
         ->and($card->isViewableIn('en'))->toBeFalse();
 });
 
-it('uploads a poster to the public disk', function () {
-    Storage::fake(config('filesystems.media'));
-    Storage::fake(config('filesystems.uploads'));
-
-    $card = Card::factory()->create();
-
-    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
-        ->fillForm(['poster_path' => [UploadedFile::fake()->image('the-fool.jpg')]])
-        ->call('save')
-        ->assertHasNoFormErrors();
-
-    // A still rather than the thing the paywall protects, so it sits with the
-    // pictures and needs no signing.
-    Storage::disk(config('filesystems.media'))->assertExists($card->refresh()->poster_path);
-});
-
-it('keeps the video and poster fields off the language tabs', function () {
+it('keeps the video field off the language tabs', function () {
     $card = Card::factory()->watchable()->create();
     $master = $card->video_master_path;
 
@@ -271,13 +256,11 @@ it('keeps the video and poster fields off the language tabs', function () {
         ->assertFormFieldExists('video_master_path')
         ->set('activeLocale', 'es')
         ->assertFormFieldDoesNotExist('video_master_path')
-        ->assertFormFieldDoesNotExist('poster_path')
         ->fillForm(['name' => 'El Loco'])
         ->call('save')
         ->assertHasNoFormErrors();
 
-    expect($card->refresh()->video_master_path)->toBe($master)
-        ->and($card->poster_path)->not->toBeNull();
+    expect($card->refresh()->video_master_path)->toBe($master);
 });
 
 it('says what the viewing room is waiting for', function () {
@@ -302,6 +285,68 @@ it('shows the video status in the list', function () {
     // which, and one of them needs her to do something.
     Livewire::test(ListCards::class)
         ->assertSee('Being prepared');
+});
+
+it('removes a card\'s video through the panel', function () {
+    Queue::fake();
+    Storage::fake(config('filesystems.uploads'));
+
+    $card = Card::factory()->watchable()->create();
+
+    // An empty array rather than a null, because that is what the field really
+    // holds after she clicks the X: the file is dropped from the state and the
+    // save is what turns it into a null on the row.
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->fillForm(['video_master_path' => []])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    // The point of the whole change, walked the way she walks it. Clearing the
+    // field and saving has to leave a card with no video rather than a card
+    // whose row still claims to have one.
+    expect($card->refresh()->hasVideo())->toBeFalse()
+        ->and($card->video_status)->toBeNull()
+        ->and($card->bunny_video_id)->toBeNull();
+
+    Queue::assertPushed(ForgetCardVideo::class);
+});
+
+it('stops saying a card is ready to watch once its video is removed', function () {
+    Queue::fake();
+
+    $card = Card::factory()->watchable()->create();
+
+    Livewire::test(ListCards::class)->assertSee('Ready to watch');
+
+    $card->update(['video_master_path' => null]);
+
+    // The reported symptom. A card whose video was removed has to read the same
+    // as one that never had a video, and the column already says "None yet" for
+    // that, so nulling the status is the whole fix.
+    Livewire::test(ListCards::class)
+        ->assertDontSee('Ready to watch')
+        ->assertSee('None yet');
+});
+
+it('says the viewing room is waiting for a video once one is removed', function () {
+    Queue::fake();
+
+    $card = Card::factory()->watchable()->create();
+
+    $card->update(['video_master_path' => null]);
+
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->assertSee('Not in the Viewing Room yet')
+        ->assertSee('a video');
+});
+
+it('warns her that saving deletes the film for good', function () {
+    $card = Card::factory()->watchable()->create();
+
+    // The X on its own is recoverable by navigating away without saving. The
+    // save is not, and this field is the only place she is told so.
+    Livewire::test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->assertSee('deletes the film for good');
 });
 
 it('offers no switch for taking a card off the website', function () {

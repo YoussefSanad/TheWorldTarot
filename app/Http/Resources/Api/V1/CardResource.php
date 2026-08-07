@@ -48,15 +48,18 @@ class CardResource extends JsonResource
             // picture in every language.
             'image' => $this->imageUrl(),
 
-            // Whether there is a film to watch, and the frame it rests on.
+            // Whether there is a film to watch.
             //
             // Here rather than behind the paywall because the Viewing Room is
             // advertised: the site shows all twenty-two, locked, and invites
             // people to buy the pass. Knowing a film exists is the marketing.
             // Watching it is what needs paying for, and that is refused by the
             // endpoint that serves the URL, whatever this says.
+            //
+            // A poster frame sat beside this until 7 August 2026. It was a
+            // second per-card upload gating the Viewing Room and the draw, and
+            // the card's own picture is what the frontend rests a player on.
             'in_viewing_room' => $this->isViewableIn(app()->getLocale()),
-            'poster' => $this->posterUrl(),
         ];
     }
 }

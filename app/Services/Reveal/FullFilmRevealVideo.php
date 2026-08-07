@@ -28,16 +28,14 @@ class FullFilmRevealVideo implements RevealVideoSource
     /**
      * Cards with a film somebody could actually watch.
      *
-     * The same pair of conditions the Viewing Room uses, and reused rather than
-     * restated so the two cannot drift into disagreeing about what a watchable
-     * card is. `bunny_video_id` only ever holds a ready video, so a card having
-     * a replacement prepared stays drawable and keeps playing what it has.
+     * The same condition the Viewing Room uses, and reused rather than restated
+     * so the two cannot drift into disagreeing about what a watchable card is.
+     * `bunny_video_id` only ever holds a ready video, so a card having a
+     * replacement prepared stays drawable and keeps playing what it has.
      */
     public function eligible(Builder $query): Builder
     {
-        return $query
-            ->whereNotNull('bunny_video_id')
-            ->whereNotNull('poster_path');
+        return $query->whereNotNull('bunny_video_id');
     }
 
     public function playbackFor(Card $card, string $viewerIp): ?RevealPlayback

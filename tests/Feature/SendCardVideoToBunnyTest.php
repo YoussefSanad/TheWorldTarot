@@ -122,7 +122,7 @@ it('uploads to the same video when the queue runs it twice', function () {
 
 it('leaves the old video playing while the replacement goes up', function () {
     bunnyAccepts('the-replacement');
-    $card = cardAwaitingUpload(['poster_path' => 'posters/the-fool.jpg']);
+    $card = cardAwaitingUpload();
     $card->update(['bunny_video_id' => 'the-original', 'video_status' => VideoStatus::Ready]);
 
     Storage::disk(config('filesystems.uploads'))->put('masters/again.mp4', 'a better film');

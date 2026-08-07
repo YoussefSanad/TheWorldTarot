@@ -33,13 +33,12 @@ it('resolves whatever source the config names', function () {
 it('draws only cards with a film somebody could watch', function () {
     $watchable = Card::factory()->watchable()->create();
     Card::factory()->videoProcessing()->create();
-    Card::factory()->withoutPoster()->create();
     Card::factory()->create();
 
     $drawn = app(FullFilmRevealVideo::class)->eligible(Card::query())->pluck('id');
 
-    // A first upload still transcoding, a film with no poster frame, and a card
-    // with no video at all are each a reveal with nothing to play.
+    // A first upload still transcoding and a card with no video at all are each
+    // a reveal with nothing to play.
     expect($drawn)->toHaveCount(1)
         ->and($drawn->first())->toBe($watchable->id);
 });

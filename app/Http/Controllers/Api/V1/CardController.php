@@ -70,10 +70,20 @@ class CardController extends Controller
         // No fallback to a card without a film, decided 2 August 2026 on the
         // basis that one will not exist in the system. So an empty pool is the
         // 404 this endpoint already gave when nothing was on the website, and
-        // a freshly seeded environment 404s here until a card has both a film
-        // and a poster.
+        // a freshly seeded environment 404s here until a card has a film.
+        //
+        // Which reason it was, in words, because the two are indistinguishable
+        // from outside and the empty body this used to send read like a routing
+        // mistake. It cost an afternoon on staging on 7 August 2026. The extra
+        // query only ever runs on the way to a 404, and the frontend treats any
+        // 404 here as nothing to draw, so this tells a person and changes
+        // nothing for the site.
         if ($playback === null) {
-            throw new NotFoundHttpException;
+            throw new NotFoundHttpException(
+                Card::availableIn(app()->getLocale())->exists()
+                    ? 'No card on the website has a film to play yet.'
+                    : 'There are no cards on the website in this language yet.'
+            );
         }
 
         return (new RevealCardResource($card, $playback))

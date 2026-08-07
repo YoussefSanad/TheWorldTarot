@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\Log;
 /**
  * Everything this application knows about Bunny Stream.
  *
- * Four things: create a video, upload its bytes, ask what became of it, and sign
- * a URL somebody may watch. Nothing else talks to Bunny, so when their API
- * changes there is one file to fix.
+ * Five things: create a video, upload its bytes, ask what became of it, sign a
+ * URL somebody may watch, and delete one. Nothing else talks to Bunny, so when
+ * their API changes there is one file to fix.
  */
 class BunnyStream
 {
@@ -71,6 +71,30 @@ class BunnyStream
         $this->failIfRefused($response, 'report on a video');
 
         return $this->statusFrom($response->json('status'));
+    }
+
+    /**
+     * A video, gone from their library for good.
+     *
+     * **A 404 counts as done.** The only caller is a queued job, the queue
+     * delivers at least once, and "the video is not there" is precisely the
+     * outcome being asked for. Treating it as a failure would make every
+     * redelivery fail and leave a job in the dead letter queue describing work
+     * that succeeded.
+     *
+     * Nothing else here is destructive, and nothing else here needs to be. This
+     * is called when Jennifer removes a film and when a replacement takes over
+     * from the one it replaced.
+     */
+    public function deleteVideo(string $videoId): void
+    {
+        $response = $this->request()->delete($this->endpoint("videos/{$videoId}"));
+
+        if ($response->notFound()) {
+            return;
+        }
+
+        $this->failIfRefused($response, 'delete a video');
     }
 
     /**

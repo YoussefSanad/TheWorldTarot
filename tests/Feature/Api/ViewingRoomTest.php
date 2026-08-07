@@ -94,7 +94,6 @@ it('has nothing to serve for a card whose video is not ready', function (string 
 })->with([
     'still being prepared' => 'videoProcessing',
     'the upload failed' => 'videoFailed',
-    'no poster frame' => 'withoutPoster',
 ]);
 
 it('has nothing to serve for a card nobody has filmed', function () {

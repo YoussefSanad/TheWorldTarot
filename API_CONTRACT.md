@@ -102,8 +102,7 @@ The Library: every card on the website in that language, in deck order.
     "short_description": "A beginning.",
     "long_description": "The longer meaning of the card.",
     "image": "https://media.theworldtarot.com/cards/the-fool.jpg",
-    "in_viewing_room": true,
-    "poster": "https://media.theworldtarot.com/posters/the-fool.jpg"
+    "in_viewing_room": true
   }
 ]
 ```
@@ -113,7 +112,8 @@ The Library: every card on the website in that language, in deck order.
 - `id` is how you fetch a single card. **There is no slug**, because a card is never reached by a URL a person reads. If you need per-card addresses, say so now rather than after launch
 - **`image` is an absolute URL and is never null.** A card is on the website only once it has both its copy and its picture, so a card you receive always has one. It is the same picture in every language
 - **A card appears only in the languages it is finished in**, on the same rule as readings, and only once it has a picture
-- **`in_viewing_room` says whether there is a film to watch**, and `poster` is the frame the player rests on, or `null`. This is what lets you build the Viewing Room in one request: render all twenty-two, locked, and invite people to buy the pass
+- **`in_viewing_room` says whether there is a film to watch.** This is what lets you build the Viewing Room in one request: render all twenty-two, locked, and invite people to buy the pass
+- **`poster` was removed on 7 August 2026.** It carried a still the player could rest on, it was a second per-card upload gating the Viewing Room and the draw, and `image` is what a player rests on instead. Nothing on your side read it
 - **It is not an access check.** It says a film exists, not that this visitor may watch it. Whether they may is answered by the video endpoint, every time, and a `true` here for somebody without a pass is expected rather than a mistake
 - `in_viewing_room` is false while a film is still being prepared, so a card never advertises a video that would 404
 
@@ -145,7 +145,7 @@ One card drawn at random, with its film, for the reveal on the homepage. The ide
 - **`video` is never null.** A card with no film to play is never drawn, so there is no empty case to handle
 - **Never cached, for two reasons.** A held response reveals the same card to every visitor, which is the one thing a reveal must not do, and it now carries a credential rather than only a card
 - **This endpoint does not remember anyone.** It will hand the same visitor a hundred cards. The rule that a visitor gets one reveal per session is yours, in a cookie or local storage. It is rate limited per IP, which is abuse protection and not that rule
-- 404 when no card on the website has a finished film and a poster frame, which is the state of a freshly seeded site. There is no fallback to a card without one
+- 404 when no card on the website has a finished film, which is the state of a freshly seeded site. There is no fallback to a card without one. **The body says which kind of nothing it is** as of 7 August 2026, either no cards on the website in that language or no film among them, so a 404 here can be read rather than guessed at. Treat any 404 as nothing to draw; the message is for a person, not for branching on
 - **Renamed from `/cards/random` on 3 August 2026**, before anything consumed it
 
 **Six of these seven endpoints are public and carry nothing sensitive. `/cards/draw` is the exception:** it needs no authentication, and it answers with a credential that must be handled like the one below.
@@ -178,7 +178,7 @@ Related: do not set `Referrer-Policy: no-referrer` on pages that play video, or 
 - **The three rules above apply here too**: bound to the viewer's IP, fetched from the browser only, and never openable in a browser tab
 - **HLS, not MP4.** Same as the draw
 - **Ask for a fresh one rather than reusing an old one.** `expires_at` is there so a player can renew before it dies rather than stalling mid-video
-- **404 for a card whose video is not ready**, which includes one still transcoding, one with no poster frame, and one not on the website in that language. There is genuinely nothing to serve
+- **404 for a card whose video is not ready**, which includes one still transcoding, one whose film has been removed, and one not on the website in that language. There is genuinely nothing to serve
 - **403 for a signed-in customer without a pass**, not 404. The Viewing Room is advertised, and hiding it would only confuse somebody who paid and is signed in as the wrong account
 - **401 with no authentication at all**
 
