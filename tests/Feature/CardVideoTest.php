@@ -68,6 +68,14 @@ it('leaves the old video playing when a replacement fails', function () {
 });
 
 it('swaps the replacement in only when it is ready', function () {
+    // Held, because promotion now queues the film it supersedes for deletion and
+    // the queue runs inline here. Without this the job runs inside the test and
+    // asks the real Bunny library to delete a factory uuid, which answers 404,
+    // which counts as deleted, which passes. This test did precisely that from
+    // the moment promotion learned to clean up until 7 August 2026, and only a
+    // machine with no BUNNY_API_KEY ever noticed.
+    Queue::fake();
+
     $card = Card::factory()->videoBeingReplaced()->create();
     $old = $card->bunny_video_id;
     $new = $card->bunny_incoming_video_id;
