@@ -14,7 +14,7 @@ use Illuminate\Database\Seeder;
  * afterwards belongs to her, its name included.
  *
  * That is why nothing here is re-applied on a later run: unlike a product,
- * which has a type and a fulfilment mode that code owns and corrects, a card
+ * which has a type and a fulfillment mode that code owns and corrects, a card
  * has no structural value at all beyond existing. Safe to run on every deploy.
  */
 class CardSeeder extends Seeder

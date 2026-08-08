@@ -55,7 +55,7 @@ Navigation is **Readings and passes**.
 | Prices | `$0.00`, `€0.00`, `£0.00` with symbols |
 | **Translated into** column | Empty, showing "English only" |
 | Look for **Create** and **Delete** | **Neither exists.** Products are seeded, and taking one off sale is unpublishing it |
-| Look for `key`, `type`, `fulfilment` | **None appear.** They are structure, not content |
+| Look for `key`, `type`, `fulfillment` | **None appear.** They are structure, not content |
 | Look for a web address field | **It does not exist.** A reading's link is fixed and cannot be broken |
 
 ### Editing
@@ -134,7 +134,7 @@ curl -s $API/api/v1/en/products/one-card
 |---|---|
 | Listing | Published readings only, in the panel's order |
 | Each item | `key`, `type`, `name`, `short_description`, `allows_question`, `price` |
-| Each item does **not** have | `fulfilment`, `long_description` |
+| Each item does **not** have | `fulfillment`, `long_description` |
 | `price.amount` | A whole number, never `19.00` or `"1900"`, matching the panel to the penny |
 | Single product | Same, **plus** `long_description` |
 | An unpublished reading's key | **404**, not 403 |
@@ -306,4 +306,4 @@ Member login arrives in M5, so mint a token by hand for this section. See `docs/
 
 ## 10. Not built yet
 
-Buying the viewing room pass, checkout and orders, member accounts, gift codes, the 24 hour rush, FAQ and legal content, the newsletter, and AI fulfilment.
+Buying the viewing room pass, checkout and orders, member accounts, gift codes, the 24 hour rush, FAQ and legal content, the newsletter, and AI fulfillment.

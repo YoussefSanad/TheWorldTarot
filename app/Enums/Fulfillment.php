@@ -13,7 +13,7 @@ namespace App\Enums;
  * today and becomes AI fulfilled later, with no change to what is being sold.
  * Adding a case needs no migration, since the column is a string.
  */
-enum Fulfilment: string
+enum Fulfillment: string
 {
     // Written by hand and emailed as a PDF. Every reading today.
     case ManualPdf = 'manual_pdf';

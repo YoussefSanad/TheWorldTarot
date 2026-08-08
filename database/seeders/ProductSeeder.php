@@ -15,7 +15,7 @@ use Illuminate\Database\Seeder;
  *
  * The rule it follows is the spine in CLAUDE.md section 4: **structure is owned
  * by code and re-applied on every run, values are owned by the client and never
- * overwritten.** A corrected fulfilment mode reaches production on the next
+ * overwritten.** A corrected fulfillment mode reaches production on the next
  * deploy, while Jennifer's copy and prices are never trampled by it.
  */
 class ProductSeeder extends Seeder
@@ -50,7 +50,7 @@ class ProductSeeder extends Seeder
             // description of what each product is.
             $product->fill([
                 'type' => $key->type(),
-                'fulfilment' => $key->fulfilment(),
+                'fulfillment' => $key->fulfillment(),
 
                 // A question is always optional. Every reading accepts one, no
                 // reading demands one, and a pass has nothing to ask about.

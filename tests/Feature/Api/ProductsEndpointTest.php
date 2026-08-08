@@ -52,12 +52,12 @@ it('includes the long copy on a single product', function () {
         ->assertJsonPath('long_description', 'A very long description.');
 });
 
-it('never exposes the fulfilment mode', function () {
+it('never exposes the fulfillment mode', function () {
     Product::factory()->create(['key' => ProductKey::OneCard]);
 
     // A customer has no business knowing how their reading gets written.
-    $this->getJson('/api/v1/en/products/one-card')->assertJsonMissingPath('fulfilment');
-    $this->getJson('/api/v1/en/products')->assertJsonMissingPath('0.fulfilment');
+    $this->getJson('/api/v1/en/products/one-card')->assertJsonMissingPath('fulfillment');
+    $this->getJson('/api/v1/en/products')->assertJsonMissingPath('0.fulfillment');
 });
 
 it('hides an unpublished reading from the listing', function () {

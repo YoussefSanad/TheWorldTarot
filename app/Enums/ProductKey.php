@@ -68,13 +68,13 @@ enum ProductKey: string
     /**
      * How an order for it is completed. Internal, never exposed.
      */
-    public function fulfilment(): Fulfilment
+    public function fulfillment(): Fulfillment
     {
         return match ($this) {
             // Grants access rather than delivering anything. M5 stamps the
             // customer at payment, and M4 reads that stamp to open the door.
-            self::ViewingRoomPass => Fulfilment::AccessGrant,
-            default => Fulfilment::ManualPdf,
+            self::ViewingRoomPass => Fulfillment::AccessGrant,
+            default => Fulfillment::ManualPdf,
         };
     }
 

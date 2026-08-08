@@ -29,7 +29,7 @@ return new class extends Migration
             // String columns with PHP enum casts rather than Postgres enum
             // types, which are painful to alter later. See .claude/database.md.
             $table->string('type');
-            $table->string('fulfilment');
+            $table->string('fulfillment');
 
             // A question is optional when buying a reading, never required.
             $table->boolean('allows_question')->default(false);

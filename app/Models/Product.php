@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\Fulfilment;
+use App\Enums\Fulfillment;
 use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Concerns\HasTranslationCompleteness;
@@ -23,7 +23,7 @@ use Spatie\Translatable\HasTranslations;
  * price is never derived from another price. See .claude/database.md.
  */
 #[Fillable([
-    'key', 'type', 'fulfilment', 'allows_question', 'name',
+    'key', 'type', 'fulfillment', 'allows_question', 'name',
     'short_description', 'long_description', 'price_usd', 'price_eur',
     'price_gbp', 'is_published', 'sort_order',
 ])]
@@ -55,7 +55,7 @@ class Product extends Model
         return [
             'key' => ProductKey::class,
             'type' => ProductType::class,
-            'fulfilment' => Fulfilment::class,
+            'fulfillment' => Fulfillment::class,
             'allows_question' => 'boolean',
             'is_published' => 'boolean',
             'price_usd' => 'integer',

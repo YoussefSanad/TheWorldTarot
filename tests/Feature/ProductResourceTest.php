@@ -32,7 +32,7 @@ it('saves an edit through the panel', function () {
 
 it('offers no way to create a product', function () {
     // Products are seeded. A create form would have to ask for a key, a type
-    // and a fulfilment mode, none of which mean anything to the client.
+    // and a fulfillment mode, none of which mean anything to the client.
     expect(ProductResource::canCreate())->toBeFalse()
         ->and(ProductResource::getPages())->not->toHaveKey('create');
 
@@ -187,12 +187,12 @@ it('drives the resource translatable locales from the registry', function () {
 it('does not show structural fields to the client', function () {
     $product = Product::factory()->create();
 
-    // key, type and fulfilment are developer concerns. Showing them invites a
+    // key, type and fulfillment are developer concerns. Showing them invites a
     // change that breaks the frontend or the checkout.
     Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
         ->assertFormFieldDoesNotExist('key')
         ->assertFormFieldDoesNotExist('type')
-        ->assertFormFieldDoesNotExist('fulfilment');
+        ->assertFormFieldDoesNotExist('fulfillment');
 });
 
 it('lists products in their configured order', function () {

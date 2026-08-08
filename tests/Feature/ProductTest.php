@@ -1,6 +1,6 @@
 <?php
 
-use App\Enums\Fulfilment;
+use App\Enums\Fulfillment;
 use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Product;
@@ -98,11 +98,11 @@ it('returns null for a currency it does not sell in, rather than another currenc
         ->and($product->priceIn('nonsense'))->toBeNull();
 });
 
-it('casts type and fulfilment to enums in both directions', function () {
+it('casts type and fulfillment to enums in both directions', function () {
     $product = Product::factory()->pass()->create();
 
     expect($product->type)->toBe(ProductType::Pass)
-        ->and($product->fulfilment)->toBe(Fulfilment::AccessGrant)
+        ->and($product->fulfillment)->toBe(Fulfillment::AccessGrant)
         ->and($product->fresh()->type)->toBe(ProductType::Pass);
 
     expect(DB::table('products')->value('type'))->toBe('pass');

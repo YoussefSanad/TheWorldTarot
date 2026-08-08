@@ -18,7 +18,7 @@ class ProductResource extends JsonResource
      * Translatable values come out in the locale the middleware resolved, since
      * it has already set the application locale for this request.
      *
-     * Never exposed: `key` and `fulfilment`. Both are internal structure, and a
+     * Never exposed: `key` and `fulfillment`. Both are internal structure, and a
      * customer has no business knowing how their reading gets written.
      *
      * @return array<string, mixed>
