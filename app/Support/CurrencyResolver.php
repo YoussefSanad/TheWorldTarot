@@ -20,6 +20,20 @@ final class CurrencyResolver
     }
 
     /**
+     * Every currency this system sells in.
+     *
+     * Here rather than read from config at each call site, so this class stays
+     * the one authority on the question and a validation rule cannot come to a
+     * different answer than `isSupported` below.
+     *
+     * @return array<int, string>
+     */
+    public static function supported(): array
+    {
+        return array_keys(config('currencies.available'));
+    }
+
+    /**
      * Whether a currency is one this system sells in. Case insensitive, since
      * the value can arrive from a query string or a cookie.
      */
