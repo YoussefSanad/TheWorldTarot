@@ -96,7 +96,7 @@ it('throws its lines away with it', function () {
     expect(OrderLine::where('order_id', $order->id)->exists())->toBeFalse();
 });
 
-it('starts pending, and knows when it was paid and when it was sent', function () {
+it('starts pending, and knows when it was paid and when it was fulfilled', function () {
     $pending = Order::factory()->create();
     $paid = Order::factory()->paid()->create();
     $sent = Order::factory()->fulfilled()->create();

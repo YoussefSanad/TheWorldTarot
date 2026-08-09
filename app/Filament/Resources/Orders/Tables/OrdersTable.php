@@ -66,7 +66,7 @@ class OrdersTable
                     ->color(fn (OrderStatus $state): string => $state->colour()),
 
                 TextColumn::make('fulfilled_at')
-                    ->label('Sent')
+                    ->label('Fulfilled')
                     ->dateTime('j M Y')
                     ->placeholder('Not yet')
                     ->sortable(),
@@ -85,15 +85,15 @@ class OrdersTable
                         ->all()),
 
                 TernaryFilter::make('fulfilled_at')
-                    ->label('Sent')
+                    ->label('Fulfilled')
                     ->placeholder('All orders')
-                    ->trueLabel('Already sent')
-                    ->falseLabel('Still to send')
+                    ->trueLabel('Already fulfilled')
+                    ->falseLabel('Still to fulfill')
                     ->nullable(),
             ])
             ->recordActions([
                 self::markAsPaid(),
-                self::markAsSent(),
+                self::markAsFulfilled(),
             ])
             // No create, no delete, no bulk anything. An order is a record of
             // something that happened.
@@ -138,21 +138,25 @@ class OrdersTable
      * The system notifies and records, it does not fulfill. She writes the
      * reading and emails the PDF herself, and this is how she keeps track of
      * which ones she has done.
+     *
+     * "Fulfilled" rather than "sent", because a pass is fulfilled by access
+     * being granted and nothing about it is ever sent. One word has to cover
+     * both, and only this one is true of both.
      */
-    private static function markAsSent(): Action
+    private static function markAsFulfilled(): Action
     {
-        return Action::make('markAsSent')
-            ->label('Mark as sent')
+        return Action::make('markAsFulfilled')
+            ->label('Mark as fulfilled')
             ->icon(Heroicon::OutlinedPaperAirplane)
             ->requiresConfirmation()
-            ->modalHeading('Mark this reading as sent?')
+            ->modalHeading('Mark this order as fulfilled?')
             ->modalDescription('Use this once you have emailed the reading, so it drops off your list.')
-            ->modalSubmitActionLabel('Yes, it has gone')
+            ->modalSubmitActionLabel('Yes, it is done')
             ->visible(fn (Order $record): bool => $record->isPaid() && ! $record->isFulfilled())
             ->action(function (Order $record): void {
                 $record->forceFill(['fulfilled_at' => now()])->save();
 
-                Notification::make()->success()->title('Marked as sent')->send();
+                Notification::make()->success()->title('Marked as fulfilled')->send();
             });
     }
 

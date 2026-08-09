@@ -103,28 +103,28 @@ it('offers marking as paid only while an order is waiting for money', function (
 });
 
 /*
-| Marking a reading as sent.
+| Marking an order fulfilled.
 */
 
 it('records when Jennifer says the reading has gone', function () {
     $order = Order::factory()->paid()->forProduct(Product::factory()->create())->create();
 
     Livewire::test(ListOrders::class)
-        ->callTableAction('markAsSent', $order);
+        ->callTableAction('markAsFulfilled', $order);
 
     expect($order->refresh()->fulfilled_at)->not->toBeNull()
         ->and($order->isFulfilled())->toBeTrue();
 });
 
-it('offers marking as sent only on something paid for and not yet sent', function () {
+it('offers marking as fulfilled only on something paid for and not yet fulfilled', function () {
     $pending = pendingOrder();
     $paid = Order::factory()->paid()->forProduct(Product::factory()->create())->create();
     $sent = Order::factory()->fulfilled()->forProduct(Product::factory()->create())->create();
 
     Livewire::test(ListOrders::class)
-        ->assertTableActionHidden('markAsSent', record: $pending)
-        ->assertTableActionVisible('markAsSent', record: $paid)
-        ->assertTableActionHidden('markAsSent', record: $sent);
+        ->assertTableActionHidden('markAsFulfilled', record: $pending)
+        ->assertTableActionVisible('markAsFulfilled', record: $paid)
+        ->assertTableActionHidden('markAsFulfilled', record: $sent);
 });
 
 /*

@@ -12,4 +12,4 @@ Total: {{ $order->currency }} {{ \App\Support\Money::toMajor($order->total_amoun
 @endif
 @endforeach
 
-Mark it as sent in the admin panel once the reading is on its way.
+Mark it as fulfilled in the admin panel once the reading is on its way.
