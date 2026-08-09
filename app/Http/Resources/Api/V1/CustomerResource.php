@@ -40,9 +40,16 @@ class CustomerResource extends JsonResource
             'email' => $this->resource->email,
             'created_at' => $this->resource->created_at?->toIso8601String(),
 
-            // Whether they hold the Viewing Room pass is deliberately absent
-            // until step 4 adds it. It is an authorization answer, and it
-            // arrives with the policy that owns that answer.
+            // What lets the site choose between "enter the Viewing Room" and
+            // "buy the pass" without guessing.
+            //
+            // **Telling the frontend is not the same as trusting it.** The
+            // decision is made again on the server every time a film is asked
+            // for, and this field only spares a customer being shown a door
+            // that will not open. Per .claude/api.md: never rely on the
+            // frontend not rendering a link.
+            'has_viewing_room_access' => $this->resource->hasViewingRoomAccess(),
+
             'token' => $this->whenNotNull($this->token),
         ];
     }

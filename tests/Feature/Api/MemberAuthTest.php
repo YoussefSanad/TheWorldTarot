@@ -5,6 +5,7 @@ use App\Models\Admin;
 use App\Models\Customer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -299,4 +300,70 @@ it('does not let a customer token open the admin panel', function () {
     $this->withHeader('Authorization', "Bearer {$token}")
         ->get('/admin')
         ->assertRedirect('/admin/login');
+});
+
+/*
+| What the frontend is told about the pass.
+|
+| This exists so the site can choose between "enter the Viewing Room" and "buy
+| the pass". It is not the paywall and must never be mistaken for it. The films
+| themselves are gated in ViewingRoomTest, which decides the same question again
+| on every request.
+*/
+
+it('says a customer without the pass does not hold it', function () {
+    $customer = Customer::factory()->create();
+
+    $this->actingAs($customer, 'web')
+        ->getJson('/api/v1/me')
+        ->assertOk()
+        ->assertJsonPath('has_viewing_room_access', false);
+});
+
+it('says a pass holder holds it', function () {
+    $customer = Customer::factory()->withViewingRoomAccess()->create();
+
+    $this->actingAs($customer, 'web')
+        ->getJson('/api/v1/me')
+        ->assertOk()
+        ->assertJsonPath('has_viewing_room_access', true);
+});
+
+it('changes its answer the moment the pass is granted', function () {
+    $customer = Customer::factory()->create();
+
+    $this->actingAs($customer, 'web')
+        ->getJson('/api/v1/me')
+        ->assertJsonPath('has_viewing_room_access', false);
+
+    $customer->grantViewingRoomAccess();
+
+    forgetResolvedUser();
+
+    $this->actingAs($customer->fresh(), 'web')
+        ->getJson('/api/v1/me')
+        ->assertJsonPath('has_viewing_room_access', true);
+});
+
+it('never says when they were let in, only whether', function () {
+    $customer = Customer::factory()->withViewingRoomAccess()->create();
+
+    // The date is for support, not for the website, and a timestamp invites a
+    // frontend to do arithmetic on something that is nobody's business.
+    $this->actingAs($customer, 'web')
+        ->getJson('/api/v1/me')
+        ->assertJsonMissingPath('viewing_room_access_at');
+});
+
+it('answers the pass question in one place, for the gate and the endpoint alike', function () {
+    $withoutPass = Customer::factory()->create();
+    $withPass = Customer::factory()->withViewingRoomAccess()->create();
+
+    expect(Gate::forUser($withoutPass)->allows('enter-viewing-room'))->toBeFalse()
+        ->and(Gate::forUser($withPass)->allows('enter-viewing-room'))->toBeTrue();
+
+    // And the reason survives, so a refusal can say something useful rather
+    // than the framework's "This action is unauthorized."
+    expect(Gate::forUser($withoutPass)->inspect('enter-viewing-room')->message())
+        ->toBe('This is for pass holders.');
 });
