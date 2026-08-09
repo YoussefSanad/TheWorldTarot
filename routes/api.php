@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\RegisterController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\SessionController;
+use App\Http\Controllers\Api\V1\SetPasswordController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -69,6 +70,13 @@ Route::prefix('v1')->group(function () {
     Route::post('/reset-password', ResetPasswordController::class)
         ->middleware('throttle:10,1')
         ->name('password.reset');
+
+    // Claiming an account made for somebody when they bought something. The
+    // same token machinery as a reset, and a separate endpoint because it only
+    // works on an account that has never had a password.
+    Route::post('/set-password', SetPasswordController::class)
+        ->middleware('throttle:10,1')
+        ->name('password.set');
 
     /*
     | Placing an order. Open to anybody, because demanding an account before
