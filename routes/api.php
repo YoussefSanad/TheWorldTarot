@@ -4,10 +4,12 @@ use App\Http\Controllers\Api\V1\BunnyWebhookController;
 use App\Http\Controllers\Api\V1\CardController;
 use App\Http\Controllers\Api\V1\CardVideoController;
 use App\Http\Controllers\Api\V1\CurrencyController;
+use App\Http\Controllers\Api\V1\ForgotPasswordController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\RegisterController;
+use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\SessionController;
 use Illuminate\Support\Facades\Route;
 
@@ -49,6 +51,23 @@ Route::prefix('v1')->group(function () {
     Route::get('/me', MeController::class)
         ->middleware('auth:sanctum')
         ->name('me');
+
+    /*
+    | Forgotten passwords. Throttled harder than signing in, because an
+    | unthrottled request-a-link endpoint is an email bombing tool aimed at
+    | whatever address the sender names, and it costs the sender nothing.
+    |
+    | The route limit is per address. The broker adds a limit per account, sixty
+    | seconds in config/auth.php, which is what stops one mailbox being buried
+    | by requests arriving from everywhere.
+    */
+    Route::post('/forgot-password', ForgotPasswordController::class)
+        ->middleware('throttle:6,1')
+        ->name('password.email');
+
+    Route::post('/reset-password', ResetPasswordController::class)
+        ->middleware('throttle:10,1')
+        ->name('password.reset');
 
     /*
     | Bunny telling us a transcode finished. Unauthenticated by necessity, since
