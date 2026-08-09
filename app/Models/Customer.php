@@ -3,12 +3,14 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Mail\PasswordResetLink;
 use Database\Factories\CustomerFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['name', 'email', 'password'])]
@@ -30,6 +32,18 @@ class Customer extends Authenticatable
             'password' => 'hashed',
             'viewing_room_access_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Send the reset link ourselves rather than through Laravel's notification.
+     *
+     * The framework's version builds a link back to this application, which
+     * renders nothing a customer can use. Ours points at the website and comes
+     * from the support address like every other message a person receives.
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        Mail::to($this->email)->send(new PasswordResetLink($this, $token));
     }
 
     /**
