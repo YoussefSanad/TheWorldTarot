@@ -140,4 +140,24 @@ return [
         'fulfillment' => env('MAIL_FULFILLMENT_ADDRESS', 'fulfillment@theworldtarot.com'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Where we write to
+    |--------------------------------------------------------------------------
+    |
+    | Not senders, recipients. Where a message goes when it is for us rather
+    | than for a customer.
+    |
+    | `fulfillment` is where "somebody is waiting for a reading" lands, so it
+    | has to reach Jennifer. It defaults to the address it is sent from, which
+    | works only if that mailbox exists and she reads it. **Sending is not
+    | receiving**, and a notification nobody sees is worse than none, because
+    | the system reports success while a customer waits.
+    |
+    */
+
+    'notify' => [
+        'fulfillment' => env('MAIL_FULFILLMENT_RECIPIENT', env('MAIL_FULFILLMENT_ADDRESS', 'fulfillment@theworldtarot.com')),
+    ],
+
 ];
