@@ -53,6 +53,49 @@ it('grants the Viewing Room when the pass is what was bought', function () {
     expect($customer->fresh()->hasViewingRoomAccess())->toBeTrue();
 });
 
+it('counts a pass as fulfilled the moment it is paid', function () {
+    $order = orderFor(Product::factory()->pass()->create());
+
+    settle($order);
+
+    // Nothing is owed. Access was granted in the same instant the money
+    // landed, so leaving this waiting would put work on Jennifer's list that
+    // cannot be done.
+    expect($order->refresh()->isFulfilled())->toBeTrue()
+        ->and(Order::awaitingFulfillment()->count())->toBe(0);
+});
+
+it('leaves a reading waiting, because somebody has to write it', function () {
+    $order = orderFor(Product::factory()->create());
+
+    settle($order);
+
+    expect($order->refresh()->isFulfilled())->toBeFalse()
+        ->and(Order::awaitingFulfillment()->count())->toBe(1);
+});
+
+it('waits for the reading when an order holds a pass and a reading', function () {
+    $order = Order::factory()->create();
+    $pass = Product::factory()->pass()->create();
+    $reading = Product::factory()->create();
+
+    foreach ([$pass, $reading] as $product) {
+        $order->lines()->create([
+            'product_id' => $product->id,
+            'product_key' => $product->key,
+            'unit_amount' => $product->price_usd,
+            'quantity' => 1,
+        ]);
+    }
+
+    settle($order);
+
+    // Half delivered is not delivered. The pass is usable immediately and the
+    // order is still owed a reading.
+    expect($order->customer->fresh()->hasViewingRoomAccess())->toBeTrue()
+        ->and($order->refresh()->isFulfilled())->toBeFalse();
+});
+
 it('grants nothing for a reading', function () {
     $customer = Customer::factory()->create();
 

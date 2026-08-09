@@ -88,6 +88,25 @@ class MarkOrderPaid
                 $order->customer->grantViewingRoomAccess();
             }
         }
+
+        // **An order nobody has to do anything about is already fulfilled.**
+        // A pass is delivered by the grant just above, in the same instant the
+        // money lands, so leaving it waiting would put work on Jennifer's list
+        // that does not exist and cannot be done.
+        //
+        // Anything written by hand is the opposite: it is fulfilled when she
+        // says it is, and an order holding one reading and one pass waits for
+        // the reading, because half delivered is not delivered.
+        if (! $this->needsAPerson($order)) {
+            $order->forceFill(['fulfilled_at' => now()])->save();
+        }
+    }
+
+    private function needsAPerson(Order $order): bool
+    {
+        return $order->lines->contains(
+            fn ($line): bool => $line->product?->fulfillment === Fulfillment::ManualPdf,
+        );
     }
 
     /**
