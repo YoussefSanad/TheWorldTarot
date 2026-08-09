@@ -35,4 +35,17 @@ enum OrderStatus: string
             self::Cancelled => 'Cancelled',
         };
     }
+
+    /**
+     * The colour of the badge in the panel. Status has to be obvious at a
+     * glance, per .claude/filament.md.
+     */
+    public function colour(): string
+    {
+        return match ($this) {
+            self::Pending => 'warning',
+            self::Paid => 'success',
+            self::Cancelled => 'gray',
+        };
+    }
 }
