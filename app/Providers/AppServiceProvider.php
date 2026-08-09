@@ -6,6 +6,7 @@ use App\Contracts\RevealVideoSource;
 use App\Observers\TranslatableContentObserver;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -45,5 +46,16 @@ class AppServiceProvider extends ServiceProvider
         foreach (config('translatable.models', []) as $model) {
             $model::observe(TranslatableContentObserver::class);
         }
+
+        // What counts as an acceptable password, in one place, so registering
+        // and resetting can never drift apart.
+        //
+        // Deliberately not `uncompromised()`, which checks the password against
+        // a breach corpus over the network. It is a real protection and it puts
+        // a third party in the request path of every registration, which
+        // .claude/api.md forbids, and every test that makes an account would
+        // then have to fake it. Revisit if credential stuffing shows up in the
+        // logs, and put it behind a queued check rather than in the request.
+        Password::defaults(fn (): Password => Password::min(8));
     }
 }

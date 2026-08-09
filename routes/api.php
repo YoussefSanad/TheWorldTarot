@@ -5,8 +5,10 @@ use App\Http\Controllers\Api\V1\CardController;
 use App\Http\Controllers\Api\V1\CardVideoController;
 use App\Http\Controllers\Api\V1\CurrencyController;
 use App\Http\Controllers\Api\V1\LanguageController;
+use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\ProductController;
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\V1\RegisterController;
+use App\Http\Controllers\Api\V1\SessionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -20,9 +22,33 @@ Route::prefix('v1')->group(function () {
     Route::get('/languages', LanguageController::class);
     Route::get('/currencies', CurrencyController::class);
 
-    Route::get('/user', function (Request $request) {
-        return $request->user();
-    })->middleware('auth:sanctum');
+    /*
+    | Member accounts. Flat, with no language segment, because auth is not
+    | content: an account is the same account in every language.
+    |
+    | Every one of these works under both a session cookie and a bearer token.
+    | The website uses the cookie, a future native app names a device and gets a
+    | token, and nothing here cares which arrived.
+    |
+    | Throttles are per address and are the coarse backstop. Signing in carries
+    | a second, tighter limit per address and email inside LoginRequest, which
+    | is the one that matters against a slow guess at a single account.
+    */
+    Route::post('/register', RegisterController::class)
+        ->middleware('throttle:10,1')
+        ->name('register');
+
+    Route::post('/login', [SessionController::class, 'store'])
+        ->middleware('throttle:20,1')
+        ->name('login');
+
+    Route::post('/logout', [SessionController::class, 'destroy'])
+        ->middleware('auth:sanctum')
+        ->name('logout');
+
+    Route::get('/me', MeController::class)
+        ->middleware('auth:sanctum')
+        ->name('me');
 
     /*
     | Bunny telling us a transcode finished. Unauthenticated by necessity, since

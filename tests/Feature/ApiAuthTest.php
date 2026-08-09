@@ -10,11 +10,11 @@ it('allows a request to a protected v1 route with a valid token', function () {
     $token = $customer->createToken('test-device')->plainTextToken;
 
     $this->withHeader('Authorization', "Bearer {$token}")
-        ->getJson('/api/v1/user')
+        ->getJson('/api/v1/me')
         ->assertOk()
         ->assertJsonPath('email', $customer->email);
 });
 
 it('rejects a request to a protected v1 route without a token', function () {
-    $this->getJson('/api/v1/user')->assertUnauthorized();
+    $this->getJson('/api/v1/me')->assertUnauthorized();
 });
