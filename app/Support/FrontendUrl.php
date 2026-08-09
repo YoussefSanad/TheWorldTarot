@@ -27,6 +27,21 @@ class FrontendUrl
     }
 
     /**
+     * Where somebody who bought before they had an account sets their first
+     * password.
+     *
+     * A different page from the reset, and deliberately so. "Reset your
+     * password" is confusing wording for a person who has never had one.
+     */
+    public static function setPassword(string $email, string $token): string
+    {
+        return self::to(config('frontend.paths.set_password'), [
+            'token' => $token,
+            'email' => $email,
+        ]);
+    }
+
+    /**
      * @param  array<string, string>  $query
      */
     private static function to(string $path, array $query = []): string

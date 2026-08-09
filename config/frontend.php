@@ -32,6 +32,11 @@ return [
 
     'paths' => [
         'reset_password' => env('FRONTEND_RESET_PASSWORD_PATH', '/reset-password'),
+
+        // Where somebody who bought before they had an account chooses their
+        // first password. A separate page from the reset above, because the
+        // words on it are different: nothing is being reset.
+        'set_password' => env('FRONTEND_SET_PASSWORD_PATH', '/set-password'),
     ],
 
 ];
