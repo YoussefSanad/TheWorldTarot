@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\CurrencyController;
 use App\Http\Controllers\Api\V1\ForgotPasswordController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\MeController;
+use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\RegisterController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
@@ -68,6 +69,22 @@ Route::prefix('v1')->group(function () {
     Route::post('/reset-password', ResetPasswordController::class)
         ->middleware('throttle:10,1')
         ->name('password.reset');
+
+    /*
+    | Placing an order. Open to anybody, because demanding an account before
+    | somebody can buy costs sales at the worst possible moment.
+    |
+    | Not behind a language, because buying is not content: an order is the same
+    | order whatever language it was placed in.
+    |
+    | Throttled because an unauthenticated endpoint that creates a customer row
+    | for an unrecognised email is a way to fill a table. Nothing is emailed
+    | when an order is placed, which is what keeps it from being worse than
+    | that. See step 7.
+    */
+    Route::post('/orders', OrderController::class)
+        ->middleware('throttle:20,1')
+        ->name('orders.store');
 
     /*
     | Bunny telling us a transcode finished. Unauthenticated by necessity, since
