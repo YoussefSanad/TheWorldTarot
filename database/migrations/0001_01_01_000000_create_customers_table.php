@@ -16,7 +16,16 @@ return new class extends Migration
             $table->string('name');
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
+
+            // Nullable, because an account can exist before anybody has chosen
+            // a password for it: buying something creates a customer from the
+            // email given at checkout, and it stays unclaimed until they set
+            // one. Decided 8 August 2026.
+            //
+            // **A row with no password must never authenticate**, by any route.
+            // That is the invariant this column puts at risk, and it has a test
+            // of its own rather than an argument in a comment.
+            $table->string('password')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });

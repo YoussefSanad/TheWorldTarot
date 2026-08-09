@@ -76,10 +76,15 @@ class SessionController extends Controller
     /**
      * Whether these are really them.
      *
-     * The null password check is not defensive clutter. From step 5 an account
-     * can exist without one, created by somebody buying something before they
-     * have set a password, and `Hash::check` against nothing must never be the
-     * only thing standing in the way of that account.
+     * An account can exist with no password at all, created by somebody buying
+     * something before they have chosen one.
+     *
+     * **The null check is belt and braces, and measured as such.** Removing it
+     * on 9 August 2026 changed no test, because `Hash::check` against null
+     * already returns false. It stays because that is Laravel's behaviour
+     * rather than our guarantee, and because the next person to authenticate a
+     * customer may not route through here. It is not what makes an unclaimed
+     * account safe today, and this comment used to say that it was.
      */
     private function credentialsMatch(?Customer $customer, string $password): bool
     {
