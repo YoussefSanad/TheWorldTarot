@@ -1,0 +1,21 @@
+<?php
+
+namespace App\Filament\Resources\Orders\Pages;
+
+use App\Filament\Resources\Orders\OrderResource;
+use Filament\Resources\Pages\ListRecords;
+
+class ListOrders extends ListRecords
+{
+    protected static string $resource = OrderResource::class;
+
+    /**
+     * No create action. Orders arrive by somebody buying something.
+     *
+     * @return array<int, mixed>
+     */
+    protected function getHeaderActions(): array
+    {
+        return [];
+    }
+}
