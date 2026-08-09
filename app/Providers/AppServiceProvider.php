@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\PaymentGateway;
 use App\Contracts\RevealVideoSource;
 use App\Models\Customer;
 use App\Observers\TranslatableContentObserver;
@@ -24,6 +25,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             RevealVideoSource::class,
             fn () => $this->app->make(config('reveal.source')),
+        );
+
+        // How money is collected, named in config/payments.php. Same reasoning
+        // as above, and resolved fresh rather than as a singleton so a test can
+        // name a different one and get it.
+        $this->app->bind(
+            PaymentGateway::class,
+            fn () => $this->app->make(config('payments.gateway')),
         );
     }
 
