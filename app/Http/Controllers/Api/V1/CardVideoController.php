@@ -8,7 +8,7 @@ use App\Models\Card;
 use App\Services\Bunny\BunnyStream;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Illuminate\Support\Facades\Gate;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class CardVideoController extends Controller
@@ -32,9 +32,13 @@ class CardVideoController extends Controller
     {
         // Decided on the server, always, whatever the browser believes about
         // what it should be showing.
-        if (! $request->user()->hasViewingRoomAccess()) {
-            throw new AccessDeniedHttpException('This is for pass holders.');
-        }
+        //
+        // **Before the card is looked up, and that order is load bearing.**
+        // Checking the card first would answer 404 for a card with no film and
+        // 403 for one that has it, which tells somebody who has not paid
+        // exactly which films exist. The pass question comes first so every
+        // card looks identical from outside the Viewing Room.
+        Gate::authorize('enter-viewing-room');
 
         // Filtered in the query, so a card that is unpublished, unwritten,
         // unpictured, untranslated into this language or still transcoding

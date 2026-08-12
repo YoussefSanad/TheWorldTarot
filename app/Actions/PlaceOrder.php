@@ -1,0 +1,61 @@
+<?php
+
+namespace App\Actions;
+
+use App\Enums\OrderStatus;
+use App\Models\Customer;
+use App\Models\Order;
+use App\Models\Product;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Turning a validated basket into a record of what somebody bought.
+ *
+ * Everything here is captured at this moment and never read from the catalogue
+ * again. Jennifer edits prices, and an order that recalculates itself reports a
+ * total nobody was ever charged.
+ */
+class PlaceOrder
+{
+    /**
+     * @param  array<int, array{product: string, quantity?: int, question?: string|null}>  $lines
+     */
+    public function __invoke(Customer $customer, string $currency, array $lines): Order
+    {
+        $products = Product::whereIn('key', collect($lines)->pluck('product'))
+            ->get()
+            ->keyBy(fn (Product $product): string => $product->key->value);
+
+        // Priced before anything is written, so an order is never briefly
+        // stored with a total of nothing.
+        $priced = collect($lines)->map(function (array $line) use ($products, $currency): array {
+            $product = $products->get($line['product']);
+            $quantity = (int) ($line['quantity'] ?? 1);
+
+            return [
+                'product_id' => $product->id,
+                'product_key' => $product->key,
+                'unit_amount' => $product->priceIn($currency),
+                'quantity' => $quantity,
+                'question' => $line['question'] ?? null,
+            ];
+        });
+
+        $total = $priced->sum(fn (array $line): int => $line['unit_amount'] * $line['quantity']);
+
+        // One transaction, because an order without its lines is a charge for
+        // nothing and lines without their order are unreachable.
+        return DB::transaction(function () use ($customer, $currency, $total, $priced): Order {
+            $order = Order::create([
+                'customer_id' => $customer->id,
+                'status' => OrderStatus::Pending,
+                'currency' => $currency,
+                'total_amount' => $total,
+            ]);
+
+            $order->lines()->createMany($priced->all());
+
+            return $order->load('lines');
+        });
+    }
+}

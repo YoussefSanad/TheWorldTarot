@@ -111,8 +111,53 @@ return [
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
+        'address' => env('MAIL_FROM_ADDRESS', 'support@theworldtarot.com'),
+        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'The World Tarot')),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Senders
+    |--------------------------------------------------------------------------
+    |
+    | Which address each kind of message comes from. Decided 8 August 2026,
+    | because a customer reads the sender before they read anything else.
+    |
+    | Named through App\Enums\Sender rather than typed at a call site, so an
+    | address changes in one place. Every one of these has to sit on a domain
+    | verified in Resend, `theworldtarot.com` today. Sending as anything else is
+    | accepted and then filed as spam, which is a failure that reports success.
+    |
+    | Sending is not receiving. Verification authorises sending and creates no
+    | mailbox. A reply to any of these goes nowhere until an MX record routes it
+    | somewhere real, and nobody is told. See CLAUDE.md section 8.
+    |
+    */
+
+    'senders' => [
+        'support' => env('MAIL_SUPPORT_ADDRESS', 'support@theworldtarot.com'),
+        'orders' => env('MAIL_ORDERS_ADDRESS', 'orders@theworldtarot.com'),
+        'fulfillment' => env('MAIL_FULFILLMENT_ADDRESS', 'fulfillment@theworldtarot.com'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Where we write to
+    |--------------------------------------------------------------------------
+    |
+    | Not senders, recipients. Where a message goes when it is for us rather
+    | than for a customer.
+    |
+    | `fulfillment` is where "somebody is waiting for a reading" lands, so it
+    | has to reach Jennifer. It defaults to the address it is sent from, which
+    | works only if that mailbox exists and she reads it. **Sending is not
+    | receiving**, and a notification nobody sees is worse than none, because
+    | the system reports success while a customer waits.
+    |
+    */
+
+    'notify' => [
+        'fulfillment' => env('MAIL_FULFILLMENT_RECIPIENT', env('MAIL_FULFILLMENT_ADDRESS', 'fulfillment@theworldtarot.com')),
     ],
 
 ];

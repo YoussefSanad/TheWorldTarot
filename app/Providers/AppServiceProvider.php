@@ -2,10 +2,14 @@
 
 namespace App\Providers;
 
+use App\Contracts\PaymentGateway;
 use App\Contracts\RevealVideoSource;
+use App\Models\Customer;
 use App\Observers\TranslatableContentObserver;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -21,6 +25,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             RevealVideoSource::class,
             fn () => $this->app->make(config('reveal.source')),
+        );
+
+        // How money is collected, named in config/payments.php. Same reasoning
+        // as above, and resolved fresh rather than as a singleton so a test can
+        // name a different one and get it.
+        $this->app->bind(
+            PaymentGateway::class,
+            fn () => $this->app->make(config('payments.gateway')),
         );
     }
 
@@ -38,6 +50,21 @@ class AppServiceProvider extends ServiceProvider
         // is the customer one and a customer must never see this.
         Gate::define('viewApiDocs', fn ($user = null) => auth('admin')->check());
 
+        // Who may watch the Living Tarot films.
+        //
+        // A gate rather than a policy on Card, because the question is not about
+        // a card. It is "has this person bought the pass", and a CardPolicy
+        // method that ignored the card it was handed would be a lie about what
+        // is being decided. If a card is ever free to watch, that is the day
+        // this becomes a policy.
+        //
+        // The one authority on the answer stays Customer::hasViewingRoomAccess.
+        // This names it so the API, the panel and support all ask one question
+        // rather than three that could drift.
+        Gate::define('enter-viewing-room', fn (Customer $customer): Response => $customer->hasViewingRoomAccess()
+            ? Response::allow()
+            : Response::deny('This is for pass holders.'));
+
         // A language shows everything or nothing, so anything appearing on the
         // website untranslated takes that language off it. Registered for every
         // model the language gate walks, so cards inherit this in M3 by joining
@@ -45,5 +72,16 @@ class AppServiceProvider extends ServiceProvider
         foreach (config('translatable.models', []) as $model) {
             $model::observe(TranslatableContentObserver::class);
         }
+
+        // What counts as an acceptable password, in one place, so registering
+        // and resetting can never drift apart.
+        //
+        // Deliberately not `uncompromised()`, which checks the password against
+        // a breach corpus over the network. It is a real protection and it puts
+        // a third party in the request path of every registration, which
+        // .claude/api.md forbids, and every test that makes an account would
+        // then have to fake it. Revisit if credential stuffing shows up in the
+        // logs, and put it behind a queued check rather than in the request.
+        Password::defaults(fn (): Password => Password::min(8));
     }
 }
