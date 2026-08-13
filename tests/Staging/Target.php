@@ -4,6 +4,7 @@ namespace Tests\Staging;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Cookie\CookieJar;
+use PHPUnit\Framework\Assert;
 use Psr\Http\Message\ResponseInterface;
 
 /**
@@ -204,13 +205,13 @@ final class Target
 
         // Said plainly rather than left as a mystery 429 three files later.
         if ($response->getStatusCode() === 429) {
-            \PHPUnit\Framework\Assert::markTestSkipped(
+            Assert::markTestSkipped(
                 'Registration is rate limited, ten a minute per address. Wait a minute and run this again.'
             );
         }
 
         if ($response->getStatusCode() !== 201) {
-            \PHPUnit\Framework\Assert::fail(
+            Assert::fail(
                 'Could not register an account to test with. '.$response->getStatusCode().': '.$response->getBody()
             );
         }
@@ -248,7 +249,7 @@ final class Target
             return;
         }
 
-        \PHPUnit\Framework\Assert::fail(
+        Assert::fail(
             $route.' answered 429 without being called enough times to deserve it. '
             .'Every inline throttle in routes/api.php shares one bucket per address, so a handful of requests '
             .'to any of them locks a visitor out of all of them. Give each throttle its own prefix, '

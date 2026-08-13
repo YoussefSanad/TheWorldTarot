@@ -1,5 +1,7 @@
 <?php
 
+use PHPUnit\Framework\Assert;
+use Psr\Http\Message\ResponseInterface;
 use Tests\Staging\Target;
 
 /**
@@ -44,7 +46,7 @@ function passKey(): string
 /**
  * @param  array<int, array<string, mixed>>  $lines
  */
-function placeOrder(array $lines, ?string $email = null): Psr\Http\Message\ResponseInterface
+function placeOrder(array $lines, ?string $email = null): ResponseInterface
 {
     return Target::client()->post('api/v1/orders', [
         'json' => [
@@ -59,7 +61,7 @@ function placeOrder(array $lines, ?string $email = null): Psr\Http\Message\Respo
 /**
  * Skips rather than fails when the catalogue is not ready to sell.
  */
-function requireSellable(Psr\Http\Message\ResponseInterface $response, string $key): void
+function requireSellable(ResponseInterface $response, string $key): void
 {
     Target::assertNotThrottled($response, 'orders');
 
@@ -71,7 +73,7 @@ function requireSellable(Psr\Http\Message\ResponseInterface $response, string $k
 
     foreach ($errors as $field => $messages) {
         if (str_contains((string) $field, 'product')) {
-            PHPUnit\Framework\Assert::markTestSkipped(
+            Assert::markTestSkipped(
                 $key.' cannot be bought in '.walkCurrency().' on this environment. '
                 .'Publish it and give it a price above zero in the admin panel, then run this again.'
             );
