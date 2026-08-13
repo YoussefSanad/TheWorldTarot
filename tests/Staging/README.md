@@ -4,6 +4,12 @@ Integration tests that run against a **deployed** environment over the network. 
 
 They are not part of `composer test` and never should be. The ordinary suite proves our code does what we meant. This one proves an environment answers the way a customer needs it to, and those are different questions.
 
+> **Run it from your own machine, pointed at a deployed environment. Never on the environment's console.**
+>
+> Deploys run `composer install --no-dev` and Pest is a dev dependency, so `vendor/bin/pest` does not exist on staging or production and the run dies with `Could not open input file: vendor/bin/pest`.
+>
+> That is not a missing step, it is the design. This suite is an HTTP client and needs nothing installed on the far end. It walks in through the front door exactly as a customer does, which is the only reason its results mean anything.
+
 ```bash
 STAGING_URL=https://staging-api.theworldtarot.com \
 STAGING_ORIGIN=https://staging.theworldtarot.com \
