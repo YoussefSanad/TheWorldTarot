@@ -61,6 +61,10 @@
             "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test"
         ],
+        "test:staging": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php vendor/bin/pest -c phpunit.staging.xml"
+        ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi",

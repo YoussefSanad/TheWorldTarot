@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The staging walk, kept in a configuration of its own.
+
+    It is separate from phpunit.xml for one reason: **this suite must never run
+    by accident.** It talks to a real deployed environment over the network,
+    registers real customers and places real orders, and none of that belongs in
+    `composer test` or in anything automated.
+
+    The ordinary suite forbids reaching a third party at all, and globally calls
+    Http::preventStrayRequests() to enforce it. Nothing here loads the
+    application, so that protection is absent by design rather than by accident:
+    reaching the outside is the entire job.
+
+    Run it with:
+
+        STAGING_URL=https://staging-api.theworldtarot.com composer test:staging
+
+    See tests/Staging/README.md for what it proves and what it cannot.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         stopOnFailure="false"
+>
+    <testsuites>
+        <testsuite name="Staging">
+            <directory>tests/Staging</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
