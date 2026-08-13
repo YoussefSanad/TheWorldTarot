@@ -18,6 +18,23 @@ use Illuminate\Support\Facades\Route;
 /*
 | All API routes are versioned under /api/v1. There is no unversioned route.
 | See .claude/api.md.
+|
+| **The third argument to every `throttle` below is load-bearing and must not
+| be tidied away.** It is the limiter's key prefix, and without it every
+| throttled route in this file shares one counter per address.
+|
+| Laravel keys a guest's rate limiter on the domain and the IP, never on the
+| route, so `register`, `login`, `forgot-password`, `orders` and the rest all
+| increment the same number, and the strictest limit among them applies to the
+| sum of all of them. A signed in customer is keyed on their id, which shares a
+| bucket exactly the same way.
+|
+| Found on staging on 13 August 2026 by tests/Staging, and it was not
+| theoretical: six requests to `/api/v1/orders` refused the next
+| `/api/v1/forgot-password` on its first call of the minute, so somebody who
+| had just bought something could not reset their password. It stayed invisible
+| to the feature suite because each test there makes one or two requests
+| against a fresh cache. `PasswordResetTest` now pins it.
 */
 Route::prefix('v1')->group(function () {
     // Not content, so no language segment. The language list in particular
@@ -39,11 +56,11 @@ Route::prefix('v1')->group(function () {
     | is the one that matters against a slow guess at a single account.
     */
     Route::post('/register', RegisterController::class)
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:10,1,register')
         ->name('register');
 
     Route::post('/login', [SessionController::class, 'store'])
-        ->middleware('throttle:20,1')
+        ->middleware('throttle:20,1,login')
         ->name('login');
 
     Route::post('/logout', [SessionController::class, 'destroy'])
@@ -64,18 +81,18 @@ Route::prefix('v1')->group(function () {
     | by requests arriving from everywhere.
     */
     Route::post('/forgot-password', ForgotPasswordController::class)
-        ->middleware('throttle:6,1')
+        ->middleware('throttle:6,1,forgot-password')
         ->name('password.email');
 
     Route::post('/reset-password', ResetPasswordController::class)
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:10,1,reset-password')
         ->name('password.reset');
 
     // Claiming an account made for somebody when they bought something. The
     // same token machinery as a reset, and a separate endpoint because it only
     // works on an account that has never had a password.
     Route::post('/set-password', SetPasswordController::class)
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:10,1,set-password')
         ->name('password.set');
 
     /*
@@ -91,7 +108,7 @@ Route::prefix('v1')->group(function () {
     | that. See step 7.
     */
     Route::post('/orders', OrderController::class)
-        ->middleware('throttle:20,1')
+        ->middleware('throttle:20,1,orders')
         ->name('orders.store');
 
     /*
@@ -102,7 +119,7 @@ Route::prefix('v1')->group(function () {
     | Rate limited because it is public and triggers an outbound API call.
     */
     Route::post('/webhooks/bunny', BunnyWebhookController::class)
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,bunny-webhook')
         ->name('webhooks.bunny');
 
     /*
@@ -131,7 +148,7 @@ Route::prefix('v1')->group(function () {
         // worth having stops somebody collecting it. What this does is keep one
         // caller from signing thousands of URLs an hour.
         Route::get('/cards/draw', [CardController::class, 'draw'])
-            ->middleware('throttle:30,1')
+            ->middleware('throttle:30,1,cards-draw')
             ->name('cards.draw');
         Route::get('/cards/{card}', [CardController::class, 'show'])
             ->whereNumber('card')

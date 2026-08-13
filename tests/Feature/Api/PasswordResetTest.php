@@ -209,6 +209,37 @@ it('rate limits requests for a link', function () {
         ->assertStatus(429);
 });
 
+/**
+ * The limit belongs to this endpoint and to no other.
+ *
+ * **This is a regression test for a real failure on staging**, found on 13
+ * August 2026 by `tests/Staging`. Laravel keys a guest's rate limiter on the
+ * domain and the IP and never on the route, so before each throttle was given
+ * its own prefix in `routes/api.php`, every throttled route in the application
+ * incremented one shared counter. Six requests to `/api/v1/orders` then refused
+ * the first `/api/v1/forgot-password` of the minute.
+ *
+ * What that cost a customer: buying something used up the budget for
+ * remembering their password, and the only symptom was a 429 from an endpoint
+ * they had not called.
+ *
+ * It survived the suite this file lives in because a test here makes one or two
+ * requests against a cache that is thrown away afterwards. It needs more than
+ * one endpoint in one test to appear at all, which is what this does.
+ */
+it('does not spend the reset budget on unrelated endpoints', function () {
+    customerWhoForgot();
+
+    // Well within the order endpoint's own allowance, and nothing to do with
+    // passwords. These are refused as invalid, which still counts as a request.
+    foreach (range(1, 6) as $ignored) {
+        $this->postJson('/api/v1/orders', [])->assertStatus(422);
+    }
+
+    $this->postJson('/api/v1/forgot-password', ['email' => 'jennifer@example.com'])
+        ->assertOk();
+});
+
 it('queues the reset mail rather than sending it during the request', function () {
     customerWhoForgot();
 

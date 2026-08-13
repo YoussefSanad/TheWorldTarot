@@ -6,6 +6,10 @@ Everything here is live unless marked otherwise. Read it alongside the generated
 
 Status: draft, not yet acknowledged. Until you confirm it, these shapes can still change freely. After that, changes are coordinated.
 
+**Updated 12 August 2026 with member accounts and orders**, the endpoints at the end of section 2. They are the first part of this document you build against rather than only read from: registering, signing in, passwords, `me`, and placing an order. `GET /api/v1/user`, which this document always warned you not to build on, is gone and `GET /api/v1/me` replaces it.
+
+**One thing is deliberately missing, and it is the obvious one.** Nothing collects money yet. An order is created and then waits for somebody here to mark it paid by hand. Card payment, the checkout redirect, gift codes and the 24 hour rush are the next piece of work, and `payment_url` is the field they will arrive in.
+
 ---
 
 ## 1. Base URLs and versioning
@@ -189,6 +193,176 @@ These come from how the video CDN is configured. They fail as a plain **403 with
 
 Both cookie auth and bearer tokens work, as with every protected route.
 
+---
+
+### Member accounts
+
+**None of these carry a language segment**, because an account is the same account in every language. `/api/v1/register`, not `/api/v1/en/register`. Wording in the responses below is English only for now; anything a customer reads should come from your side rather than from ours.
+
+All of them work under both authentication styles. Section 6 explains how to choose.
+
+#### POST /api/v1/register
+
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "password": "a decent long one",
+  "password_confirmation": "a decent long one"
+}
+```
+
+**201** with the customer, and registering signs them in. There is no separate sign in call afterwards.
+
+```json
+{
+  "id": 12,
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "created_at": "2026-08-12T10:04:00+00:00",
+  "has_viewing_room_access": false
+}
+```
+
+- **`password_confirmation` is required and checked here.** Your own confirm field is not enough
+- **Email is lowercased before it is stored and before it is checked for duplicates**, so `Jane@` and `jane@` are the same account and cannot both be registered
+- **422 on a duplicate email**, keyed to `email`. This one does reveal that an address is taken, which registration cannot avoid without leaving people unable to find out why they were refused. The sign in and forgotten password endpoints do avoid it
+- Password strength is enforced here and the message comes back on the `password` field. Match your Zod rules to ours or people will pass yours and fail ours
+- **There is no email verification**, deliberately. Nobody is asked to confirm an address before they can use the site
+- Rate limited to 10 a minute per address
+
+#### POST /api/v1/login
+
+```json
+{ "email": "jane@example.com", "password": "a decent long one" }
+```
+
+**200**, the same customer shape as above.
+
+- **A wrong password and an unknown email are indistinguishable**: identical status, identical message, on the `email` field. That is on purpose and will not be changed, so do not write UI that says "no account with that address"
+- **429 after 5 failures for the same email and address pair**, carrying `Retry-After` in seconds. Not 422. A separate 20 a minute limit applies per address regardless of which account is being tried
+- **A customer whose account was made for them by a purchase cannot sign in at all until they set a password.** They get the same indistinguishable failure. Section 2's set-password endpoint is how they get out of that state
+
+#### POST /api/v1/logout
+
+**204**, empty. Requires authentication.
+
+- On the cookie flow it invalidates the session and rotates the CSRF token, so **fetch `/sanctum/csrf-cookie` again before your next write**
+- On the token flow it deletes only the token that made the request. Signing out of a phone does not sign the same person out of their laptop
+
+#### GET /api/v1/me
+
+Who you are talking to. Requires authentication. **401** when not signed in, which is the normal answer for a visitor and not an error worth showing anybody.
+
+```json
+{
+  "id": 12,
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "created_at": "2026-08-12T10:04:00+00:00",
+  "has_viewing_room_access": true
+}
+```
+
+- **`has_viewing_room_access` is what lets you choose between "enter the Viewing Room" and "buy the pass"** without guessing
+- **It is a hint for your UI and never the enforcement.** The film endpoint decides again, every single time. A `true` here with a 403 there is possible, if a pass were withdrawn between the two calls, and the 403 is the truth
+- `Cache-Control: no-store`. It is different for every caller, so a shared cache holding it serves one customer's name and address to the next
+
+#### POST /api/v1/forgot-password
+
+```json
+{ "email": "jane@example.com" }
+```
+
+**Always 200, always the same body**, whatever happened:
+
+```json
+{ "message": "If we have an account for that address, a reset link is on its way." }
+```
+
+- **A known address, an unknown one, and one asking again too soon are identical.** Anything else makes this a way to ask whether somebody has an account here. Show the message as it is, and never phrase your own copy as "sent", because sometimes nothing was
+- Rate limited to 6 a minute per address, and a second limit of one message per account per 60 seconds
+- The link points at **your** site, since we render nothing a customer sees. See section 10
+
+#### POST /api/v1/reset-password
+
+```json
+{
+  "token": "from the link",
+  "email": "jane@example.com",
+  "password": "the new one",
+  "password_confirmation": "the new one"
+}
+```
+
+**200** on success. **422** keyed to `email` when the token is wrong, already used, or older than 60 minutes.
+
+- **`token` and `email` both come from the link's query string and must be sent back unchanged.** The reset fails without both
+- Single use, and 60 minutes
+- **Every bearer token that customer holds is deleted by a successful reset.** Somebody resetting a password is often somebody who thinks another person has it. Browser sessions elsewhere are not killed, which is a real gap and stated rather than hidden
+
+#### POST /api/v1/set-password
+
+The same body as a reset, and a **different endpoint on purpose**: this is somebody claiming the account that was created for them when they bought something, following the link in the mail that arrives once their order is paid.
+
+**200** on success. **422** on a used or expired token, and equally on an account that already has a password.
+
+- **It works exactly once, on an account that has never had a password.** After that the link is worth nothing even inside its 60 minutes, and changing a password becomes an ordinary reset
+- **Build it as its own page with its own words.** Nothing is being reset, and telling somebody to "reset" a password they never had reads as a mistake on our side
+- A failure here says the link is no longer valid without saying which of the possible reasons applies, for the same reason the sign in failure is vague
+
+### Orders
+
+#### POST /api/v1/orders
+
+Placing an order. **Open to anybody**, signed in or not, because demanding an account before somebody can buy costs sales at the worst possible moment.
+
+No language segment: an order is the same order whatever language it was placed in.
+
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "currency": "GBP",
+  "lines": [
+    { "product": "one-card", "quantity": 1, "question": "What should I focus on this month?" },
+    { "product": "viewing-room-pass" }
+  ]
+}
+```
+
+**201:**
+
+```json
+{
+  "id": 41,
+  "status": "pending",
+  "currency": "GBP",
+  "total_amount": 6400,
+  "lines": [
+    { "product": "one-card", "unit_amount": 1900, "quantity": 1, "question": "What should I focus on this month?" },
+    { "product": "viewing-room-pass", "unit_amount": 4500, "quantity": 1, "question": null }
+  ],
+  "payment_url": null
+}
+```
+
+- **`name` and `email` are required for a guest and ignored for a signed-in customer**, who always gets their own account. Nobody can attach an order to somebody else while authenticated as themselves
+- **An email with no account gets one made for it**, with no password. It cannot be signed in to until they follow the claim link, which arrives when the order is paid and never when it is placed
+- **`currency` is required and is taken exactly as sent.** No detection happens here. It is one currency for the whole order, because a basket priced in two has no total. An unsupported one is a 422 rather than a fallback
+- **`quantity` defaults to 1**, maximum 10 per line. At most 10 lines
+- **`question` is refused with a 422 on any product whose `allows_question` is false**, and is never required on one where it is true
+- **One bad line refuses the whole order**, with the error keyed to that line: `lines.0.product`. Nothing is silently dropped, because charging somebody for a basket they did not agree to is worse than making them try again
+- **Unpublished, unpriced and retired products are all refused** with the same message, `That is not something you can buy right now`
+- **`total_amount` and every `unit_amount` are integer minor units**, and they are captured at this moment. A later price change never moves an existing order
+- **Placing an order sends no email whatsoever.** Anybody can type any address into a checkout, so if placing an order sent mail this endpoint would be a free email bomb aimed at whoever the sender names. The first message goes out when the order is paid
+- `Cache-Control: no-store`
+- Rate limited to 20 a minute per address
+
+**`payment_url` is null today and null is not an error.** It is where a checkout URL will appear once card payment is built. Until then an order sits at `pending` until somebody here marks it paid, so **treat 201 as "your order is recorded", never as "you have paid"**, and say something to that effect on your confirmation screen rather than thanking somebody for a payment that has not happened.
+
+**There is no way to read an order back yet**, and no order history. If your checkout or account area needs either, say so and we will add them.
+
 ## 3. Locale
 
 **Language is a path segment: `/api/v1/es/products`. Every language is prefixed, English included.** Never a header.
@@ -237,20 +411,31 @@ Two things worth knowing:
 
 Configured for **both** cookie sessions and bearer tokens. Cookie auth is what the website uses. Token auth exists for future native apps.
 
+**Which one you get is decided by a single field.** Send `device_name` on register or login and you get a bearer token in the response. Omit it and you get a session cookie and no `token` field at all. The website omits it.
+
 ### Cookie flow, for the website
 
 1. `GET /sanctum/csrf-cookie` once, before your first authenticated request
 2. Send `credentials: "include"` on **every** request after that, including that first one
 3. Read the `XSRF-TOKEN` cookie and send it back as the `X-XSRF-TOKEN` header on any POST, PUT, PATCH or DELETE. Axios does this automatically, `fetch` does not
+4. Call `/api/v1/register` or `/api/v1/login` **without** `device_name`. The session is established by that call
+5. Fetch `/sanctum/csrf-cookie` again after signing out, since logging out rotates the token
 
-Two things break this silently:
+Three things break this silently:
 
 - **Your origin must be registered with us**, in both the CORS allow list and the stateful domain list. If it is missing, requests fail with what looks like a network error
 - **Both applications must share a root domain.** The session cookie is scoped to `.theworldtarot.com`, which is why the API is `api.theworldtarot.com` rather than a separate domain. Staging mirrors this exactly
+- **An origin that cannot hold a session gets a 422 on the `device_name` field**, saying so in as many words. If you see that message on the website rather than in an app, your origin is not on the stateful list, and no amount of changing your own code will fix it. Tell us
 
 ### Token flow, for later native apps
 
-Send `Authorization: Bearer <token>`. No CSRF, no cookies, no origin registration. Every protected route works under both.
+Send `device_name` when registering or signing in, then `Authorization: Bearer <token>` on everything after. No CSRF, no cookies, no origin registration. Every protected route works under both.
+
+- **The token is returned once and cannot be retrieved again.** Store it as a credential
+- It is named after the device so one can be revoked without ending every session
+- A password reset deletes every token that customer holds
+
+**This is the part of the system with the least real-world exposure so far**, since cookie auth across two subdomains only genuinely happens in a browser on the real origins. If anything here behaves differently from what this section says, that is a finding worth reporting immediately rather than working around.
 
 ## 7. Error responses
 
@@ -277,6 +462,7 @@ On 422, `errors` is keyed by field name with an array of messages per field, and
 - **`/api/v1/{locale}/cards/{id}/video` must never be cached or stored either**, for the same reason: the answer is a signed credential rather than content
 - **Both of those mean a service worker and a persisted store too.** Either one turns half an hour of exposure into however long it keeps the URL, which is the single easiest way to undo the paywall from your side
 - `/api/v1/currencies` contains `detected`, which is per-visitor. It must not be cached at a shared edge on URL alone, or one visitor's currency gets served to the next. The CDN cache key accounts for this
+- **Nothing on the member account or order endpoints is cacheable by anything, ever.** They all answer `Cache-Control: no-store`, and `/api/v1/me` is the dangerous one: it is personal, it looks harmless, and a shared cache holding it hands one customer's name and address to the next visitor
 
 The country header only exists once traffic flows through the CDN. Before DNS cutover, and in local development, detection falls back to USD. That is expected, not a bug.
 
@@ -284,12 +470,13 @@ The country header only exists once traffic flows through the CDN. Before DNS cu
 
 Nothing here has a shape yet, and we would rather agree them with you before writing them than after.
 
-- The viewing room pass as a purchase. The product row exists and is fetched by its key like any other; buying it, and the account that holds it, arrive with checkout
-- Checkout, orders, member accounts, gift codes
+- **Paying.** An order is placed and then waits to be marked paid by hand here. What is missing is the card payment itself, which is what `payment_url` becomes, and everything that hangs off it: the return journey to your site, receipts, VAT, refunds
+- **Gift codes and the 24 hour rush.** The rush is an add-on and the order shape already carries it as an extra line, so nothing structural changes for you when it arrives. Gift codes have no shape at all yet
+- **Reading an order back, and order history.** There is no `GET /orders` or `GET /orders/{id}`. Tell us if your checkout confirmation or an account area needs one
 - FAQ and legal content, newsletter signup
 - Editable page copy, delivered as named blocks per page
 
-`GET /api/v1/user` exists as framework scaffolding. **It is not part of this contract** and its shape will change before member accounts ship.
+**`GET /api/v1/user` has been removed**, as this document warned it would be. `GET /api/v1/me` replaces it and is part of the contract.
 
 ## 10. What we need from you
 
@@ -297,7 +484,13 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 2. **Cookie auth or token auth for the website.** Cookie is our assumption
 3. **Confirmation that your language switcher reads `/api/v1/languages` at runtime**, since that is what makes taking a language down actually work
 4. **Confirmation of the shapes above**, or a counter-proposal
-5. **Confirmation that your player handles an expiring HLS URL**, renewing rather than holding one. Two hours is generous for a single film and is not forever
+5. **Confirmation that your player handles an expiring HLS URL**, renewing rather than holding one. Thirty minutes covers a single film comfortably and is not forever
 6. **Whether a card ever needs an address of its own.** Cards are identified by number today, on the assumption that the Library opens them in a pop-up. If any card is ever linkable, shareable or indexed on its own URL, adding a readable identifier is cheap now and awkward once you have built against ids
+7. **The paths of your two password pages**, which we need before any of that mail can go out. They are configuration on our side, so telling us costs a deploy and not a code change. We assume `/reset-password` and `/set-password` until you say otherwise:
+   - **Where somebody resets a forgotten password.** We link to it as `{your site}/reset-password?token=...&email=...`
+   - **Where somebody sets a password for the first time**, after buying something without an account. A separate page, because nothing is being reset and the words on it are different
+   - Both pages read `token` and `email` from the query string and post them back to us unchanged, along with the new password
+8. **Whether you want an order history or an order lookup**, and whether your confirmation screen needs to re-read the order after placing it. Neither exists today
+9. **Confirmation you are not caching `/api/v1/me`**, in a service worker, a persisted store, or anything at the edge
 
 One question from us: your application can read the visitor's country directly at the edge. If you would rather detect currency yourself and always send `?currency=`, we can drop `detected` and the caching complication with it.
