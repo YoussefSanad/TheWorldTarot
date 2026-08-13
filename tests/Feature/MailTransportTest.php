@@ -125,3 +125,49 @@ it('queues every message this application can send', function () {
             ->toBeTrue("{$class} is not queued");
     }
 });
+
+/**
+ * A blank environment variable is not the same as an absent one.
+ *
+ * **This is a regression test for mail that went nowhere.** `config/mail.php`
+ * used to read `env('MAIL_FULFILLMENT_RECIPIENT', env(...))`, and `env()`
+ * applies its second argument only when a key is absent. `.env.example` ships
+ * that key blank and `composer setup` copies the template into place, so the
+ * documented fallback never applied: the address resolved to an empty string,
+ * and the only message telling Jennifer somebody is waiting for a reading was
+ * addressed to nobody. Nothing failed. The queue reported success.
+ *
+ * The config file is re-evaluated here rather than read through `config()`,
+ * because the question is what `env()` does at boot, and by the time a test
+ * runs that has already happened.
+ */
+it('falls back to a real address when a mail variable is present but blank', function () {
+    $blanked = ['MAIL_FROM_ADDRESS', 'MAIL_SUPPORT_ADDRESS', 'MAIL_ORDERS_ADDRESS', 'MAIL_FULFILLMENT_ADDRESS', 'MAIL_FULFILLMENT_RECIPIENT'];
+    $before = [];
+
+    foreach ($blanked as $key) {
+        $before[$key] = getenv($key);
+        putenv("{$key}=");
+    }
+
+    try {
+        $mail = require config_path('mail.php');
+
+        expect(filter_var($mail['from']['address'], FILTER_VALIDATE_EMAIL))
+            ->not->toBeFalse("The global from address resolved to '{$mail['from']['address']}'");
+
+        foreach (['support', 'orders', 'fulfillment'] as $sender) {
+            expect(filter_var($mail['senders'][$sender], FILTER_VALIDATE_EMAIL))
+                ->not->toBeFalse("The {$sender} sender resolved to '{$mail['senders'][$sender]}'");
+        }
+
+        // The one that was actually broken, and the one that costs a customer
+        // a reading nobody knows to write.
+        expect(filter_var($mail['notify']['fulfillment'], FILTER_VALIDATE_EMAIL))
+            ->not->toBeFalse("The fulfillment recipient resolved to '{$mail['notify']['fulfillment']}'");
+    } finally {
+        foreach ($blanked as $key) {
+            $before[$key] === false ? putenv($key) : putenv("{$key}={$before[$key]}");
+        }
+    }
+});
