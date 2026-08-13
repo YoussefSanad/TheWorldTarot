@@ -260,20 +260,38 @@ final class Target
     /**
      * An address nothing has used before.
      *
-     * Set `STAGING_EMAIL_DOMAIN` to a domain you can actually read, and the
-     * mail this suite triggers becomes checkable by hand. That is the one part
-     * of this walk no assertion can cover: whether a message really arrived is
-     * knowable only from inside a mailbox.
+     * **Set `STAGING_EMAIL` to your own address and every message this suite
+     * triggers lands in your inbox**, through plus addressing, while each walk
+     * still registers as a separate customer. That is the one part of this walk
+     * no assertion can cover: whether a message really arrived, who it came
+     * from, whether it escaped the spam folder, and whether its link points at
+     * the website, are all knowable only from inside a mailbox.
+     *
+     * `STAGING_EMAIL_DOMAIN` is the older, blunter version and still works.
+     *
+     * The default is `example.com`, which is reserved and has no MX record, so
+     * anything sent there hard bounces. That is deliberate for a suite nobody
+     * is watching, and it is a reason to set a real address when you are.
      */
     public static function freshEmail(string $tag): string
     {
+        $unique = sprintf('walk-%s-%s', $tag, bin2hex(random_bytes(4)));
+
+        $inbox = getenv('STAGING_EMAIL');
+
+        if (is_string($inbox) && str_contains($inbox, '@')) {
+            [$local, $domain] = explode('@', $inbox, 2);
+
+            return sprintf('%s+%s@%s', $local, $unique, $domain);
+        }
+
         $domain = getenv('STAGING_EMAIL_DOMAIN');
 
         if (! is_string($domain) || $domain === '') {
             $domain = 'example.com';
         }
 
-        return sprintf('walk-%s-%s@%s', $tag, bin2hex(random_bytes(4)), $domain);
+        return sprintf('%s@%s', $unique, $domain);
     }
 
     /**

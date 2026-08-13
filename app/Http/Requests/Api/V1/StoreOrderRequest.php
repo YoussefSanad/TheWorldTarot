@@ -32,7 +32,15 @@ class StoreOrderRequest extends FormRequest
         // Somebody signed in is already known. Their own account is used and
         // anything they typed is ignored, so nobody can attach an order to
         // another person while authenticated as themselves.
-        $guest = $this->user() === null;
+        //
+        // **The guard is named, and it has to be.** This route carries no auth
+        // middleware on purpose, since demanding an account before somebody can
+        // buy costs sales at the worst moment. Nothing has resolved the caller
+        // by the time this runs, so a bare `user()` asks the default guard,
+        // which reads sessions and has never heard of a bearer token. Sanctum's
+        // guard answers for both a cookie and a token. Found on staging on
+        // 13 August 2026, see PlaceOrderTest.
+        $guest = $this->user('sanctum') === null;
 
         return [
             'name' => [Rule::requiredIf($guest), 'string', 'max:255'],

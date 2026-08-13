@@ -54,14 +54,25 @@ class OrderController extends Controller
      * is ignored, so an order cannot be attached to another person by anybody
      * authenticated as themselves.
      *
+     * **That protection is why the guard is named here.** This route carries no
+     * auth middleware, so nobody has resolved the caller yet, and a bare
+     * `user()` asks the default guard, which only reads sessions. A customer
+     * carrying a bearer token came through as a guest and their order attached
+     * to whatever address was typed, which is exactly the thing the paragraph
+     * above says cannot happen. The website was never affected, because a
+     * cookie is what the default guard does understand. Found on staging on
+     * 13 August 2026 by tests/Staging, whose walk signs in with a token.
+     *
      * `firstOrCreate` is safe against two first orders arriving together: the
      * framework catches the unique violation on `email` inside a savepoint and
      * re-reads, rather than the second buyer seeing an error.
      */
     private function customerFor(StoreOrderRequest $request): Customer
     {
-        if ($request->user() instanceof Customer) {
-            return $request->user();
+        $signedIn = $request->user('sanctum');
+
+        if ($signedIn instanceof Customer) {
+            return $signedIn;
         }
 
         return Customer::firstOrCreate(

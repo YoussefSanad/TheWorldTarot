@@ -209,6 +209,49 @@ it('needs neither from somebody who is', function () {
 });
 
 /*
+| The same two rules again, for somebody carrying a bearer token.
+|
+| **Not a duplicate of the two above, and the difference is the whole point.**
+| Those sign in through the `web` guard, which is what a cookie uses. This route
+| carries no auth middleware, so nothing resolves the caller before the request
+| is validated, and a bare `user()` asks the default guard alone. A native app
+| holding a perfectly good token was therefore a guest here.
+|
+| A real token is minted and sent as a header rather than using
+| `Sanctum::actingAs`, because that helper swaps the guard for a fake one and
+| would have gone on passing through the whole bug. The proof has to travel the
+| channel a real caller travels, which is the standing lesson of this project.
+*/
+
+function tokenFor(Customer $customer): string
+{
+    return $customer->createToken('a native app')->plainTextToken;
+}
+
+it('uses the customer behind a bearer token and ignores whatever email was typed', function () {
+    sellable();
+    $signedIn = Customer::factory()->create(['email' => 'real@example.com']);
+
+    $this->withToken(tokenFor($signedIn))
+        ->postJson('/api/v1/orders', orderPayload(['email' => 'someone-else@example.com']))
+        ->assertCreated();
+
+    // The protection the docblock promises, proved on the path that did not
+    // have it: an order could be attached to any address the caller typed,
+    // while they were signed in as themselves.
+    expect(Order::first()->customer_id)->toBe($signedIn->id)
+        ->and(Customer::where('email', 'someone-else@example.com')->exists())->toBeFalse();
+});
+
+it('needs no name or email from somebody carrying a token', function () {
+    sellable();
+
+    $this->withToken(tokenFor(Customer::factory()->create()))
+        ->postJson('/api/v1/orders', ['currency' => 'USD', 'lines' => [['product' => 'one-card']]])
+        ->assertCreated();
+});
+
+/*
 | Placing an order is silent, and the gateway is swappable.
 */
 

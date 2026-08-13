@@ -4,6 +4,12 @@ Integration tests that run against a **deployed** environment over the network. 
 
 They are not part of `composer test` and never should be. The ordinary suite proves our code does what we meant. This one proves an environment answers the way a customer needs it to, and those are different questions.
 
+> **Run it from your own machine, pointed at a deployed environment. Never on the environment's console.**
+>
+> Deploys run `composer install --no-dev` and Pest is a dev dependency, so `vendor/bin/pest` does not exist on staging or production and the run dies with `Could not open input file: vendor/bin/pest`.
+>
+> That is not a missing step, it is the design. This suite is an HTTP client and needs nothing installed on the far end. It walks in through the front door exactly as a customer does, which is the only reason its results mean anything.
+
 ```bash
 STAGING_URL=https://staging-api.theworldtarot.com \
 STAGING_ORIGIN=https://staging.theworldtarot.com \
@@ -18,7 +24,8 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 |---|---|
 | `STAGING_URL` | **Required.** The API to walk. Refuses any host that does not look like staging or local unless `STAGING_I_KNOW_WHAT_THIS_IS=1` |
 | `STAGING_ORIGIN` | The exact origin the website will be served from. Cookie authentication and CORS are both keyed on it, so without it those checks prove much less |
-| `STAGING_EMAIL_DOMAIN` | A domain you can actually receive mail at. Set it and the addresses used become real, so you can go and read what arrived |
+| `STAGING_EMAIL` | **Your own address.** Every walk account becomes `you+walk-...@yours`, so each is a separate customer and all the mail lands in one inbox |
+| `STAGING_EMAIL_DOMAIN` | The blunter older form: a whole domain you can receive at. `STAGING_EMAIL` wins if both are set |
 | `STAGING_INTERACTIVE=1` | Runs the purchase walk, which waits for you to mark an order paid in the panel |
 | `STAGING_THROTTLE_TESTS=1` | Runs the forgotten-password rate limit test, which locks your address out for a minute |
 | `STAGING_LOCALE`, `STAGING_CURRENCY`, `STAGING_READING_KEY`, `STAGING_PASS_KEY` | Defaults are `en`, `GBP`, `one-card`, `viewing-room-pass` |
