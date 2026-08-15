@@ -1,6 +1,6 @@
 <?php
 
-use App\Enums\Fulfilment;
+use App\Enums\Fulfillment;
 use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Product;
@@ -47,7 +47,7 @@ it('takes each product\'s structure from the catalogue', function () {
     // product is. The seeder only turns that into rows.
     Product::all()->each(function (Product $product) {
         expect($product->type)->toBe($product->key->type())
-            ->and($product->fulfilment)->toBe($product->key->fulfilment())
+            ->and($product->fulfillment)->toBe($product->key->fulfillment())
             ->and($product->allows_question)->toBe($product->key->allowsQuestion());
     });
 });
@@ -60,7 +60,7 @@ it('makes the pass a pass, and nothing to ask a question about', function () {
     // It grants access instead of delivering anything, which is what M5 reads
     // when it stamps the customer.
     expect($pass->type)->toBe(ProductType::Pass)
-        ->and($pass->fulfilment)->toBe(Fulfilment::AccessGrant)
+        ->and($pass->fulfillment)->toBe(Fulfillment::AccessGrant)
         ->and($pass->allows_question)->toBeFalse();
 });
 
@@ -108,7 +108,7 @@ it('re-applies structure that a developer has corrected', function () {
 
     // Something changed it by hand or by an older seed.
     Product::firstWhere('key', ProductKey::OneCard)->update([
-        'fulfilment' => Fulfilment::AccessGrant,
+        'fulfillment' => Fulfillment::AccessGrant,
         'allows_question' => false,
     ]);
 
@@ -117,7 +117,7 @@ it('re-applies structure that a developer has corrected', function () {
     // Structure belongs to code, so the next deploy puts it back.
     $product = Product::firstWhere('key', ProductKey::OneCard);
 
-    expect($product->fulfilment)->toBe(Fulfilment::ManualPdf)
+    expect($product->fulfillment)->toBe(Fulfillment::ManualPdf)
         ->and($product->allows_question)->toBeTrue();
 });
 

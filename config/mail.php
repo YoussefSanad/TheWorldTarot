@@ -108,11 +108,76 @@ return [
     | the same address. Here you may specify a name and address that is
     | used globally for all emails that are sent by your application.
     |
+    | The same `?:` as the senders below, and for the same reason: a blank
+    | variable is not an absent one, and a message with no From address is
+    | refused by the transport rather than quietly delivered.
+    |
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
+        'address' => env('MAIL_FROM_ADDRESS') ?: 'support@theworldtarot.com',
+        'name' => env('MAIL_FROM_NAME') ?: (env('APP_NAME') ?: 'The World Tarot'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Senders
+    |--------------------------------------------------------------------------
+    |
+    | Which address each kind of message comes from. Decided 8 August 2026,
+    | because a customer reads the sender before they read anything else.
+    |
+    | Named through App\Enums\Sender rather than typed at a call site, so an
+    | address changes in one place. Every one of these has to sit on a domain
+    | verified in Resend, `theworldtarot.com` today. Sending as anything else is
+    | accepted and then filed as spam, which is a failure that reports success.
+    |
+    | Sending is not receiving. Verification authorises sending and creates no
+    | mailbox. A reply to any of these goes nowhere until an MX record routes it
+    | somewhere real, and nobody is told. See CLAUDE.md section 8.
+    |
+    | **Every address below falls back with `?:` and not with `env()`'s second
+    | argument.** That argument applies only when a key is absent. A key that is
+    | present and blank, which is what `.env.example` ships for the recipient
+    | below and what a cleared field in a hosting panel leaves behind, gives an
+    | empty string instead, and an empty address is carried all the way to the
+    | transport and delivers nothing. Found on 13 August 2026, see below.
+    |
+    */
+
+    'senders' => [
+        'support' => env('MAIL_SUPPORT_ADDRESS') ?: 'support@theworldtarot.com',
+        'orders' => env('MAIL_ORDERS_ADDRESS') ?: 'orders@theworldtarot.com',
+        'fulfillment' => env('MAIL_FULFILLMENT_ADDRESS') ?: 'fulfillment@theworldtarot.com',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Where we write to
+    |--------------------------------------------------------------------------
+    |
+    | Not senders, recipients. Where a message goes when it is for us rather
+    | than for a customer.
+    |
+    | `fulfillment` is where "somebody is waiting for a reading" lands, so it
+    | has to reach Jennifer. It defaults to the address it is sent from, which
+    | works only if that mailbox exists and she reads it. **Sending is not
+    | receiving**, and a notification nobody sees is worse than none, because
+    | the system reports success while a customer waits.
+    |
+    | **This is the one that was actually broken**, on 13 August 2026. It read
+    | `env('MAIL_FULFILLMENT_RECIPIENT', env(...))`, `.env.example` ships that
+    | key blank, and `composer setup` copies `.env.example` into place. So the
+    | documented default never applied anywhere the template had been used, the
+    | address resolved to an empty string, and the only message telling Jennifer
+    | there is work waiting was addressed to nobody. It reported success.
+    |
+    */
+
+    'notify' => [
+        'fulfillment' => env('MAIL_FULFILLMENT_RECIPIENT')
+            ?: env('MAIL_FULFILLMENT_ADDRESS')
+            ?: 'fulfillment@theworldtarot.com',
     ],
 
 ];

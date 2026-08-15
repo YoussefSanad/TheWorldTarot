@@ -9,7 +9,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
 /**
- * Deliberately absent: key, type and fulfilment. They are structure rather than
+ * Deliberately absent: key, type and fulfillment. They are structure rather than
  * content, they mean nothing to a non-technical user, and changing one would
  * break the frontend or the checkout. See CLAUDE.md section 4.
  */

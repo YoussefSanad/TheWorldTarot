@@ -66,7 +66,7 @@ it('never overwrites copy the client has written', function () {
 
     $card = Card::firstWhere('number', 0);
 
-    // A card's name is a value, not structure. Unlike a product's fulfilment
+    // A card's name is a value, not structure. Unlike a product's fulfillment
     // mode, there is nothing here for a deploy to put back.
     expect($card->getTranslation('name', 'en'))->toBe('The Fool, Renamed')
         ->and($card->getTranslation('short_description', 'en'))->toBe('Her words.');

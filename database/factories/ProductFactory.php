@@ -2,7 +2,7 @@
 
 namespace Database\Factories;
 
-use App\Enums\Fulfilment;
+use App\Enums\Fulfillment;
 use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Models\Product;
@@ -40,7 +40,7 @@ class ProductFactory extends Factory
         return [
             'key' => $key,
             'type' => ProductType::Reading,
-            'fulfilment' => Fulfilment::ManualPdf,
+            'fulfillment' => Fulfillment::ManualPdf,
             'allows_question' => true,
             'name' => ['en' => $key->defaultName()],
             'short_description' => ['en' => fake()->sentence()],
@@ -63,7 +63,7 @@ class ProductFactory extends Factory
         return $this->state(fn () => [
             'key' => ProductKey::ViewingRoomPass,
             'type' => ProductType::Pass,
-            'fulfilment' => Fulfilment::AccessGrant,
+            'fulfillment' => Fulfillment::AccessGrant,
             'allows_question' => false,
             'name' => ['en' => ProductKey::ViewingRoomPass->defaultName()],
         ]);

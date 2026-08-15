@@ -18,6 +18,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "league/flysystem-aws-s3-v3": "^3.35",
+        "resend/resend-php": "^1.7",
         "spatie/laravel-translatable": "^6.14"
     },
     "require-dev": {
@@ -59,6 +60,10 @@
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test"
+        ],
+        "test:staging": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php vendor/bin/pest -c phpunit.staging.xml"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",

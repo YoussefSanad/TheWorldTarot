@@ -56,7 +56,7 @@ class ProductResource extends Resource
     /**
      * Products are seeded, never created here.
      *
-     * A create form would have to ask for a key, a type and a fulfilment mode,
+     * A create form would have to ask for a key, a type and a fulfillment mode,
      * which are structure rather than content and would mean nothing to
      * Jennifer. Anything new is a developer adding a row in a deploy, alongside
      * the frontend work that makes it sellable. See CLAUDE.md section 4.
