@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\PermanentFailure;
 use App\Services\Newsletter\MailchimpAudience;
 use App\Support\NewsletterSignup;
 use Carbon\CarbonImmutable;
@@ -16,13 +17,17 @@ use Illuminate\Support\Facades\Http;
  *
  * ## How it was captured
  *
- * Two real POSTs to the live audience `3cef9f995a` on `us20`, sent through
+ * Three real POSTs to the live audience `3cef9f995a` on `us20`, sent through
  * `MailchimpAudience` itself rather than through a hand written curl, so what
  * is pinned below is the code path and not a reconstruction of it.
  *
  * 1. The first was accepted with **200**, creating `yosefsanad11@gmail.com`
  * 2. The second was identical and answered **400 Member Exists**, which is the
  *    real shape of the redelivery case the queue guarantees will happen
+ * 3. The third came later, after that contact had been permanently deleted from
+ *    the audience, and answered **400 Forgotten Email Not Subscribed**. Nobody
+ *    would have invented that one, which is the argument for walking a thing
+ *    rather than only testing it
  *
  * ## Regenerating this
  *
@@ -44,6 +49,17 @@ const ACCEPTED_RESPONSE = '{"id":"db721ca05b041eef447707f148eabb25","email_addre
 
 /** Verbatim, from the second send. */
 const DUPLICATE_RESPONSE = '{"title":"Member Exists","status":400,"detail":"yosefsanad11@gmail.com is already a list member. Use PUT to insert or update list members.","instance":"20c0ebb3-839c-d055-0456-0d25a5e8197e"}';
+
+/**
+ * Verbatim, from a third send later the same day, after the contact had been
+ * **permanently deleted** from the audience rather than archived.
+ *
+ * Captured by accident during a local walk, which is the only reason it is
+ * here: nobody would have thought to invent it. Mailchimp will not re-add an
+ * address that was permanently deleted, ever, through any API call. The person
+ * has to re-subscribe through a Mailchimp hosted form.
+ */
+const FORGOTTEN_RESPONSE = '{"title":"Forgotten Email Not Subscribed","status":400,"detail":"yosefsanad11@gmail.com was permanently deleted and cannot be re-imported. The contact must re-subscribe to get back on the list.","instance":"930732a9-1d46-45cf-a56f-5e4dfbf93aa9"}';
 
 beforeEach(function () {
     config([
@@ -106,4 +122,32 @@ it('reads the real duplicate refusal as success', function () {
     (new MailchimpAudience)->subscribe(capturedSignup());
 
     Http::assertSentCount(1);
+});
+
+/**
+ * **A permanently deleted address is refused forever, and must not be retried.**
+ *
+ * The distinction matters because this arrives as a 400 exactly like Member
+ * Exists does, and the two want opposite handling. Treating it as success would
+ * report a subscription that will never exist. Treating it as temporary would
+ * spend the job's whole six hour window on an answer that cannot change.
+ *
+ * Nothing our code sends can fix it, and neither can anybody here: Mailchimp
+ * only lets that person back on through one of their own hosted forms. So the
+ * job stops and says so, and the line in the log is the only way anybody finds
+ * out. That is a real limit of single opt-in through the API, not a bug.
+ */
+it('gives up on an address Mailchimp has permanently deleted', function () {
+    Http::fake([ACCEPTED_URL => Http::response(FORGOTTEN_RESPONSE, 400)]);
+
+    $refusal = null;
+
+    try {
+        (new MailchimpAudience)->subscribe(capturedSignup());
+    } catch (Throwable $e) {
+        $refusal = $e;
+    }
+
+    expect($refusal)->toBeInstanceOf(PermanentFailure::class);
+    expect($refusal->getMessage())->toContain('Forgotten Email Not Subscribed');
 });
