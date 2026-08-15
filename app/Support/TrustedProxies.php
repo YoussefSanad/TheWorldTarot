@@ -31,25 +31,52 @@ namespace App\Support;
  * Anything keyed on an address, `LoginRequest`'s limiter included, could be
  * moved by setting one header.
  *
- * ## Why not the `REMOTE_ADDR` sentinel
+ * ## `REMOTE_ADDR`, rejected on 14 August 2026 and adopted on 15 August
  *
- * Symfony replaces that string with whoever opened the connection, which looks
- * like a tidy way to trust the balancer without knowing its address. It is
- * wrong here. It trusts the peer unconditionally, and this origin is reachable
- * without going through Cloudflare at all, on the `*.laravel.cloud` hostname
- * the frontend's own `.env.example` names. A request sent straight there would
- * have its invented `X-Forwarded-For` believed. `PRIVATE_SUBNETS` covers the
- * balancer without extending that trust to whatever happens to connect.
+ * Symfony replaces that string with whoever opened the connection. It was left
+ * out at first because it trusts the peer unconditionally, and `PRIVATE_SUBNETS`
+ * looked like a way to cover the platform's balancer without doing that.
+ *
+ * **Then staging was walked, and the balancer turned out to sit on a public
+ * address.** Two signups arriving minutes apart were both recorded from
+ * `2600:1f16:e0:85`, an AWS range, which is neither Cloudflare nor private. So
+ * nothing in the trusted list matched the peer, Symfony stopped at the first
+ * address it did not recognise, and `$request->ip()` was that balancer for every
+ * visitor on earth.
+ *
+ * That is worse in practice than what it replaced. Every limiter in
+ * `routes/api.php` keys on the address, so a single counter was being shared by
+ * the whole internet: six newsletter signups a minute in total, and one caller
+ * able to lock everybody out. `LoginRequest`'s `email|ip` limiter lost its per
+ * attacker dimension the same way.
+ *
+ * **The lesson is the one this project keeps paying for.** The synthetic chains
+ * in the test suite were correct and the assumption underneath them was not,
+ * and only a request travelling the path a real visitor travels could show it.
+ * See CLAUDE.md section 4 on the channel a proof travels down.
+ *
+ * `PRIVATE_SUBNETS` stays, since it costs nothing and covers an internal hop if
+ * the platform ever grows one.
  *
  * ## What this does not fix, in writing
  *
- * **Reaching the origin directly is still possible, and a request that does so
- * is still trusted one hop too far**, because the balancer in front of it is
- * trusted whichever hostname was used. Closing that means refusing traffic that
- * did not come through Cloudflare, at the platform or with authenticated origin
- * pulls, and it is not something this class can do. Until then the exposure is
- * smaller than it was, not gone: forging an address requires knowing the origin
- * hostname rather than merely sending a header to the public one.
+ * **A request that reaches the origin without passing through Cloudflare is
+ * trusted one hop too far, and can name whatever address it likes.** The origin
+ * answers on its `*.laravel.cloud` hostname, which the frontend's own
+ * `.env.example` names, and the balancer is the peer whichever hostname was
+ * used, so nothing here can tell the two apart.
+ *
+ * **Swapping to `CF-Connecting-IP` does not help**, and it is worth writing down
+ * because it is the obvious next idea. Cloudflare overwrites that header so a
+ * client cannot forge it in transit, but a client talking straight to the origin
+ * is not in transit and simply sets it. The missing thing is proof that
+ * Cloudflare was involved at all, which no header can supply by itself.
+ *
+ * Closing it needs one of: refusing non-Cloudflare traffic at the platform,
+ * authenticated origin pulls, or a secret header set by a Cloudflare transform
+ * rule and checked here. All three are configuration rather than code, and none
+ * is done. Until one is, this class buys correct addresses for ordinary traffic
+ * and nothing against somebody who knows the origin hostname.
  */
 final class TrustedProxies
 {
@@ -98,9 +125,10 @@ final class TrustedProxies
      */
     public static function all(): array
     {
-        // PRIVATE_SUBNETS is a sentinel Symfony expands to the RFC 1918 and
-        // unique-local ranges. It covers Laravel Cloud's balancer without this
-        // repo having to know its address, and without trusting a public peer.
-        return [...self::CLOUDFLARE, 'PRIVATE_SUBNETS'];
+        // Two sentinels Symfony expands for us. PRIVATE_SUBNETS becomes the
+        // RFC 1918 and unique-local ranges. REMOTE_ADDR becomes whoever opened
+        // the connection, which is how the platform's balancer is trusted
+        // without this repo knowing or maintaining its address.
+        return [...self::CLOUDFLARE, 'PRIVATE_SUBNETS', 'REMOTE_ADDR'];
     }
 }
