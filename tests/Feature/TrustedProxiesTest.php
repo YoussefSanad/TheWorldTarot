@@ -69,16 +69,54 @@ it('ignores a forged forwarded address in front of the real one', function () {
         ->assertJsonPath('ip', '203.0.113.7');
 });
 
-it('ignores a forwarded address from a peer it does not trust', function () {
-    // Nothing in front of this request that we recognise, so the header is
-    // worth nothing and the peer is the only address there is.
+/**
+ * **The case that was wrong in production until 15 August 2026.**
+ *
+ * Laravel Cloud's balancer answers from a public AWS address, not a private
+ * one, so an earlier version of the trusted list did not recognise it, stopped
+ * there, and reported the balancer as the visitor for everybody.
+ *
+ * Two staging signups minutes apart were both recorded from `2600:1f16:e0:85`,
+ * which is Mailchimp's truncation of the real address rather than an address in
+ * its own right, since it is not a valid one. The prefix is what matters and it
+ * is an AWS range: neither Cloudflare nor private. A full address in that range
+ * stands in for it below.
+ *
+ * A synthetic chain with a private peer, which is what the tests above use,
+ * passed happily throughout. Only walking the deployed environment showed it.
+ */
+it('reads the visitor when the platform balancer is on a public address', function () {
+    $this->withServerVariables([
+        'REMOTE_ADDR' => '2600:1f16:e0:8500::1',
+        'HTTP_X_FORWARDED_FOR' => '62.163.245.202, 172.68.0.1',
+    ])
+        ->getJson('/api/v1/test-client-ip')
+        ->assertOk()
+        ->assertJsonPath('ip', '62.163.245.202');
+});
+
+/**
+ * **A known limitation, pinned deliberately rather than left implicit.**
+ *
+ * The peer is trusted unconditionally, because that is the only way to trust a
+ * balancer whose address the platform does not publish. The consequence is that
+ * a request reaching the origin without passing through Cloudflare, on the
+ * `*.laravel.cloud` hostname, can name whatever address it likes.
+ *
+ * This asserts the behaviour we currently have, not the behaviour we want. It
+ * exists so the limitation is visible in the suite instead of living only in a
+ * comment. **When the origin is closed to non-Cloudflare traffic, this test
+ * should start failing, and the right response is to rewrite it rather than to
+ * restore it.** See App\Support\TrustedProxies.
+ */
+it('still believes a direct caller, which is the residual worth closing', function () {
     $this->withServerVariables([
         'REMOTE_ADDR' => '198.51.100.9',
         'HTTP_X_FORWARDED_FOR' => '1.2.3.4',
     ])
         ->getJson('/api/v1/test-client-ip')
         ->assertOk()
-        ->assertJsonPath('ip', '198.51.100.9');
+        ->assertJsonPath('ip', '1.2.3.4');
 });
 
 it('falls back to the peer when a trusted proxy forwards nothing', function () {
