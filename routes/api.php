@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\CurrencyController;
 use App\Http\Controllers\Api\V1\ForgotPasswordController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\MeController;
+use App\Http\Controllers\Api\V1\NewsletterController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\RegisterController;
@@ -110,6 +111,21 @@ Route::prefix('v1')->group(function () {
     Route::post('/orders', OrderController::class)
         ->middleware('throttle:20,1,orders')
         ->name('orders.store');
+
+    /*
+    | Joining the mailing list. Open to anybody, and flat rather than behind a
+    | language, because a list is not content and whoever joins it has no
+    | account and may never have one.
+    |
+    | Throttled harder than orders. This is unauthenticated, every call costs a
+    | queued job and reaches a paid third party, and unlike an order there is no
+    | point at which a person would legitimately do it repeatedly. Six a minute
+    | is far more than filling in a form takes and far less than a useful way to
+    | spend our Mailchimp quota.
+    */
+    Route::post('/newsletter', NewsletterController::class)
+        ->middleware('throttle:6,1,newsletter')
+        ->name('newsletter.subscribe');
 
     /*
     | Bunny telling us a transcode finished. Unauthenticated by necessity, since

@@ -79,6 +79,35 @@ return [
         'reveal_ttl' => (int) env('BUNNY_REVEAL_TTL', 1800),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Mailchimp
+    |--------------------------------------------------------------------------
+    |
+    | The newsletter audience. **Both deployed environments share one**, decided
+    | 14 August 2026, so a signup made on staging reaches the list Jennifer
+    | mails. That is part of why config/newsletter.php exists: naming the
+    | logging implementation locally is how a developer stays out of it.
+    |
+    | `server_prefix` is the datacenter, `us20` here. It is its own variable
+    | rather than being split off the end of the key, which is what every
+    | example on the internet does. Splitting works until a key arrives without
+    | the suffix, at which point the base URL becomes https://.api.mailchimp.com
+    | and the failure reads like a revoked key rather than a config mistake.
+    |
+    */
+
+    'mailchimp' => [
+        'key' => env('MAILCHIMP_API_KEY'),
+        'audience_id' => env('MAILCHIMP_AUDIENCE_ID'),
+        'server_prefix' => env('MAILCHIMP_SERVER_PREFIX'),
+
+        // One small JSON call. Short, because this runs on a queue behind a
+        // request that was answered long ago, and a worker held open by a
+        // hanging third party is a worker doing nothing else.
+        'timeout' => (int) env('MAILCHIMP_TIMEOUT', 10),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),

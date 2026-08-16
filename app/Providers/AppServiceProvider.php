@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\NewsletterList;
 use App\Contracts\PaymentGateway;
 use App\Contracts\RevealVideoSource;
 use App\Models\Customer;
@@ -33,6 +34,13 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             PaymentGateway::class,
             fn () => $this->app->make(config('payments.gateway')),
+        );
+
+        // Which mailing list people join, named in config/newsletter.php. Same
+        // reasoning again. See docs/plans/newsletter-signup-plan.md.
+        $this->app->bind(
+            NewsletterList::class,
+            fn () => $this->app->make(config('newsletter.list')),
         );
     }
 

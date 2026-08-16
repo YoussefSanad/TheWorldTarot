@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\ResolveRequestContext;
+use App\Support\TrustedProxies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -14,6 +15,16 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Who this application believes when it reads a forwarded address.
+        //
+        // **Not a tidy default, load bearing.** Left unset, Laravel trusts every
+        // proxy whenever it detects Laravel Cloud, and `$request->ip()` then
+        // returns the leftmost entry of a header the client wrote. Anything
+        // keyed on an address moves by sending one header, `LoginRequest`'s
+        // limiter included. Reasoning, and what this still does not fix, in
+        // App\Support\TrustedProxies.
+        $middleware->trustProxies(at: TrustedProxies::all());
+
         // Cookie based Sanctum auth for the Next.js frontend. Without this the
         // API has no session at all, only token auth works, and an
         // authenticated admin cannot preview a non-public locale.
