@@ -45,5 +45,20 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+
+        <!--
+            The newsletter driver, pinned so the suite never reaches Mailchimp.
+
+            Added 16 August 2026. The queue runs inline here, so a signup made
+            in a test runs its job in the same process, and an unpinned driver
+            resolves from whatever .env the machine happens to have. On a
+            developer's laptop that is a real key pointed at the one audience
+            both deployed environments share, which is Jennifer's launch list.
+
+            It also stops the suite depending on a private file. Without this
+            line NewsletterListTest passed locally and failed on CI, which
+            copies .env.example, where NEWSLETTER_DRIVER is commented out.
+        -->
+        <env name="NEWSLETTER_DRIVER" value="log"/>
     </php>
 </phpunit>

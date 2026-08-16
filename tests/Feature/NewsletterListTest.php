@@ -13,8 +13,24 @@ use Illuminate\Support\Facades\Log;
  * claim the interface makes: replacing the service is a new class and one line.
  * A test asserting that the container returns the class we hardcoded into it
  * would prove nothing and would keep passing if the config were ignored.
+ *
+ * **It must not read the answer out of an env file either, which is what this
+ * one was doing until 16 August 2026.** It resolved the default and expected the
+ * logged list, and that only held because one developer's .env carried
+ * NEWSLETTER_DRIVER=log. CI copies .env.example, where that line is commented
+ * out, so config fell through to Mailchimp exactly as designed and the test
+ * failed on the first pull request that ran it.
+ *
+ * The config default is right and stays: an unrecognised or absent driver gets
+ * Mailchimp, because a typo in an env file must not be a quiet way to stop
+ * collecting subscribers. What was wrong was a test that asserted an
+ * environment while claiming to assert a seam. It now names the class it
+ * expects, and phpunit.xml pins the driver as well, so nothing in the suite can
+ * resolve the real Mailchimp client while the queue runs inline.
  */
 it('resolves whatever the config names', function () {
+    config(['newsletter.list' => LoggedNewsletterList::class]);
+
     expect(app(NewsletterList::class))->toBeInstanceOf(LoggedNewsletterList::class);
 });
 
