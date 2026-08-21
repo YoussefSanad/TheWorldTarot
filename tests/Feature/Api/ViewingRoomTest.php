@@ -208,3 +208,39 @@ it('does not let an admin session into the viewing room', function () {
         ->getJson("/api/v1/en/cards/{$card->id}/video")
         ->assertUnauthorized();
 });
+
+it('limits how fast one pass holder can mint signed urls', function () {
+    $card = Card::factory()->watchable()->create();
+    $customer = passHolder();
+
+    // **The same limit as the reveal, because it is the same artifact.** A
+    // thirty minute signed URL to the same film, and a pass buys the right to
+    // watch rather than the right to sign the deck repeatedly. Without this the
+    // paid route was the unthrottled one and the free route was not.
+    collect(range(1, 30))->each(
+        fn () => $this->actingAs($customer, 'sanctum')
+            ->getJson("/api/v1/en/cards/{$card->id}/video")
+            ->assertOk()
+    );
+
+    $this->actingAs($customer, 'sanctum')
+        ->getJson("/api/v1/en/cards/{$card->id}/video")
+        ->assertStatus(429);
+});
+
+it('counts the viewing room and the reveal in separate buckets', function () {
+    $card = Card::factory()->watchable()->create();
+    $customer = passHolder();
+
+    // The third argument to throttle is what keeps these apart. Sharing a
+    // counter would mean watching films used up somebody else's reveals, which
+    // is the defect tests/Staging found once already and this is the route pair
+    // most likely to reintroduce it.
+    collect(range(1, 30))->each(
+        fn () => $this->actingAs($customer, 'sanctum')
+            ->getJson("/api/v1/en/cards/{$card->id}/video")
+            ->assertOk()
+    );
+
+    $this->getJson('/api/v1/en/cards/draw')->assertOk();
+});

@@ -441,3 +441,16 @@ it('answers the pass question in one place, for the gate and the endpoint alike'
     expect(Gate::forUser($withoutPass)->inspect('enter-viewing-room')->message())
         ->toBe('This is for pass holders.');
 });
+
+it('limits how fast one caller can ask who they are', function () {
+    $customer = Customer::factory()->create();
+
+    // Uncacheable and it reads the customer every time, so it was the one
+    // authenticated route with nothing in front of it. The ceiling is well
+    // above a frontend re-checking who is signed in.
+    collect(range(1, 60))->each(
+        fn () => $this->actingAs($customer, 'sanctum')->getJson('/api/v1/me')->assertOk()
+    );
+
+    $this->actingAs($customer, 'sanctum')->getJson('/api/v1/me')->assertStatus(429);
+});
