@@ -85,10 +85,32 @@ class SessionController extends Controller
      * rather than our guarantee, and because the next person to authenticate a
      * customer may not route through here. It is not what makes an unclaimed
      * account safe today, and this comment used to say that it was.
+     *
+     * **Every path pays for exactly one bcrypt, and that is the whole point.**
+     * Returning early on a missing account skipped the only expensive thing on
+     * this route, which put the answer on a stopwatch. Measured 20 August 2026
+     * at ten rounds: 0.9ms for an address we have never seen, 43.6ms for one we
+     * have. Production runs twelve, so the gap there is wider again.
+     *
+     * The two channels this endpoint already guards, status and body, were
+     * identical while a third was wide open, and it separated three states
+     * rather than two, because an unclaimed account short circuited the same
+     * way. No account, unclaimed account and claimed account were all
+     * distinguishable from anywhere in the world, without a single failed sign
+     * in being needed to learn it.
+     *
+     * So a missing account or an unusable password hashes the supplied password
+     * and throws the result away. Hashing costs what checking costs, both being
+     * the same key derivation at the same rounds, and there is nothing to
+     * compare it against. A dummy hash held in a static would do the same job
+     * and would have to be built at the configured rounds and kept correct as
+     * they change, which is a second thing to get wrong for no gain.
      */
     private function credentialsMatch(?Customer $customer, string $password): bool
     {
         if ($customer === null || $customer->password === null) {
+            Hash::make($password);
+
             return false;
         }
 
