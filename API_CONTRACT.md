@@ -62,7 +62,7 @@ This endpoint has no language segment, since it is what tells you which language
 
 ### GET /api/v1/{locale}/products
 
-The readings on sale, in the order the client arranged them.
+Everything on sale, in the order the client arranged them.
 
 ```json
 [
@@ -79,13 +79,19 @@ The readings on sale, in the order the client arranged them.
 
 - **Published readings only.** Anything unpublished is absent
 - **`key` is the product's permanent identifier and its URL segment.** It is the same in every language, it is never edited, and it is a fixed set: `one-card`, `three-card`, `month-ahead`, `in-depth`, later `viewing-room-pass` and `rush-24h`. The generated specification carries it as an enum, so you can build an exhaustive switch over it and let your compiler tell you when we add one
-- `type` is `reading`, `pass` or `addon`, so you can map presentation to it. This list only ever contains `reading`
+- `type` is `reading`, `pass` or `addon`, so you can map presentation to it. **Changed 20 August 2026: this list now contains the viewing room pass as well as the readings**, so `type` is how you tell them apart rather than something you can currently ignore. See the note below
 - `allows_question` means the customer may attach a question when buying. It is never required of them
 - `price` is exactly one price, in the currency this request resolved to. See section 5
 
 **A product appears only in the languages it is finished in.** If a reading is added after Spanish goes live, it is in the English list immediately and joins the Spanish list when its Spanish copy is written. So the two lists can legitimately differ in length, and a language switcher on a product page should hide any language that product is not available in.
 
-The viewing room pass is deliberately not in this list. It has a page of its own rather than sitting among the readings, and is fetched by its key once it exists.
+**The viewing room pass is in this list, as of 20 August 2026.** It was deliberately excluded before then, on the grounds that it has a page of its own rather than sitting among the readings. That was the wrong cut: your Choose Your Journey section sells all four things side by side, so excluding one only meant fetching it separately to rebuild a list we could have returned whole. It is still also available at its own key.
+
+**So expect five entries, not four:** `one-card`, `three-card`, `month-ahead`, `in-depth`, `viewing-room-pass`. If your homepage shows four tiles, match on `key` and ignore what you have no artwork for — `in-depth` has no tile today.
+
+**When the rush add-on arrives it will not appear here**, because nothing sells an add-on on its own. If you would rather filter yourself, ask and we will add `?type=`.
+
+**Everything we seed is complete and priced**, changed the same day. A product used to be created with empty copy and a zero price, which meant a deploy against a fresh database produced a shop with nothing in it. Seeding now fills anything empty and never overwrites an edit, so **an empty products list should be treated as a fault rather than a state to design for.** It can still legitimately be *shorter* in a language that is not fully translated.
 
 ### GET /api/v1/{locale}/products/{key}
 
@@ -167,7 +173,11 @@ These come from how the video CDN is configured. They fail as a plain **403 with
 - **URLs are no longer bound to the viewer's IP address.** They were from 3 August, and it could never have worked: this API sits behind a dual-stack Cloudflare and the video zone is reachable only over IPv4, so a visitor with IPv6 had a token signed for their v6 address and then arrived at the CDN over v4. That is a 403 for every visitor with working IPv6, on every film, every time
 - **Which means the "fetch it from the browser, never from a server" rule is gone.** A URL fetched by a server component or a route handler now works for the visitor you hand it to. Caching one still does not become safe, for the reasons below, but the binding that made server-side fetching fatal is no longer there
 
-**Still true:** the CDN currently refuses requests that arrive with no referrer, so a URL pasted into an address bar 403s and cannot be debugged by clicking it, and you should not set `Referrer-Policy: no-referrer` on pages that play video. **This is being turned off**, so treat it as a temporary hazard rather than a design constraint. If it is still biting when you read this, say so.
+**Still true, and measured on 16 August 2026 rather than assumed:** the CDN refuses requests that arrive with no referrer. A freshly issued URL answers **403 with no `Referer` and 200 with one**, everything else held equal. So a playback URL pasted into an address bar will 403 and cannot be debugged by clicking it, and **`Referrer-Policy: no-referrer` on a page that plays video breaks every film on it.** Please check that header before you ship, including anything a security scanner or a platform default might add for you.
+
+We intend to turn this off, and said so on 7 August. It is still on nine days later, so **build as though it will stay on** and treat it being turned off as a constraint being lifted rather than a date you can plan around.
+
+**The embed player is not available to you.** `iframe.mediadelivery.net/embed/...` served films with no token and no expiry until **16 August 2026**, when that was closed. It now refuses. There is one supported way to play a film and it is the signed HLS URL these endpoints return. If you had an iframe player anywhere as a fallback or in a spike, it stopped working that day and this is why.
 
 ### GET /api/v1/{locale}/cards/{id}/video
 
@@ -363,6 +373,36 @@ No language segment: an order is the same order whatever language it was placed 
 
 **There is no way to read an order back yet**, and no order history. If your checkout or account area needs either, say so and we will add them.
 
+### POST /api/v1/newsletter
+
+**Joining the mailing list.** Built 15 August 2026, live on staging and on production. Flat, with no locale segment, and no authentication. **An earlier version of this document listed newsletter signup under "not built yet", which was true when written and is not now.**
+
+Your coming-soon page already posts to it. The footer form can use the same endpoint whenever it is wired up, which is why `name` is accepted and optional.
+
+```json
+{
+  "email": "someone@example.com",
+  "consent": true,
+  "name": "Jennifer"
+}
+```
+
+- **`email` is required**, and is lowercased before validation, so `Jennifer@` and `jennifer@` cannot become two contacts that look identical in her audience. **Maximum length 254**, which is RFC 5321's limit. Please match that on the field rather than choosing a shorter number
+- **`consent` is required and must be accepted.** The checkbox gates a button on your side, which anybody can post around, and the copy beside it makes a promise about what somebody agreed to. A request that never agreed must not be able to satisfy that promise by leaving the field out
+- **`name` is optional** and may be omitted entirely
+- **`website` is a honeypot.** Leave it out of real submissions. Anything that fills it in receives an ordinary success and is discarded, because refusing would tell whoever sent it which field to leave alone next time
+
+**The answer is 202, not 201.** Nothing has been created. The subscription is handed to a queue and the request returns immediately, because a request that waits on a third party fails whenever that third party is slow.
+
+```json
+{ "subscribed": true }
+```
+
+**The response is identical for a new address, an address already on the list, and an address the list will refuse later.** That is deliberate. Anything else turns a public endpoint into a way of asking whether a named person is subscribed, which is their business rather than ours. **So there is no 409 to handle and "already subscribed" is not a state you can render.**
+
+- **Rate limited to 6 a minute**, answering 429 with `Retry-After`. Filling in a form takes one
+- **What goes wrong afterwards is invisible to the visitor, deliberately.** If the list refuses an address later, that is dealt with here. The person has been told we have their address, which is true. Please do not word your confirmation as a promise that they are now on the list
+
 ## 3. Locale
 
 **Language is a path segment: `/api/v1/es/products`. Every language is prefixed, English included.** Never a header.
@@ -473,7 +513,7 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 - **Paying.** An order is placed and then waits to be marked paid by hand here. What is missing is the card payment itself, which is what `payment_url` becomes, and everything that hangs off it: the return journey to your site, receipts, VAT, refunds
 - **Gift codes and the 24 hour rush.** The rush is an add-on and the order shape already carries it as an extra line, so nothing structural changes for you when it arrives. Gift codes have no shape at all yet
 - **Reading an order back, and order history.** There is no `GET /orders` or `GET /orders/{id}`. Tell us if your checkout confirmation or an account area needs one
-- FAQ and legal content, newsletter signup
+- FAQ and legal content. **Newsletter signup has moved out of this list**, built 15 August 2026 and documented in section 2
 - Editable page copy, delivered as named blocks per page
 
 **`GET /api/v1/user` has been removed**, as this document warned it would be. `GET /api/v1/me` replaces it and is part of the contract.

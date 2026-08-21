@@ -25,7 +25,7 @@ use Spatie\Translatable\HasTranslations;
 #[Fillable([
     'key', 'type', 'fulfillment', 'allows_question', 'name',
     'short_description', 'long_description', 'price_usd', 'price_eur',
-    'price_gbp', 'is_published', 'sort_order',
+    'price_gbp', 'is_published', 'sort_order', 'defaults_seeded_at',
 ])]
 class Product extends Model
 {
@@ -62,6 +62,7 @@ class Product extends Model
             'price_eur' => 'integer',
             'price_gbp' => 'integer',
             'sort_order' => 'integer',
+            'defaults_seeded_at' => 'datetime',
         ];
     }
 

@@ -183,6 +183,80 @@ it('answers a wrong password exactly as it answers an unknown email', function (
     $wrongPassword->assertStatus(422);
 });
 
+it('takes as long to refuse an unknown email as it takes to refuse a wrong password', function () {
+    // **The third channel, and the only one a stopwatch reads.** Status and
+    // body are asserted identical directly above. They were, while the endpoint
+    // still answered the same question by how long it took, because bcrypt was
+    // the one expensive thing on the route and a missing account skipped it.
+    //
+    // Ten rounds rather than the four this suite runs at, so the hash dominates
+    // the request instead of hiding inside its overhead. Set before the
+    // customers are made, so their stored hashes carry the same cost and the
+    // comparison is between two equal amounts of real work.
+    config(['hashing.bcrypt.rounds' => 10]);
+
+    $refuse = function (string $email): float {
+        $started = hrtime(true);
+
+        $this->postJson('/api/v1/login', [
+            'email' => $email,
+            'password' => 'not-the-password',
+        ])->assertStatus(422);
+
+        return (hrtime(true) - $started) / 1e6;
+    };
+
+    // Thrown away. The first request through a route pays for resolving it.
+    $refuse('warming-up@example.com');
+
+    // **A fresh account per measurement.** LoginRequest limits per address and
+    // email together, so repeating one email would spend its five attempts and
+    // time a 429 instead of a hash.
+    $median = fn (array $samples): float => collect($samples)->sort()->values()[1];
+
+    $known = $median(collect(range(1, 3))->map(function () use ($refuse): float {
+        $customer = Customer::factory()->create(['password' => 'a-long-enough-password']);
+
+        return $refuse($customer->email);
+    })->all());
+
+    $unknown = $median(collect(range(1, 3))->map(
+        fn (int $n): float => $refuse("nobody-{$n}@example.com")
+    )->all());
+
+    // Deliberately loose. What this has to catch is a missing account costing
+    // nothing at all, which measured at roughly one fiftieth of a real check
+    // before the fix. A band tight enough to police scheduler noise on CI would
+    // fail for reasons that have nothing to do with the property being proved.
+    expect($unknown)->toBeGreaterThan($known * 0.5);
+});
+
+it('takes as long to refuse an account that has never had a password', function () {
+    // The same oracle, one state further in. An unclaimed account short
+    // circuited on the null password rather than the missing row, so somebody
+    // who bought as a guest was distinguishable from both a stranger and a
+    // customer who had chosen a password.
+    config(['hashing.bcrypt.rounds' => 10]);
+
+    $refuse = function (string $email): float {
+        $started = hrtime(true);
+
+        $this->postJson('/api/v1/login', [
+            'email' => $email,
+            'password' => 'not-the-password',
+        ])->assertStatus(422);
+
+        return (hrtime(true) - $started) / 1e6;
+    };
+
+    $refuse('warming-up@example.com');
+
+    $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    expect($refuse($unclaimed->email))->toBeGreaterThan($refuse($claimed->email) * 0.5);
+});
+
 it('locks out a slow guess at one account with a 429 and a Retry-After', function () {
     Customer::factory()->create([
         'email' => 'jennifer@example.com',
@@ -366,4 +440,17 @@ it('answers the pass question in one place, for the gate and the endpoint alike'
     // than the framework's "This action is unauthorized."
     expect(Gate::forUser($withoutPass)->inspect('enter-viewing-room')->message())
         ->toBe('This is for pass holders.');
+});
+
+it('limits how fast one caller can ask who they are', function () {
+    $customer = Customer::factory()->create();
+
+    // Uncacheable and it reads the customer every time, so it was the one
+    // authenticated route with nothing in front of it. The ceiling is well
+    // above a frontend re-checking who is signed in.
+    collect(range(1, 60))->each(
+        fn () => $this->actingAs($customer, 'sanctum')->getJson('/api/v1/me')->assertOk()
+    );
+
+    $this->actingAs($customer, 'sanctum')->getJson('/api/v1/me')->assertStatus(429);
 });

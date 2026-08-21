@@ -5,6 +5,7 @@ use App\Enums\ProductKey;
 use App\Models\Admin;
 use App\Models\Locale;
 use App\Models\Product;
+use Database\Seeders\ProductSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -86,13 +87,18 @@ it('answers 404 for a key outside the catalogue', function () {
     $this->getJson('/api/v1/en/products/nothing-here')->assertNotFound();
 });
 
-it('keeps the viewing room pass out of the readings list', function () {
-    Product::factory()->create(['key' => ProductKey::OneCard]);
-    Product::factory()->pass()->create();
+it('lists the viewing room pass alongside the readings', function () {
+    Product::factory()->create(['key' => ProductKey::OneCard, 'sort_order' => 1]);
+    Product::factory()->pass()->create(['sort_order' => 5]);
 
+    // Changed 20 August 2026. The homepage sells all of it in one section, so
+    // one list returns all of it. `type` is what tells them apart.
     $this->getJson('/api/v1/en/products')
-        ->assertJsonCount(1)
-        ->assertJsonPath('0.key', 'one-card');
+        ->assertJsonCount(2)
+        ->assertJsonPath('0.key', 'one-card')
+        ->assertJsonPath('0.type', 'reading')
+        ->assertJsonPath('1.key', 'viewing-room-pass')
+        ->assertJsonPath('1.type', 'pass');
 });
 
 it('still finds the pass by its own key', function () {
@@ -259,16 +265,54 @@ it('serves a language in preview to an admin and to nobody else', function () {
         ->assertJsonPath('0.name', 'Lectura de Una Carta');
 });
 
-it('does not list the viewing room pass among the readings', function () {
+it('never lists an add-on, even a finished one', function () {
     Product::factory()->create(['key' => ProductKey::OneCard]);
-    Product::factory()->pass()->create();
 
-    // It is sellable, priced, and written, and it still does not belong in a
-    // list of readings. It has a page of its own and is fetched by its key.
+    // The rush upgrade is bought alongside a reading and has no page of its
+    // own, so it has no business in a list of things to buy. It has no row
+    // until M5, which is why this is pinned now: whoever adds it to
+    // `ProductKey::seedable()` will not think to look at this controller.
+    Product::factory()->addon()->create([
+        'name' => ['en' => '24 Hour Rush'],
+        'short_description' => ['en' => 'Faster.'],
+        'long_description' => ['en' => 'The longer pitch.'],
+    ]);
+
     $this->getJson('/api/v1/en/products')
         ->assertOk()
         ->assertJsonCount(1)
         ->assertJsonPath('0.key', 'one-card');
+});
+
+it('holds the pass to the same completeness rules as a reading', function () {
+    Product::factory()->create(['key' => ProductKey::OneCard]);
+
+    // Listed like everything else, and gated like everything else: an
+    // unfinished pass is off the website exactly as an unfinished reading is.
+    Product::factory()->pass()->create(['long_description' => ['en' => '']]);
+
+    $this->getJson('/api/v1/en/products')
+        ->assertOk()
+        ->assertJsonCount(1)
+        ->assertJsonPath('0.key', 'one-card');
+});
+
+it('serves the whole seeded catalogue, so the shop is never empty', function () {
+    // The property the seeder exists for, checked end to end rather than at the
+    // model: a deploy against an empty database must produce a shop, not a
+    // homepage with nothing on it. See ProductSeeder's docblock.
+    (new ProductSeeder)->run();
+
+    $response = $this->getJson('/api/v1/en/products')->assertOk();
+
+    expect($response->json())->toHaveCount(count(ProductKey::seedable()));
+
+    // Four readings and the pass, each with copy and a real price.
+    foreach ($response->json() as $product) {
+        expect($product['name'])->not->toBe('')
+            ->and($product['short_description'])->not->toBe('')
+            ->and($product['price']['amount'])->toBeGreaterThan(0);
+    }
 });
 
 it('serves the pass by its own key once it is finished', function () {

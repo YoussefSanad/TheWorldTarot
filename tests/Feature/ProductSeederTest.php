@@ -24,20 +24,155 @@ it('creates the four readings and the viewing room pass', function () {
         ->toBe(ProductKey::seedable());
 });
 
-it('creates them with no price and no copy, so nobody can see them yet', function () {
+it('creates them finished, so a fresh database has a shop in it', function () {
+    seedProducts();
+
+    // Reversed on 20 August 2026. These used to be seeded with empty copy and
+    // zero prices, on the grounds that a made-up price might reach production
+    // unnoticed. The cost was worse and did reach production: a deploy against
+    // an empty database produced a homepage with nothing for sale on it.
+    Product::all()->each(function (Product $product) {
+        expect($product->isAvailableIn('en'))->toBeTrue()
+            ->and($product->whatIsMissing('en'))->toBe([]);
+    });
+});
+
+it('prices every product in every currency it sells in', function () {
+    seedProducts();
+
+    $currencies = array_keys(config('currencies.available'));
+
+    Product::all()->each(function (Product $product) use ($currencies) {
+        foreach ($currencies as $code) {
+            expect($product->priceIn($code))->toBeGreaterThan(0);
+        }
+    });
+});
+
+it('fills in copy and prices an earlier seed left empty', function () {
+    seedProducts();
+
+    // The state staging was actually in: a row created by the version that
+    // seeded nothing, so empty throughout and never stamped. Null is what every
+    // pre-existing row holds, since the column was added after them.
+    Product::firstWhere('key', ProductKey::MonthAhead)->update([
+        'short_description' => ['en' => ''],
+        'long_description' => ['en' => ''],
+        'price_usd' => 0,
+        'price_eur' => 0,
+        'price_gbp' => 0,
+        'defaults_seeded_at' => null,
+    ]);
+
+    seedProducts();
+
+    $product = Product::firstWhere('key', ProductKey::MonthAhead);
+
+    // Matching on whether the row exists would have left it exactly as broken.
+    expect($product->isAvailableIn('en'))->toBeTrue()
+        ->and($product->price_usd)->toBe(ProductKey::MonthAhead->defaultPrices()['USD'])
+        ->and($product->defaults_seeded_at)->not->toBeNull();
+});
+
+it('leaves a price the client has cleared, so taking something down sticks', function () {
+    seedProducts();
+
+    // Zeroing a price is the only lever the panel offers for pulling something
+    // off sale: `is_published` is not on the form. Refilling it on the next
+    // deploy would overrule that silently, and the client would have no way of
+    // knowing why the thing they withdrew came back.
+    Product::firstWhere('key', ProductKey::OneCard)->update(['price_usd' => 0]);
+
     seedProducts();
 
     $product = Product::firstWhere('key', ProductKey::OneCard);
 
-    // Zero is deliberately wrong rather than plausibly wrong. A made-up
-    // placeholder price is the kind of thing that reaches production unnoticed.
-    // Availability is calculated, so an unfinished reading is off the website
-    // without anything having to be switched off.
     expect($product->price_usd)->toBe(0)
-        ->and($product->price_eur)->toBe(0)
-        ->and($product->price_gbp)->toBe(0)
-        ->and($product->isAvailableIn('en'))->toBeFalse()
-        ->and($product->whatIsMissing('en'))->toContain('a price in every currency');
+        ->and($product->isAvailableIn('en'))->toBeFalse();
+});
+
+it('leaves copy the client has cleared', function () {
+    seedProducts();
+
+    Product::firstWhere('key', ProductKey::OneCard)
+        ->update(['short_description' => ['en' => '']]);
+
+    seedProducts();
+
+    // Same rule as the price. Once a product has had its defaults, its values
+    // are the client's, including the empty ones.
+    expect(Product::firstWhere('key', ProductKey::OneCard)->getTranslation('short_description', 'en'))
+        ->toBe('');
+});
+
+it('stamps a product the first time it is given its defaults, and only then', function () {
+    seedProducts();
+
+    $first = Product::firstWhere('key', ProductKey::OneCard)->defaults_seeded_at;
+
+    expect($first)->not->toBeNull();
+
+    seedProducts();
+
+    // The stamp is what makes the whole thing once-only, so it must not move.
+    expect(Product::firstWhere('key', ProductKey::OneCard)->defaults_seeded_at->equalTo($first))
+        ->toBeTrue();
+});
+
+it('replaces a name an older version of the seeder invented', function () {
+    seedProducts();
+
+    // The state every already-seeded database was in on 20 August 2026: named
+    // by the old seeder, from a list that never matched the homepage, and
+    // unstamped because that version of the seeder had nothing to stamp with.
+    Product::firstWhere('key', ProductKey::OneCard)
+        ->update(['name' => ['en' => 'One Card Reading'], 'defaults_seeded_at' => null]);
+
+    seedProducts();
+
+    // Not an edit, so not protected like one. Without this the tiles and the
+    // database disagree forever on every database that matters.
+    expect(Product::firstWhere('key', ProductKey::OneCard)->getTranslation('name', 'en'))
+        ->toBe(ProductKey::OneCard->defaultName())
+        ->toBe('1 CARD READING');
+});
+
+it('leaves a name the client actually chose', function () {
+    seedProducts();
+
+    Product::firstWhere('key', ProductKey::OneCard)
+        ->update(['name' => ['en' => 'A Single Card']]);
+
+    seedProducts();
+
+    expect(Product::firstWhere('key', ProductKey::OneCard)->getTranslation('name', 'en'))
+        ->toBe('A Single Card');
+});
+
+it('treats copy that is merely bad as an edit and leaves it alone', function () {
+    seedProducts();
+
+    Product::firstWhere('key', ProductKey::OneCard)
+        ->update(['short_description' => ['en' => 'fasd']]);
+
+    seedProducts();
+
+    // Not the seeder's call. An empty field is one nobody has reached; a field
+    // with something in it has been reached, however unpromising the something.
+    expect(Product::firstWhere('key', ProductKey::OneCard)->getTranslation('short_description', 'en'))
+        ->toBe('fasd');
+});
+
+it('leaves translations alone entirely', function () {
+    seedProducts();
+
+    $product = Product::firstWhere('key', ProductKey::OneCard);
+
+    // Only the original language is ever seeded. Inventing Spanish here would
+    // put a product on the Spanish website written in English.
+    expect($product->getTranslations('short_description'))->toBe([
+        'en' => ProductKey::OneCard->defaultShortDescription(),
+    ]);
 });
 
 it('takes each product\'s structure from the catalogue', function () {
@@ -64,13 +199,14 @@ it('makes the pass a pass, and nothing to ask a question about', function () {
         ->and($pass->allows_question)->toBeFalse();
 });
 
-it('keeps the pass out of the list of readings', function () {
+it('makes four readings and one pass, and nothing else yet', function () {
     seedProducts();
 
-    // One table for everything sellable, and the readings endpoint asks for
-    // readings. The pass has a page of its own.
+    // One table for everything sellable, told apart by type. The rush add-on
+    // arrives with M5 and is seeded by the milestone that builds it.
     expect(Product::ofType(ProductType::Reading)->count())->toBe(4)
-        ->and(Product::ofType(ProductType::Pass)->count())->toBe(1);
+        ->and(Product::ofType(ProductType::Pass)->count())->toBe(1)
+        ->and(Product::ofType(ProductType::Addon)->count())->toBe(0);
 });
 
 it('can be run repeatedly without duplicating anything', function () {

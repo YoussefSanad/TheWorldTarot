@@ -68,8 +68,11 @@ Route::prefix('v1')->group(function () {
         ->middleware('auth:sanctum')
         ->name('logout');
 
+    // Cheap to call and not cheap to answer: it cannot be cached and it reads
+    // the customer every time. Loose enough that a frontend re-checking who is
+    // signed in never notices.
     Route::get('/me', MeController::class)
-        ->middleware('auth:sanctum')
+        ->middleware(['auth:sanctum', 'throttle:60,1,me'])
         ->name('me');
 
     /*
@@ -172,8 +175,17 @@ Route::prefix('v1')->group(function () {
 
         // The Viewing Room, and no longer the only route answering with a
         // credential. It is still the only one that charges for it.
+        //
+        // **Throttled for the same reason the reveal above is, and the reason
+        // does not weaken for being behind a pass.** This mints the identical
+        // artifact, a thirty minute signed URL to the same film, so a pass
+        // holder without a limit here can sign the whole deck as fast as they
+        // can ask and keep doing it. Paying once does not buy the right to
+        // hand out fresh credentials all day. The same ceiling as the reveal,
+        // which is far above anybody watching films and far below anybody
+        // harvesting them.
         Route::get('/cards/{card}/video', CardVideoController::class)
-            ->middleware('auth:sanctum')
+            ->middleware(['auth:sanctum', 'throttle:30,1,cards-video'])
             ->whereNumber('card')
             ->name('cards.video');
     });

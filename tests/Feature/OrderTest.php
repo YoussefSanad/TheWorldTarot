@@ -152,3 +152,21 @@ it('holds two different readings, each with its own question', function () {
     expect($order->load('lines')->lines->pluck('question')->all())
         ->toBe(['The first question', 'The second question']);
 });
+
+it('lets two lines on one order share a product', function () {
+    $order = Order::factory()->create();
+    $product = Product::factory()->create();
+
+    // Hit for real during review. The factory created a product unconditionally
+    // and then ignored it, so the second line collided on products_key_unique
+    // while the test was asking for something entirely ordinary: somebody
+    // buying the same reading twice on one order.
+    $lines = OrderLine::factory()->count(2)->create([
+        'order_id' => $order->id,
+        'product_id' => $product->id,
+        'product_key' => $product->key,
+    ]);
+
+    expect($lines->pluck('product_id')->all())->toBe([$product->id, $product->id])
+        ->and(Product::count())->toBe(1);
+});
