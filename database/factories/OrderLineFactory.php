@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\ProductKey;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\Product;
@@ -17,16 +18,23 @@ class OrderLineFactory extends Factory
      */
     public function definition(): array
     {
-        $product = Product::factory()->create();
-
         return [
             'order_id' => Order::factory(),
-            'product_id' => $product->id,
 
-            // Captured from the product rather than invented, so a line built
-            // by a factory is shaped like one built by a purchase.
-            'product_key' => $product->key,
-            'unit_amount' => $product->price_usd,
+            // **Lazy, so an override wins.** Creating a product eagerly made
+            // one even when the caller passed `product_id` themselves, which
+            // meant two lines sharing a single product died on
+            // `products_key_unique` while asking for nothing unusual.
+            'product_id' => fn (): int => Product::factory()->create()->id,
+
+            // Read back from whichever product `product_id` settled on, given
+            // or made. A line built by a factory is then shaped like one built
+            // by a purchase, where these are captured from the catalogue rather
+            // than invented, and a factory cannot produce a line whose key
+            // disagrees with its product.
+            'product_key' => fn (array $line): ProductKey => Product::findOrFail($line['product_id'])->key,
+            'unit_amount' => fn (array $line): int => Product::findOrFail($line['product_id'])->price_usd,
+
             'quantity' => 1,
             'question' => null,
         ];
