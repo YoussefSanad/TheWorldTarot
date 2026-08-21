@@ -14,11 +14,27 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class ProductController extends Controller
 {
     /**
-     * The readings on sale.
+     * Everything on sale.
      *
-     * Published readings only, in the order Jennifer arranged them. The
-     * viewing room pass is not listed here: it has its own page rather than
-     * sitting in a list of readings, and is fetched by its own key.
+     * In the order Jennifer arranged them, and only what a customer in this
+     * language can actually buy.
+     *
+     * **The viewing room pass is listed here alongside the readings.** It was
+     * excluded until 20 August 2026, on the grounds that a pass has a page of
+     * its own rather than belonging in a list of readings. That was the wrong
+     * cut: the homepage's Choose Your Journey section sells all four things
+     * side by side, so excluding one meant the frontend fetching it separately
+     * to rebuild a list this endpoint could have returned whole.
+     *
+     * `type` distinguishes them, which is what it is for.
+     *
+     * **Add-ons are still excluded**, and explicitly rather than by omission.
+     * Nothing sells an add-on on its own — the rush upgrade is bought alongside
+     * a reading — so it has no page and no place in a list of things to buy.
+     * It has no row yet either, which is exactly why the exclusion is written
+     * now: adding `Rush24h` to `ProductKey::seedable()` in M5 would otherwise
+     * put it on the homepage, and the person doing that has no reason to look
+     * here.
      */
     #[QueryParameter('currency', 'The currency to price in. Falls back to the visitor\'s country.', required: false, type: 'string', example: 'GBP')]
     public function index(): ProductCollection
@@ -26,7 +42,7 @@ class ProductController extends Controller
         // Only what a customer in this language can actually see: copy in
         // their language, and a real price in every currency.
         $products = Product::availableIn(app()->getLocale())
-            ->ofType(ProductType::Reading)
+            ->whereIn('type', [ProductType::Reading, ProductType::Pass])
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
