@@ -18,8 +18,14 @@ class ProductResource extends JsonResource
      * Translatable values come out in the locale the middleware resolved, since
      * it has already set the application locale for this request.
      *
-     * Never exposed: `key` and `fulfillment`. Both are internal structure, and a
-     * customer has no business knowing how their reading gets written.
+     * **Never exposed: `fulfillment`.** How a reading gets written is internal
+     * structure, and M7 turning the One Card Reading over to a machine must not
+     * be visible in a response.
+     *
+     * `key` is exposed and has to be. It is the product's public address, the
+     * value `lines.*.product` takes at checkout, and the thing the frontend
+     * routes on. This comment said otherwise until 20 August 2026, three lines
+     * above the code that returns it.
      *
      * @return array<string, mixed>
      */
