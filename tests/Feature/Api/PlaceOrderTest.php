@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\PlaceOrder;
 use App\Contracts\PaymentGateway;
 use App\Enums\OrderStatus;
 use App\Models\Customer;
@@ -309,4 +310,35 @@ it('refuses an empty basket', function () {
     $this->postJson('/api/v1/orders', orderPayload(['lines' => []]))
         ->assertStatus(422)
         ->assertJsonValidationErrors('lines');
+});
+
+it('refuses to price a line whose product does not exist', function () {
+    // **The form request stops this reaching here, and that stays true.** The
+    // guard exists because PlaceOrder is the shared seam: phase B adds a
+    // payment path that does not route through StoreOrderRequest, and the
+    // failure without it was a TypeError on null in the one action that turns
+    // money into a record.
+    expect(fn () => app(PlaceOrder::class)(
+        Customer::factory()->create(),
+        'USD',
+        [['product' => 'a-product-that-was-never-seeded', 'quantity' => 1]],
+    ))->toThrow(InvalidArgumentException::class, 'a-product-that-was-never-seeded');
+
+    expect(Order::count())->toBe(0);
+});
+
+it('refuses to price a line in a currency the product has no price in', function () {
+    $product = Product::factory()->create();
+
+    // Prices are three NOT NULL columns, so this cannot come from the
+    // catalogue. It comes from a caller naming a currency we do not sell in,
+    // where priceIn returns null and the old code wrote it into an unsigned
+    // integer column.
+    expect(fn () => app(PlaceOrder::class)(
+        Customer::factory()->create(),
+        'JPY',
+        [['product' => $product->key->value, 'quantity' => 1]],
+    ))->toThrow(InvalidArgumentException::class, 'JPY');
+
+    expect(Order::count())->toBe(0);
 });

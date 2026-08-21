@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * Turning a validated basket into a record of what somebody bought.
@@ -32,10 +33,37 @@ class PlaceOrder
             $product = $products->get($line['product']);
             $quantity = (int) ($line['quantity'] ?? 1);
 
+            // **The guard is here as well as in the form request, and that is
+            // not belt and braces.** StoreOrderRequest::after() makes both of
+            // these impossible today and is the right place for the rule, since
+            // a customer naming a product that does not exist deserves a 422
+            // with the field named rather than an exception.
+            //
+            // This action is the shared seam though, and phase B adds a second
+            // caller in the payment path that will not route through that form
+            // request. Reaching `$product->id` on null and writing null into a
+            // NOT NULL integer column are both poor ways for the one action
+            // that turns money into a record to fail, and neither says what
+            // went wrong. Anything arriving here has already been validated, so
+            // this firing is a fault in the caller and says so.
+            if ($product === null) {
+                throw new InvalidArgumentException(
+                    "Cannot place an order for unknown product [{$line['product']}]."
+                );
+            }
+
+            $unitAmount = $product->priceIn($currency);
+
+            if ($unitAmount === null) {
+                throw new InvalidArgumentException(
+                    "Product [{$product->key->value}] has no price in {$currency}."
+                );
+            }
+
             return [
                 'product_id' => $product->id,
                 'product_key' => $product->key,
-                'unit_amount' => $product->priceIn($currency),
+                'unit_amount' => $unitAmount,
                 'quantity' => $quantity,
                 'question' => $line['question'] ?? null,
             ];
