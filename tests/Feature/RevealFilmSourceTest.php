@@ -1,12 +1,11 @@
 <?php
 
-use App\Contracts\FilmSource;
 use App\Models\Card;
 use App\Services\Reveal\FullFilmRevealVideo;
 use App\Support\Playback;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Tests\Fixtures\FakeFilmSource;
 
 uses(RefreshDatabase::class);
 
@@ -20,14 +19,33 @@ beforeEach(function () {
     config()->set('services.bunny.reveal_ttl', 1800);
 });
 
-it('resolves whatever source the config names', function () {
-    expect(app(FilmSource::class))->toBeInstanceOf(FullFilmRevealVideo::class);
+it('plays whatever source config/reveal.php names', function () {
+    Card::factory()->watchable()->create();
 
-    // The whole point of the seam. A replacement is one config line, and nothing
-    // that asks for a source has to know which one it got.
+    // The whole point of the seam. A replacement is one config line, and the
+    // endpoint does not learn which one it got.
     config()->set('reveal.source', FakeFilmSource::class);
 
-    expect(app(FilmSource::class))->toBeInstanceOf(FakeFilmSource::class);
+    // Asserted through the endpoint rather than by resolving the interface,
+    // because there is deliberately no bare binding to resolve: two adapters
+    // satisfy it and each caller is handed its own. See AppServiceProvider.
+    $this->getJson('/api/v1/en/cards/draw')
+        ->assertOk()
+        ->assertJsonPath('video.url', FakeFilmSource::URL);
+});
+
+it('does not let what a pass buys reach into the public reveal', function () {
+    Card::factory()->watchable()->create();
+
+    // Two config keys, holding the same film today and not the same decision.
+    // Changing what a paying viewer gets must leave the public reveal exactly
+    // where it was, and this is what stops that being a promise in a comment.
+    config()->set('viewing-room.source', FakeFilmSource::class);
+
+    $url = $this->getJson('/api/v1/en/cards/draw')->assertOk()->json('video.url');
+
+    expect($url)->not->toBe(FakeFilmSource::URL)
+        ->and($url)->toContain('bcdn_token=');
 });
 
 it('draws only cards with a film somebody could watch', function () {
@@ -112,16 +130,3 @@ it('hands two viewers of the same card the same url', function () {
     expect($source->playbackFor($card)?->url)
         ->toBe($source->playbackFor($card)?->url);
 });
-
-class FakeFilmSource implements FilmSource
-{
-    public function eligible(Builder $query): Builder
-    {
-        return $query;
-    }
-
-    public function playbackFor(Card $card): ?Playback
-    {
-        return null;
-    }
-}
