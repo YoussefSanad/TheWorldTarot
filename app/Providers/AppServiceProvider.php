@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Contracts\FilmSource;
 use App\Contracts\NewsletterList;
 use App\Contracts\PaymentGateway;
+use App\Http\Controllers\Api\V1\CardController;
+use App\Http\Controllers\Api\V1\CardVideoController;
 use App\Models\Customer;
 use App\Observers\TranslatableContentObserver;
 use Illuminate\Auth\Access\Response;
@@ -19,14 +21,24 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // What the homepage reveal plays, named in config/reveal.php so changing
-        // it is one line and a deploy. Resolved fresh each time rather than as a
+        // Which film each caller plays, named in config so changing either is
+        // one line and a deploy. Resolved fresh each time rather than as a
         // singleton, so a test can swap the config and get what it asked for.
         // See docs/plans/reveal-video-plan.md.
-        $this->app->bind(
-            FilmSource::class,
-            fn () => $this->app->make(config('reveal.source')),
-        );
+        //
+        // **Bound per caller, with no default, and that is the point.** Two
+        // adapters satisfy this interface: one serves the public reveal, the
+        // other serves the Viewing Room, which is sold. A bare
+        // `app(FilmSource::class)` is deliberately an error rather than a
+        // silent choice, because the two differ in what they cost somebody and
+        // the wrong one is not a thing to pick up by accident.
+        $this->app->when(CardController::class)
+            ->needs(FilmSource::class)
+            ->give(fn () => $this->app->make(config('reveal.source')));
+
+        $this->app->when(CardVideoController::class)
+            ->needs(FilmSource::class)
+            ->give(fn () => $this->app->make(config('viewing-room.source')));
 
         // How money is collected, named in config/payments.php. Same reasoning
         // as above, and resolved fresh rather than as a singleton so a test can

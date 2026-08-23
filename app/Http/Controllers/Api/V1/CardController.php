@@ -15,6 +15,16 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class CardController extends Controller
 {
     /**
+     * What the reveal plays, named in config/reveal.php.
+     *
+     * On the constructor rather than the method it is used in, because the
+     * container cannot tell two callers apart when an interface arrives as a
+     * method argument, and the Viewing Room's controller has to be handed a
+     * different adapter of this same interface. See AppServiceProvider.
+     */
+    public function __construct(private FilmSource $films) {}
+
+    /**
      * The Library.
      *
      * Every card on the website in this language, in deck order, carrying
@@ -50,12 +60,12 @@ class CardController extends Controller
      * film with a preview or a purpose-made clip changes a config line and
      * nothing here.
      */
-    public function draw(Request $request, FilmSource $source): JsonResponse
+    public function draw(Request $request): JsonResponse
     {
         // The source narrows the pool to what it can actually play, on top of
         // the language gate and never instead of it. Drawing a card it has
         // nothing for would produce a reveal with nothing to show.
-        $card = $source->eligible(Card::availableIn(app()->getLocale()))
+        $card = $this->films->eligible(Card::availableIn(app()->getLocale()))
             ->inRandomOrder()
             ->first();
 
@@ -64,7 +74,7 @@ class CardController extends Controller
         // address refused every visitor with IPv6.
         $playback = $card === null
             ? null
-            : $source->playbackFor($card);
+            : $this->films->playbackFor($card);
 
         // No fallback to a card without a film, decided 2 August 2026 on the
         // basis that one will not exist in the system. So an empty pool is the
