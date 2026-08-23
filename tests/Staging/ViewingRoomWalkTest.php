@@ -116,22 +116,20 @@ it('refuses a film to somebody who has not paid for one', function (): void {
     // hiding it would only confuse somebody who paid and is signed in as the
     // wrong account.
     expect($signedIn->getStatusCode())->toBe(403);
-});
 
-it('answers 404 for a card with nothing to watch', function (): void {
-    $cards = Target::json(Target::client()->get('api/v1/'.walkLocale().'/cards'));
+    // **And the identical 403 for a card with nothing to watch**, which is the
+    // half that matters. The pass is asked about before the card is ever looked
+    // up, so every id looks the same from out here. If this one answered 404
+    // while the one above answered 403, anybody with an account could map the
+    // Viewing Room one id at a time and learn exactly which films exist.
+    $cards = Target::json($client->get('api/v1/'.walkLocale().'/cards'));
+    $without = collect($cards)->first(fn (array $c): bool => ($c['in_viewing_room'] ?? false) === false);
 
-    $without = collect($cards)->first(fn (array $card): bool => ($card['in_viewing_room'] ?? false) === false);
-
-    if ($without === null) {
-        $this->markTestSkipped('Every card here has a film, so there is no empty case to check.');
+    if ($without !== null) {
+        expect($client->get('api/v1/'.walkLocale().'/cards/'.$without['id'].'/video', [
+            'headers' => Target::as(Target::sharedAccount()),
+        ])->getStatusCode())->toBe(403);
     }
-
-    $response = Target::client()->get('api/v1/'.walkLocale().'/cards/'.$without['id'].'/video', [
-        'headers' => Target::as(Target::sharedAccount()),
-    ]);
-
-    expect($response->getStatusCode())->toBe(404);
 });
 
 it('sells a pass, grants it when the money is recorded, and plays the film', function (): void {
@@ -197,6 +195,22 @@ it('sells a pass, grants it when the money is recorded, and plays the film', fun
     }
 
     expect($granted)->toBeTrue('The pass never appeared. Either the order was not settled, or settling it did not grant access.');
+
+    // **404 now, where it could not be checked before.** A card with nothing to
+    // watch answers 404 to somebody holding a pass and 403 to everybody else,
+    // and only an account that has paid can tell the two apart. This lived in a
+    // test of its own until 23 August 2026, using the shared account that
+    // deliberately never holds a pass, so it asserted a 404 the design must
+    // never give and failed the first time staging had both a card with a film
+    // and a card without one.
+    $cardsHere = Target::json($client->get('api/v1/'.walkLocale().'/cards'));
+    $nothingToWatch = collect($cardsHere)->first(fn (array $c): bool => ($c['in_viewing_room'] ?? false) === false);
+
+    if ($nothingToWatch !== null) {
+        expect($client->get('api/v1/'.walkLocale().'/cards/'.$nothingToWatch['id'].'/video', [
+            'headers' => $asCustomer,
+        ])->getStatusCode())->toBe(404);
+    }
 
     Target::say('Access granted. Now proving the film actually plays.');
 
