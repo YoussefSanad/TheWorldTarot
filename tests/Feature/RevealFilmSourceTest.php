@@ -1,9 +1,9 @@
 <?php
 
-use App\Contracts\RevealVideoSource;
+use App\Contracts\FilmSource;
 use App\Models\Card;
 use App\Services\Reveal\FullFilmRevealVideo;
-use App\Services\Reveal\RevealPlayback;
+use App\Support\Playback;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -21,13 +21,13 @@ beforeEach(function () {
 });
 
 it('resolves whatever source the config names', function () {
-    expect(app(RevealVideoSource::class))->toBeInstanceOf(FullFilmRevealVideo::class);
+    expect(app(FilmSource::class))->toBeInstanceOf(FullFilmRevealVideo::class);
 
     // The whole point of the seam. A replacement is one config line, and nothing
     // that asks for a source has to know which one it got.
-    config()->set('reveal.source', FakeRevealVideoSource::class);
+    config()->set('reveal.source', FakeFilmSource::class);
 
-    expect(app(RevealVideoSource::class))->toBeInstanceOf(FakeRevealVideoSource::class);
+    expect(app(FilmSource::class))->toBeInstanceOf(FakeFilmSource::class);
 });
 
 it('draws only cards with a film somebody could watch', function () {
@@ -74,7 +74,7 @@ it('signs the card live film and says when it expires', function () {
 
     $playback = app(FullFilmRevealVideo::class)->playbackFor($card);
 
-    expect($playback)->toBeInstanceOf(RevealPlayback::class)
+    expect($playback)->toBeInstanceOf(Playback::class)
         ->and($playback->url)->toContain($card->bunny_video_id)
         ->and($playback->url)->toContain('bcdn_token=')
         ->and($playback->url)->toContain('expires='.$playback->expiresAt->getTimestamp())
@@ -113,14 +113,14 @@ it('hands two viewers of the same card the same url', function () {
         ->toBe($source->playbackFor($card)?->url);
 });
 
-class FakeRevealVideoSource implements RevealVideoSource
+class FakeFilmSource implements FilmSource
 {
     public function eligible(Builder $query): Builder
     {
         return $query;
     }
 
-    public function playbackFor(Card $card): ?RevealPlayback
+    public function playbackFor(Card $card): ?Playback
     {
         return null;
     }

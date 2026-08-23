@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Contracts\RevealVideoSource;
+use App\Contracts\FilmSource;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\CardCollection;
 use App\Http\Resources\Api\V1\CardResource;
@@ -46,11 +46,11 @@ class CardController extends Controller
      * hour. The reasoning and the declined alternatives are in
      * docs/plans/reveal-video-plan.md.
      *
-     * What plays is `App\Contracts\RevealVideoSource`, so replacing the full
+     * What plays is `App\Contracts\FilmSource`, so replacing the full
      * film with a preview or a purpose-made clip changes a config line and
      * nothing here.
      */
-    public function draw(Request $request, RevealVideoSource $source): JsonResponse
+    public function draw(Request $request, FilmSource $source): JsonResponse
     {
         // The source narrows the pool to what it can actually play, on top of
         // the language gate and never instead of it. Drawing a card it has

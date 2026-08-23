@@ -2,9 +2,9 @@
 
 namespace App\Providers;
 
+use App\Contracts\FilmSource;
 use App\Contracts\NewsletterList;
 use App\Contracts\PaymentGateway;
-use App\Contracts\RevealVideoSource;
 use App\Models\Customer;
 use App\Observers\TranslatableContentObserver;
 use Illuminate\Auth\Access\Response;
@@ -24,7 +24,7 @@ class AppServiceProvider extends ServiceProvider
         // singleton, so a test can swap the config and get what it asked for.
         // See docs/plans/reveal-video-plan.md.
         $this->app->bind(
-            RevealVideoSource::class,
+            FilmSource::class,
             fn () => $this->app->make(config('reveal.source')),
         );
 
