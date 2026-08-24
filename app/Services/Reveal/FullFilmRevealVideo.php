@@ -2,9 +2,10 @@
 
 namespace App\Services\Reveal;
 
-use App\Contracts\RevealVideoSource;
+use App\Contracts\FilmSource;
 use App\Models\Card;
 use App\Services\Bunny\BunnyStream;
+use App\Support\Playback;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\Builder;
  * `docs/plans/reveal-video-plan.md`. If that trade stops being acceptable, this
  * class is the thing to replace, and nothing else has to move.
  */
-class FullFilmRevealVideo implements RevealVideoSource
+class FullFilmRevealVideo implements FilmSource
 {
     public function __construct(private BunnyStream $bunny) {}
 
@@ -38,7 +39,7 @@ class FullFilmRevealVideo implements RevealVideoSource
         return $query->whereNotNull('bunny_video_id');
     }
 
-    public function playbackFor(Card $card): ?RevealPlayback
+    public function playbackFor(Card $card): ?Playback
     {
         if (! $card->isPlayable()) {
             return null;
@@ -50,7 +51,7 @@ class FullFilmRevealVideo implements RevealVideoSource
         // one key each is what keeps that from being a code change.
         $expiresAt = now()->addSeconds(config('services.bunny.reveal_ttl'));
 
-        return new RevealPlayback(
+        return new Playback(
             $this->bunny->playbackUrl($card->bunny_video_id, $expiresAt),
             $expiresAt,
         );

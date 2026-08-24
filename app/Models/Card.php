@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Availability\Availability;
+use App\Availability\Condition;
+use App\Availability\Conditions;
 use App\Enums\VideoStatus;
 use App\Jobs\ForgetCardVideo;
 use App\Jobs\SendCardVideoToBunny;
@@ -193,21 +196,42 @@ class Card extends Model
     }
 
     /**
-     * What a visitor reading the Library in this language can actually see.
+     * What a card needs before it is on the website in a language.
+     *
+     * Declared once and rendered three ways below: the query the Library
+     * lists through, the predicate a loaded card answers, and the words the
+     * panel tells Jennifer. They were three separate implementations kept in
+     * agreement by hand, answering different callers, with nothing asserting
+     * they agreed.
      *
      * A card needs its copy and its picture. The Library shows the card, so one
      * without a picture is not something anyone can be shown, in the same way a
      * reading without a price is not something anyone can buy.
+     *
+     * The order is the order she reads them in: what she writes, then what she
+     * uploads, then the two states she does not set from this screen.
+     */
+    public static function availability(): Availability
+    {
+        return Availability::of(
+            Conditions::finishedInTheOriginalLanguage(),
+            Conditions::finishedInTheLanguageAsked(),
+            Condition::make(
+                missing: 'a picture',
+                query: fn (Builder $query) => $query->whereNotNull('image_path'),
+                record: fn (self $card): bool => $card->hasImage(),
+            ),
+            Conditions::published(),
+            Conditions::notRemoved(),
+        );
+    }
+
+    /**
+     * What a visitor reading the Library in this language can actually see.
      */
     public function scopeAvailableIn(Builder $query, string $locale): Builder
     {
-        return $query->published()
-            ->whereNotNull('image_path')
-            // The original language is the source. A card that is not finished
-            // in it is not finished at all, so it appears nowhere rather than
-            // existing in Spanish and not in English.
-            ->completeIn(Locales::default())
-            ->completeIn($locale);
+        return static::availability()->constrain($query, $locale);
     }
 
     public function hasImage(): bool
@@ -216,27 +240,57 @@ class Card extends Model
     }
 
     /**
+     * What a card additionally needs before it is in the Viewing Room.
+     *
+     * Built on the Library declaration rather than beside it, deliberately, and
+     * on the whole of it as one condition rather than on a copy of its
+     * conditions. A card with a finished video and no written copy would
+     * otherwise appear in the Viewing Room and not the Library, which
+     * contradicts the rule the whole site runs on: a language shows everything
+     * or nothing.
+     *
+     * Deliberately a second declaration and not more conditions on the first.
+     * What keeps a card out of the Library and what keeps it out of the Viewing
+     * Room are different questions, and a card is routinely finished for
+     * readers and unfinished for watchers.
+     */
+    public static function viewingRoom(): Availability
+    {
+        return Availability::of(
+            Condition::make(
+                missing: fn (self $card): string => match (true) {
+                    ! $card->hasVideo() => 'a video',
+                    // Something has been uploaded and nothing is watchable yet,
+                    // which is the first upload still being prepared or one
+                    // that failed. A replacement never lands here, because the
+                    // old video is playable.
+                    $card->video_status === VideoStatus::Failed => 'its video uploading again, because the last one went wrong',
+                    default => 'its video to finish being prepared',
+                },
+                // Does not look at the status, and that is the point.
+                // `bunny_video_id` only ever holds a video that is ready, so a
+                // replacement being prepared cannot take a card off the site
+                // while it transcodes.
+                query: fn (Builder $query) => $query->whereNotNull('bunny_video_id'),
+                record: fn (self $card): bool => $card->isPlayable(),
+            ),
+            // Last, because it reads oddly first and because it is the one
+            // thing she fixes on a different screen.
+            self::availability()->asCondition('to be on the website first'),
+        );
+    }
+
+    /**
      * What a pass holder reading the site in this language can watch.
-     *
-     * Built on being in the Library rather than beside it, deliberately. A card
-     * with a finished video and no written copy would otherwise appear in the
-     * Viewing Room and not the Library, which contradicts the rule the whole
-     * site runs on: a language shows everything or nothing.
-     *
-     * Does not look at the status, and that is the point. `bunny_video_id` only
-     * ever holds a video that is ready, so a replacement being prepared cannot
-     * take a card off the site while it transcodes.
      */
     public function scopeViewableIn(Builder $query, string $locale): Builder
     {
-        return $query->availableIn($locale)
-            ->whereNotNull('bunny_video_id');
+        return static::viewingRoom()->constrain($query, $locale);
     }
 
     public function isViewableIn(string $locale): bool
     {
-        return $this->isAvailableIn($locale)
-            && $this->isPlayable();
+        return static::viewingRoom()->satisfiedBy($this, $locale);
     }
 
     /**
@@ -303,33 +357,11 @@ class Card extends Model
      * Why this card is not in the Viewing Room yet, in her words. Empty when it
      * is.
      *
-     * Deliberately separate from what keeps it out of the Library, since a card
-     * can be finished for readers and unfinished for watchers.
-     *
      * @return array<int, string>
      */
     public function whatTheViewingRoomIsWaitingFor(string $locale): array
     {
-        $missing = [];
-
-        if (! $this->hasVideo()) {
-            $missing[] = 'a video';
-        } elseif (! $this->isPlayable()) {
-            // Something has been uploaded and nothing is watchable yet, which is
-            // the first upload still being prepared or one that failed. A
-            // replacement never lands here, because the old video is playable.
-            $missing[] = $this->video_status === VideoStatus::Failed
-                ? 'its video uploading again, because the last one went wrong'
-                : 'its video to finish being prepared';
-        }
-
-        // Last, because it reads oddly first and because it is the one thing
-        // she fixes on a different screen.
-        if (! $this->isAvailableIn($locale)) {
-            $missing[] = 'to be on the website first';
-        }
-
-        return $missing;
+        return static::viewingRoom()->unmetBy($this, $locale);
     }
 
     /**
@@ -354,13 +386,7 @@ class Card extends Model
      */
     public function whatIsMissing(string $locale): array
     {
-        $missing = $this->missingCopy($locale);
-
-        if (! $this->hasImage()) {
-            $missing[] = 'a picture';
-        }
-
-        return $missing;
+        return static::availability()->unmetBy($this, $locale);
     }
 
     /**
@@ -377,9 +403,6 @@ class Card extends Model
 
     public function isAvailableIn(string $locale): bool
     {
-        return $this->is_published
-            && $this->hasImage()
-            && $this->isCompleteIn(Locales::default())
-            && $this->isCompleteIn($locale);
+        return static::availability()->satisfiedBy($this, $locale);
     }
 }

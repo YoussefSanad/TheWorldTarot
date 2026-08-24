@@ -69,6 +69,26 @@ it('refuses a signed in customer who has not bought the pass', function () {
         ->assertForbidden();
 });
 
+it('answers 403 for every card id, so nobody can map the Viewing Room', function () {
+    $watchable = Card::factory()->watchable()->create();
+    $processing = Card::factory()->videoProcessing()->create();
+    $unpublished = Card::factory()->watchable()->unpublished()->create();
+
+    $customer = Customer::factory()->create();
+
+    // **The pass is asked about before the card is ever looked up, and that
+    // order is the whole point.** Looking the card up first would answer 404 for
+    // a card with no film and 403 for one that has it, which hands somebody who
+    // has not paid a way to enumerate which films exist, one id at a time, from
+    // outside the Viewing Room. Every id has to look identical, including one
+    // that is not a card at all.
+    foreach ([$watchable->id, $processing->id, $unpublished->id, 9999] as $id) {
+        $this->actingAs($customer, 'sanctum')
+            ->getJson("/api/v1/en/cards/{$id}/video")
+            ->assertForbidden();
+    }
+});
+
 it('decides on the server, whatever the browser was told', function () {
     $card = Card::factory()->watchable()->create();
     $customer = Customer::factory()->create();

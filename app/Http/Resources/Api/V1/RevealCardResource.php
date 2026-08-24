@@ -3,7 +3,7 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\Card;
-use App\Services\Reveal\RevealPlayback;
+use App\Support\Playback;
 use Illuminate\Http\Request;
 
 /**
@@ -23,7 +23,7 @@ use Illuminate\Http\Request;
  */
 class RevealCardResource extends CardResource
 {
-    public function __construct(Card $card, private RevealPlayback $playback)
+    public function __construct(Card $card, private Playback $playback)
     {
         parent::__construct($card);
     }

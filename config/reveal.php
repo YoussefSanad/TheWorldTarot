@@ -16,7 +16,7 @@ return [
     | Today it is the full Living Tarot film, which is the film the Viewing Room
     | sells. That was decided knowingly and is expected to change. Replacing it
     | with a preview, or with a purpose-made clip, means writing a class against
-    | App\Contracts\RevealVideoSource and naming it here. No migration, no change
+    | App\Contracts\FilmSource and naming it here. No migration, no change
     | to the endpoint, and nothing for the frontend to do.
     |
     | Reasoning in docs/plans/reveal-video-plan.md.
