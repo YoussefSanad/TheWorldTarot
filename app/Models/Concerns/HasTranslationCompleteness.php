@@ -2,6 +2,7 @@
 
 namespace App\Models\Concerns;
 
+use App\Availability\Availability;
 use App\Support\CopyFields;
 use App\Support\Locales;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,6 +18,12 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * The model declares which fields a language needs through
  * `requiredTranslations()`, so the same list drives the publish guard.
+ *
+ * Copy is one condition among several. Why a record is not on the website is
+ * not asked here, it is asked of the model's availability declaration, which
+ * renders these fields as part of a longer answer.
+ *
+ * @see Availability
  */
 trait HasTranslationCompleteness
 {
@@ -77,21 +84,6 @@ trait HasTranslationCompleteness
             fn (string $field): string => CopyFields::describe($field),
             $this->missingTranslations($locale),
         );
-    }
-
-    /**
-     * Why this record is not on the website yet, in her words. Empty when it
-     * is.
-     *
-     * Copy is all it takes for most things. A model with another requirement,
-     * like a product needing a price in every currency, overrides this and adds
-     * its own.
-     *
-     * @return array<int, string>
-     */
-    public function whatIsMissing(string $locale): array
-    {
-        return $this->missingCopy($locale);
     }
 
     /**
