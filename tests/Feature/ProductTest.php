@@ -123,6 +123,20 @@ it('refuses two products with the same key', function () {
         ->toThrow(QueryException::class);
 });
 
+it('is absent from a language it is not finished in', function () {
+    $product = Product::factory()->create();
+
+    // Cards have carried this test since M3 and products never had it. A
+    // mutation sweep on 23 August 2026 removed the language check from the
+    // product declaration entirely and all 715 tests stayed green, which means
+    // nothing here would have noticed a reading leaking onto the Spanish site
+    // untranslated. It notices now.
+    expect($product->isAvailableIn('en'))->toBeTrue()
+        ->and($product->isAvailableIn('es'))->toBeFalse()
+        ->and(Product::availableIn('es')->pluck('id'))->not->toContain($product->id)
+        ->and(Product::availableIn('en')->pluck('id'))->toContain($product->id);
+});
+
 it('scopes to published products of a type', function () {
     Product::factory()->create(['key' => ProductKey::OneCard]);
     Product::factory()->unpublished()->create(['key' => ProductKey::ThreeCard]);

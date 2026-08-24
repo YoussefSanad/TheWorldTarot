@@ -1,6 +1,8 @@
 <?php
 
+use App\Availability\UnpriceableCurrency;
 use App\Models\Card;
+use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -70,6 +72,70 @@ dataset('card states', [
     'removed',
 ]);
 
+/**
+ * One product in a named state. One per test, because keys come from a fixed
+ * catalogue of six and a matrix of states would run out of them.
+ */
+function aProductThatIs(string $state): Product
+{
+    return match ($state) {
+        'finished' => aFinishedProduct(),
+        'unpublished' => aFinishedProduct(['is_published' => false]),
+        'unpriced' => aFinishedProduct(['price_usd' => 0, 'price_eur' => 0, 'price_gbp' => 0]),
+        'priced in one currency only' => aFinishedProduct(['price_eur' => 0, 'price_gbp' => 0]),
+        'missing one currency' => aFinishedProduct(['price_gbp' => 0]),
+        'unwritten' => Product::factory()->create([
+            'name' => [], 'short_description' => [], 'long_description' => [],
+        ]),
+        'written in the original language only' => Product::factory()->create(),
+        'written in the other language only' => Product::factory()->create([
+            'name' => ['es' => 'Una Carta'],
+            'short_description' => ['es' => 'Una pregunta'],
+            'long_description' => ['es' => 'Una pregunta, y una carta que la responde.'],
+        ]),
+        'written in whitespace' => aFinishedProduct(['short_description' => ['en' => '   ', 'es' => '   ']]),
+        'removed' => tap(aFinishedProduct(), fn (Product $product) => $product->delete()),
+    };
+}
+
+/**
+ * A product finished in Spanish as well, which ProductFactory has no state for.
+ *
+ * Its own rather than `translatedProduct` from LanguageWithdrawalTest, so this
+ * file runs on its own and so a state added here cannot change a test there.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function aFinishedProduct(array $attributes = []): Product
+{
+    $product = Product::factory()->make($attributes);
+
+    foreach (Product::requiredTranslations() as $field) {
+        $english = (string) $product->getTranslation($field, 'en', false);
+
+        if ($english !== '' && $product->getTranslation($field, 'es', false) === '') {
+            $product->setTranslation($field, 'es', $english.' (es)');
+        }
+    }
+
+    $product->save();
+
+    return $product;
+}
+
+dataset('product states', [
+    'finished',
+    'unpublished',
+    'unpriced',
+    'priced in one currency only',
+    'missing one currency',
+    'unwritten',
+    'written in the original language only',
+    'written in the other language only',
+    'written in whitespace',
+    'removed',
+]);
+
 it('answers the same in the query and in PHP, whatever state a card is in', function (string $state) {
     $card = aCardThatIs($state);
 
@@ -109,6 +175,25 @@ it('always has something to say about a card it keeps off the website', function
     }
 })->with('card states');
 
+it('answers the same in the query and in PHP, whatever state a product is in', function (string $state) {
+    $product = aProductThatIs($state);
+
+    foreach (['en', 'es'] as $locale) {
+        $byQuery = Product::withTrashed()->availableIn($locale)->whereKey($product->id)->exists();
+
+        expect($byQuery)->toBe($product->isAvailableIn($locale), "the shop disagreed about a product {$state}, in {$locale}");
+    }
+})->with('product states');
+
+it('always has something to say about a product it keeps off the website', function (string $state) {
+    $product = aProductThatIs($state);
+
+    foreach (['en', 'es'] as $locale) {
+        expect($product->whatIsMissing($locale) === [])
+            ->toBe($product->isAvailableIn($locale), "the panel could not explain a product {$state}, in {$locale}");
+    }
+})->with('product states');
+
 it('lists exactly what the predicate would let through', function () {
     foreach ([
         'finished, waiting for a film',
@@ -137,15 +222,34 @@ it('lists exactly what the predicate would let through', function () {
     }
 });
 
-it('keeps a removed card off the website in both renderings', function () {
+it('keeps a removed record off the website in both renderings', function () {
     $card = aCardThatIs('removed');
+    $product = aProductThatIs('removed');
 
     // Settled rather than inherited. The query says so itself instead of
     // leaning on the global scope, so asking `withTrashed` cannot let a removed
     // record back onto the website, and the predicate now agrees with it.
     expect($card->isAvailableIn('en'))->toBeFalse()
         ->and($card->isViewableIn('en'))->toBeFalse()
-        ->and(Card::withTrashed()->availableIn('en')->whereKey($card->id)->exists())->toBeFalse();
+        ->and($product->isAvailableIn('en'))->toBeFalse()
+        ->and(Card::withTrashed()->availableIn('en')->whereKey($card->id)->exists())->toBeFalse()
+        ->and(Product::withTrashed()->availableIn('en')->whereKey($product->id)->exists())->toBeFalse();
+});
+
+it('refuses a currency the products table cannot price, in every rendering', function () {
+    $product = aProductThatIs('finished');
+
+    // A currency added to config without the migration that gives it a column.
+    // The query used to die on a Postgres error and the predicate used to
+    // quietly answer that nothing was priced, so the same mistake either broke
+    // the shop or emptied it depending which caller asked first.
+    config(['currencies.available' => config('currencies.available') + [
+        'CHF' => ['symbol' => 'CHF', 'label' => 'Swiss Franc'],
+    ]]);
+
+    expect(fn () => Product::availableIn('en')->get())->toThrow(UnpriceableCurrency::class, 'price_chf')
+        ->and(fn () => $product->isAvailableIn('en'))->toThrow(UnpriceableCurrency::class, 'price_chf')
+        ->and(fn () => $product->whatIsMissing('en'))->toThrow(UnpriceableCurrency::class, 'price_chf');
 });
 
 it('reads the list to her in the order she reads it', function () {
@@ -155,6 +259,9 @@ it('reads the list to her in the order she reads it', function () {
     // so it cannot drift as conditions are added.
     expect($card->whatIsMissing('en'))
         ->toBe(['a name', 'a short description', 'a full description', 'a picture']);
+
+    expect(aProductThatIs('unpriced')->whatIsMissing('en'))
+        ->toBe(['a price in every currency']);
 });
 
 it('reads the Viewing Room its film first and the website last', function () {

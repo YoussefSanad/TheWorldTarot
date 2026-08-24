@@ -26,6 +26,12 @@ return [
     | every existing product. That cost is deliberate, see .claude/database.md.
     | There is no base price and no exchange rate anywhere in this system.
     |
+    | Forgetting the migration raises App\Availability\UnpriceableCurrency, from
+    | every rendering of the availability rule and at the first read. It used to
+    | be a Postgres error in listings and a silent "nothing is priced" for a
+    | product in hand, so the same mistake broke the shop or emptied it
+    | depending which one asked.
+    |
     */
 
     'available' => [
