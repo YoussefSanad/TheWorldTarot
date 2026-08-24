@@ -87,6 +87,20 @@ Invisible to the feature suite, because each test there makes one or two request
 
 `it does not spend the password reset budget on unrelated routes` in `PasswordsTest.php` is the test for it, and it fails until the prefixes are added. Five other tests fail with a pointed message from the same cause.
 
+## Run of 23 August 2026, and the defect it found in itself
+
+`staging-api.theworldtarot.com`, carrying the `FilmSource` refactor that moved the Viewing Room onto the seam the homepage reveal already crossed. **Passed, including the interactive purchase**: an order settled by hand granted the pass, and the film played down through master manifest, rendition and segment, with a tampered token refused.
+
+It took two runs, and the first one failed for a reason worth keeping.
+
+**`it answers 404 for a card with nothing to watch` had never executed before.** It was written on 13 August and skipped every run since, because no card on staging had a finished film, so its totals looked clean and nobody noticed what it was asking for. This was the first environment to carry both a card with a film and a card without one.
+
+What it asked for was wrong, and dangerously so. It used `Target::sharedAccount()`, which is the account the rest of this file relies on **not** holding a pass, and expected 404. The pass is asked about before the card is ever looked up, so that account gets 403 for every id. For the test to pass, the gate would have to run second — and then a card with no film would answer 404 while a card with one answered 403. That difference is an oracle: anybody with a free account could walk the ids and learn exactly which films exist, without paying for any of them.
+
+**No application code changed.** The ordering has been in `CardVideoController` since `d23fe09` and is documented there and in `.claude/api.md`. The 403 case joined `it refuses a film to somebody who has not paid for one`, which now proves a card with a film and a card without one answer **identically**. The 404 case moved into the purchase walk, where an account that has actually paid exists to tell the two apart.
+
+The general lesson is in `docs/CHECKPOINT.md` under traps: a skipped test reads as a passing one, and when a test and a documented security decision disagree, find out which is older before touching either.
+
 ## What it cannot prove, and who has to
 
 **A mailbox.** No assertion here can see whether a message arrived, came from the right address, escaped the spam folder, or carried a link pointing at the website rather than at this API. Set `STAGING_EMAIL_DOMAIN` to something you can read, run the suite, and go and look. On the environment console, `php artisan mail:check you@example.com --now` and then again without `--now`: the first tests the transport, the second tests the transport and the queue worker together, and those two failures are indistinguishable from the outside.
