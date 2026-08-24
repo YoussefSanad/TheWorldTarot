@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Enums\Fulfillment;
 use App\Enums\ProductKey;
+use App\Models\Customer;
 use App\Models\Product;
 use App\Support\CurrencyResolver;
 use Illuminate\Foundation\Http\FormRequest;
@@ -85,6 +87,22 @@ class StoreOrderRequest extends FormRequest
                     ->get()
                     ->keyBy(fn (Product $product): string => $product->key->value);
 
+                // Who is buying, looked up only when the basket holds something
+                // that grants access. An ordinary order asks nothing of the
+                // customers table before it is placed, and that stays true.
+                $buyer = $products->contains(
+                    fn (Product $product): bool => $product->fulfillment === Fulfillment::AccessGrant
+                ) ? $this->buyer() : null;
+
+                // Whether this basket already holds something that grants
+                // access, so the same pass on two lines is caught as well as
+                // two on one. **Counted rather than keyed by product**, because
+                // PlaceOrder refuses more than one access grant on an order
+                // however it is spelled, and a rule the form request states
+                // more narrowly than the action enforces it is a 500 waiting
+                // for the day a second access-granting product exists.
+                $granting = false;
+
                 foreach ($lines as $index => $line) {
                     $key = is_array($line) ? ($line['product'] ?? null) : null;
 
@@ -112,9 +130,99 @@ class StoreOrderRequest extends FormRequest
                             'This one does not take a question.',
                         );
                     }
+
+                    // **The pass never expires, so it is the one thing here
+                    // that cannot be sold to the same person twice.** Every
+                    // other product is a new thing each time it is bought. A
+                    // second pass delivers nothing at all, because
+                    // grantViewingRoomAccess keeps the first date on purpose,
+                    // so it is money taken for a refund conversation.
+                    //
+                    // The rule follows fulfillment rather than the product key,
+                    // which is the same question MarkOrderPaid asks when it
+                    // decides whether to grant access. Neither has to learn
+                    // about a second access-granting product if one arrives.
+                    if ($product->fulfillment !== Fulfillment::AccessGrant) {
+                        continue;
+                    }
+
+                    if ((int) ($line['quantity'] ?? 1) > 1) {
+                        $validator->errors()->add(
+                            "lines.{$index}.quantity",
+                            'One of these is all anybody can hold.',
+                        );
+                    }
+
+                    if ($granting) {
+                        $validator->errors()->add(
+                            "lines.{$index}.product",
+                            'Only one of these can be on an order.',
+                        );
+                    }
+
+                    $granting = true;
+
+                    if ($buyer === null || ! $buyer->hasViewingRoomAccess()) {
+                        continue;
+                    }
+
+                    // **Somebody signed in is told plainly. A guest is told
+                    // what an unavailable product is told, and the difference
+                    // is deliberate.**
+                    //
+                    // **It narrows the leak rather than closing it, and that is
+                    // worth being honest about.** Refusing a guest at all means
+                    // a holder gets a 422 where anybody else gets a 201, so the
+                    // status alone still answers "does this address hold a
+                    // pass" to whoever asks. What the shared wording buys is
+                    // that it does not confirm why, so a refusal is also what
+                    // an unpublished or unpriced pass looks like. The leak is
+                    // accepted knowingly: a customer charged twice for a thing
+                    // they own forever is a worse outcome than somebody
+                    // learning an address owns a pass, and the likeliest double
+                    // purchase of all is a holder who is not signed in. Closing
+                    // it properly means not offering the pass to that person in
+                    // the first place, which is the frontend's to do with
+                    // `has_viewing_room_access`.
+                    $validator->errors()->add(
+                        "lines.{$index}.product",
+                        $this->user('sanctum') !== null
+                            ? 'You already have this, and it does not expire.'
+                            : 'That is not something you can buy right now.',
+                    );
                 }
             },
         ];
+    }
+
+    /**
+     * The account this order would belong to, if one exists yet.
+     *
+     * **The same two paths OrderController resolves, minus the creating**, and
+     * the guard is named here for the reason recorded there: nothing has
+     * resolved the caller by the time a request is validated, so a bare
+     * `user()` asks the default guard and a customer carrying a bearer token
+     * arrives as a guest.
+     *
+     * A guest is matched on the address they typed, because the likeliest
+     * person to buy the pass a second time is somebody who owns it, is not
+     * signed in, and does not remember. `prepareForValidation` has already
+     * lowercased it, which is what makes that match the same one
+     * `Customer::firstOrCreate` will make a moment later.
+     */
+    private function buyer(): ?Customer
+    {
+        $signedIn = $this->user('sanctum');
+
+        if ($signedIn instanceof Customer) {
+            return $signedIn;
+        }
+
+        $email = $this->input('email');
+
+        return is_string($email) && $email !== ''
+            ? Customer::firstWhere('email', $email)
+            : null;
     }
 
     protected function prepareForValidation(): void

@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
@@ -68,6 +69,34 @@ class PlaceOrder
                 'question' => $line['question'] ?? null,
             ];
         });
+
+        // **The pass never expires, so it cannot be sold to the same person
+        // twice.** StoreOrderRequest refuses this with a 422 naming the line,
+        // which is what a customer can be shown. The guard is here as well for
+        // the reason the two above are: this action is the shared seam, and
+        // phase B adds a payment path that does not route through that form
+        // request. What it prevents is the worst version of the failure, money
+        // taken for something the buyer already holds forever, which
+        // grantViewingRoomAccess will decline to deliver twice.
+        $granting = $priced->filter(
+            fn (array $line): bool => $products->get($line['product_key']->value)?->fulfillment === Fulfillment::AccessGrant
+        );
+
+        if ($granting->isNotEmpty()) {
+            $key = $granting->first()['product_key']->value;
+
+            if ($customer->hasViewingRoomAccess()) {
+                throw new InvalidArgumentException(
+                    "Customer [{$customer->id}] already holds the access [{$key}] grants."
+                );
+            }
+
+            if ($granting->sum(fn (array $line): int => $line['quantity']) > 1) {
+                throw new InvalidArgumentException(
+                    "Cannot place an order for more than one [{$key}]."
+                );
+            }
+        }
 
         $total = $priced->sum(fn (array $line): int => $line['unit_amount'] * $line['quantity']);
 
