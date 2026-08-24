@@ -23,6 +23,8 @@ API=https://staging-api.theworldtarot.com
 | `php artisan media:check` from the environment's console | Passes, names the bucket, and prints a public URL |
 | `php artisan config:cache`, then `media:check`, then `config:clear` | It says the cache is hiding everything, rather than listing variables as missing. This branch cannot be covered by an automated test |
 | That URL, opened in a browser | Loads. A **403** means the bucket is not publicly readable |
+| `php artisan availability:check` from the environment's console | Passes. Every card and reading answers the same whether the rule is asked as a listing, as a record in hand, or as the panel's explanation. A failure names the row and what disagreed |
+| `php artisan availability:check --explain` | Lists what each unfinished card and reading is waiting for. Read a few: they have to say something Jennifer can act on, not something only a developer understands |
 | Visit `$API` in a browser | No stack trace, no environment variables on screen |
 
 **Cold start.** Leave staging idle 15 minutes, then run three times and record all three:
