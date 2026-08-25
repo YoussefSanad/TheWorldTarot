@@ -6,7 +6,9 @@ use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Models\Product;
+use App\Purchasability\Basket;
+use App\Purchasability\Line;
+use App\Purchasability\Purchasability;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -24,66 +26,52 @@ class PlaceOrder
      */
     public function __invoke(Customer $customer, string $currency, array $lines): Order
     {
-        $products = Product::whereIn('key', collect($lines)->pluck('product'))
-            ->get()
-            ->keyBy(fn (Product $product): string => $product->key->value);
+        $basket = Basket::of($currency, $lines);
+
+        // **The guard is here as well as in the form request, and that is not
+        // belt and braces.** StoreOrderRequest is the right place for the rule,
+        // since a customer naming a product that does not exist deserves a 422
+        // with the field named rather than an exception.
+        //
+        // This action is the shared seam though, and phase B adds a second
+        // caller in the payment path that will not route through that form
+        // request. Reaching `$product->id` on null and writing null into a
+        // NOT NULL integer column are both poor ways for the one action that
+        // turns money into a record to fail, and neither says what went wrong.
+        //
+        // **What is not here any more is a second copy of the rules.** Both
+        // callers ask one declaration, so a rule added to the 422 cannot be
+        // forgotten here. Anything arriving has already been validated, so this
+        // firing is a fault in the caller and says so.
+        Purchasability::declared()->guard($basket);
 
         // Priced before anything is written, so an order is never briefly
         // stored with a total of nothing.
-        $priced = collect($lines)->map(function (array $line) use ($products, $currency): array {
-            $product = $products->get($line['product']);
-            $quantity = (int) ($line['quantity'] ?? 1);
-
-            // **The guard is here as well as in the form request, and that is
-            // not belt and braces.** StoreOrderRequest::after() makes both of
-            // these impossible today and is the right place for the rule, since
-            // a customer naming a product that does not exist deserves a 422
-            // with the field named rather than an exception.
-            //
-            // This action is the shared seam though, and phase B adds a second
-            // caller in the payment path that will not route through that form
-            // request. Reaching `$product->id` on null and writing null into a
-            // NOT NULL integer column are both poor ways for the one action
-            // that turns money into a record to fail, and neither says what
-            // went wrong. Anything arriving here has already been validated, so
-            // this firing is a fault in the caller and says so.
-            if ($product === null) {
-                throw new InvalidArgumentException(
-                    "Cannot place an order for unknown product [{$line['product']}]."
-                );
-            }
-
-            $unitAmount = $product->priceIn($currency);
-
-            if ($unitAmount === null) {
-                throw new InvalidArgumentException(
-                    "Product [{$product->key->value}] has no price in {$currency}."
-                );
-            }
-
-            return [
-                'product_id' => $product->id,
-                'product_key' => $product->key,
-                'unit_amount' => $unitAmount,
-                'quantity' => $quantity,
-                'question' => $line['question'] ?? null,
-            ];
-        });
+        $priced = collect($basket->lines())->map(fn (Line $line): array => [
+            'product_id' => $line->product->id,
+            'product_key' => $line->product->key,
+            'unit_amount' => $line->product->priceIn($currency),
+            'quantity' => $line->quantity,
+            'question' => $line->question,
+        ]);
 
         // **The pass never expires, so it cannot be sold to the same person
         // twice.** StoreOrderRequest refuses this with a 422 naming the line,
         // which is what a customer can be shown. The guard is here as well for
-        // the reason the two above are: this action is the shared seam, and
-        // phase B adds a payment path that does not route through that form
+        // the reason the declaration above is: this action is the shared seam,
+        // and phase B adds a payment path that does not route through that form
         // request. What it prevents is the worst version of the failure, money
         // taken for something the buyer already holds forever, which
         // grantViewingRoomAccess will decline to deliver twice.
-        $granting = $priced->filter(
-            fn (array $line): bool => $products->get($line['product_key']->value)?->fulfillment === Fulfillment::AccessGrant
+        //
+        // Still stated here rather than in the declaration, deliberately. These
+        // join it on their own, in the ticket that follows.
+        $granting = collect($basket->lines())->filter(
+            fn (Line $line): bool => $line->product->fulfillment === Fulfillment::AccessGrant
         );
 
         if ($granting->isNotEmpty()) {
-            $key = $granting->first()['product_key']->value;
+            $key = $granting->first()->key;
 
             if ($customer->hasViewingRoomAccess()) {
                 throw new InvalidArgumentException(
@@ -91,7 +79,7 @@ class PlaceOrder
                 );
             }
 
-            if ($granting->sum(fn (array $line): int => $line['quantity']) > 1) {
+            if ($granting->sum(fn (Line $line): int => $line->quantity) > 1) {
                 throw new InvalidArgumentException(
                     "Cannot place an order for more than one [{$key}]."
                 );

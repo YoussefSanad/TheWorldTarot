@@ -113,16 +113,26 @@ it('refuses the whole order when one line is wrong', function () {
 it('cannot buy something unpublished, unpriced, or retired', function (callable $make) {
     $make();
 
+    // Somebody who cannot buy it is told one thing, whichever of the four it
+    // was. Which one would answer a question nobody buying anything needs
+    // answered: whether a key exists, and what Jennifer switched off this week.
     $this->postJson('/api/v1/orders', orderPayload())
         ->assertStatus(422)
-        ->assertJsonValidationErrors('lines.0.product');
+        ->assertJsonValidationErrors(['lines.0.product' => 'That is not something you can buy right now.']);
 
     expect(Order::count())->toBe(0);
 })->with([
-    'unpublished' => fn () => fn () => sellable(['is_published' => false]),
-    'priced at nothing' => fn () => fn () => sellable(['price_usd' => 0]),
-    'retired' => fn () => fn () => sellable()->delete(),
-    'never existed' => fn () => fn () => null,
+    // **One arrow, not two.** Pest hands a closure dataset entry to the test as
+    // it is written rather than resolving it, so `fn () => fn () => ...` gave
+    // every case a `$make` that returned another closure and made nothing at
+    // all. Three of these four states were never reached: each one built no
+    // product and was refused as one that never existed, so the same case
+    // passed four times under four names. Found 25 August 2026 by neutering
+    // the published rule and watching this test stay green.
+    'unpublished' => fn () => sellable(['is_published' => false]),
+    'priced at nothing' => fn () => sellable(['price_usd' => 0]),
+    'retired' => fn () => sellable()->delete(),
+    'never existed' => fn () => null,
 ]);
 
 it('takes a question on a reading and refuses one on the pass', function () {
@@ -514,4 +524,69 @@ it('refuses to place an order granting access to somebody who already has it', f
     ))->toThrow(InvalidArgumentException::class, 'viewing-room-pass');
 
     expect(Order::count())->toBe(0);
+});
+
+/*
+| One declaration, two renderings.
+|
+| The rules were written twice: as prose on a numbered line, so a customer gets
+| a 422 they can act on, and again as exceptions, so the seam cannot be made to
+| write a nonsense order. They are declared once now and both are rendered from
+| it.
+|
+| What that changed is the seam's half. It guarded two of the rules and let the
+| other three through, so a caller skipping validation could write an order for
+| an unpublished product at a price of nothing. Phase B adds exactly such a
+| caller.
+*/
+
+it('refuses at the seam everything the customer is refused at the till', function (string $state, string $fault) {
+    $product = aProductTheSeamShouldRefuse($state);
+
+    expect(fn () => app(PlaceOrder::class)(
+        Customer::factory()->create(),
+        'USD',
+        [['product' => $product->key->value, 'quantity' => 1, 'question' => 'Will it work out?']],
+    ))->toThrow(InvalidArgumentException::class, $fault);
+
+    expect(Order::count())->toBe(0);
+})->with([
+    // The two the seam already guarded, still guarded and still saying which
+    // fact it was rather than one merged sentence.
+    'retired' => ['retired', 'unknown product'],
+
+    // The three it did not.
+    'unpublished' => ['unpublished', 'is not published'],
+    'priced at nothing' => ['priced at nothing', 'priced at nothing in USD'],
+    'taking no question' => ['taking no question', 'does not take a question'],
+]);
+
+/**
+ * One product in a named state, so a failure says which basket broke rather
+ * than which line.
+ *
+ * Its own name rather than `aProductThatIs` from AvailabilityAgreementTest,
+ * because Pest's helpers share one namespace across the suite and these are
+ * different states asked for a different reason.
+ */
+function aProductTheSeamShouldRefuse(string $state): Product
+{
+    return match ($state) {
+        'retired' => tap(sellable(), fn (Product $product) => $product->delete()),
+        'unpublished' => sellable(['is_published' => false]),
+        'priced at nothing' => sellable(['price_usd' => 0]),
+        'taking no question' => pass(),
+    };
+}
+
+it('says which fact was wrong to a developer and one sentence to a customer', function () {
+    sellable(['is_published' => false]);
+
+    // The customer's half is deliberately one message for unpublished,
+    // unpriced and retired: which of the three it was answers a question
+    // nobody buying anything needs answered. The developer's half is not
+    // merged, because whoever reads it is holding a stack trace.
+    $this->postJson('/api/v1/orders', orderPayload())
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['lines.0.product' => 'That is not something you can buy right now.']);
 });
