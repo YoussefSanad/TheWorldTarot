@@ -2,6 +2,7 @@
 
 namespace App\Purchasability;
 
+use App\Models\Customer;
 use App\Models\Product;
 use Illuminate\Support\Collection;
 
@@ -21,16 +22,56 @@ use Illuminate\Support\Collection;
  * with fewer lines than the customer sent, which is how PlaceOrder would come
  * to write an order for a subset of what somebody asked for. They are refused
  * by a rule instead, which is where a refusal belongs.
+ *
+ * **It also knows who is buying, and finds out only if asked.** The pass rules
+ * need a buyer and nothing else does, so the promise that an ordinary order
+ * asks nothing of the customers table before it is placed is kept here, by the
+ * lookup being lazy, rather than by every caller remembering a condition. See
+ * `buyer()`.
  */
 final class Basket
 {
+    private ?Customer $buyer = null;
+
+    private bool $lookedForTheBuyer = false;
+
     /**
      * @param  array<int, Line>  $lines
      */
     private function __construct(
         public readonly string $currency,
         private readonly array $lines,
+        private readonly ?Customer $signedIn,
+        private readonly ?string $email,
     ) {}
+
+    /**
+     * A basket somebody has proved who they are for.
+     *
+     * @param  array<int|string, mixed>  $lines
+     */
+    public static function forCustomer(Customer $signedIn, string $currency, array $lines): self
+    {
+        return self::build($currency, $lines, $signedIn, null);
+    }
+
+    /**
+     * A basket from somebody who has typed an address rather than signed in.
+     *
+     * The address is what the buyer is matched on, because the likeliest person
+     * to buy the pass a second time is somebody who owns it, is not signed in,
+     * and does not remember. It arrives already lowercased by
+     * `prepareForValidation`, which is what makes the match here the same one
+     * `Customer::firstOrCreate` makes a moment later, and it is lowercased
+     * again rather than trusted, because PlaceOrder is a seam and nothing
+     * reaching it can be assumed to have been through a form request.
+     *
+     * @param  array<int|string, mixed>  $lines
+     */
+    public static function forGuest(?string $email, string $currency, array $lines): self
+    {
+        return self::build($currency, $lines, null, $email);
+    }
 
     /**
      * A basket from what the customer sent, exactly as it arrived.
@@ -41,7 +82,7 @@ final class Basket
      *
      * @param  array<int|string, mixed>  $lines
      */
-    public static function of(string $currency, array $lines): self
+    private static function build(string $currency, array $lines, ?Customer $signedIn, ?string $email): self
     {
         $keys = collect($lines)
             ->map(fn (mixed $line): string => self::keyOf($line))
@@ -72,7 +113,7 @@ final class Basket
             );
         }
 
-        return new self($currency, $built);
+        return new self($currency, $built, $signedIn, $email);
     }
 
     /**
@@ -81,6 +122,50 @@ final class Basket
     public function lines(): array
     {
         return $this->lines;
+    }
+
+    /**
+     * Whether the person buying has proved who they are.
+     *
+     * Read by the rule that refuses a pass to somebody who holds it, which
+     * tells a signed-in holder plainly and tells a guest what an unavailable
+     * product is told. The reasoning for that difference travels with the rule
+     * rather than with this.
+     */
+    public function isSignedIn(): bool
+    {
+        return $this->signedIn !== null;
+    }
+
+    /**
+     * The account this order would belong to, if one exists yet.
+     *
+     * **Looked up at most once, and only if something asks.** The pass rules
+     * are the only thing that asks, so an ordinary order still consults the
+     * customers table nowhere before it is placed. That was a condition the
+     * form request had to remember; it is a property of this class now, which
+     * is why the laziness is here and not at the call site.
+     *
+     * Null is memoised as hard as a row is. A guest whose address has no
+     * account is an answer, not a reason to ask again.
+     */
+    public function buyer(): ?Customer
+    {
+        if ($this->lookedForTheBuyer) {
+            return $this->buyer;
+        }
+
+        $this->lookedForTheBuyer = true;
+
+        if ($this->signedIn !== null) {
+            return $this->buyer = $this->signedIn;
+        }
+
+        $email = mb_strtolower(trim((string) $this->email));
+
+        return $this->buyer = $email === ''
+            ? null
+            : Customer::firstWhere('email', $email);
     }
 
     /**

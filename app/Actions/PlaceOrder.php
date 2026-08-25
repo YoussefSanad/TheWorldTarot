@@ -2,7 +2,6 @@
 
 namespace App\Actions;
 
-use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
@@ -10,7 +9,6 @@ use App\Purchasability\Basket;
 use App\Purchasability\Line;
 use App\Purchasability\Purchasability;
 use Illuminate\Support\Facades\DB;
-use InvalidArgumentException;
 
 /**
  * Turning a validated basket into a record of what somebody bought.
@@ -26,7 +24,7 @@ class PlaceOrder
      */
     public function __invoke(Customer $customer, string $currency, array $lines): Order
     {
-        $basket = Basket::of($currency, $lines);
+        $basket = Basket::forCustomer($customer, $currency, $lines);
 
         // **The guard is here as well as in the form request, and that is not
         // belt and braces.** StoreOrderRequest is the right place for the rule,
@@ -43,6 +41,17 @@ class PlaceOrder
         // callers ask one declaration, so a rule added to the 422 cannot be
         // forgotten here. Anything arriving has already been validated, so this
         // firing is a fault in the caller and says so.
+        //
+        // That includes the pass, which is the thing here worth taking money
+        // for wrongly. It never expires, so it is the one product that cannot
+        // be sold to the same person twice, and a second one delivers nothing
+        // at all because grantViewingRoomAccess keeps the first date on
+        // purpose. The rule follows fulfillment rather than the product key,
+        // so this seam and MarkOrderPaid are asking one question.
+        //
+        // **The buyer is the customer this order is being placed for**, which
+        // is the authority here rather than an address somebody typed. The
+        // basket looks nothing up unless a rule about access asks it to.
         Purchasability::declared()->guard($basket);
 
         // Priced before anything is written, so an order is never briefly
@@ -54,37 +63,6 @@ class PlaceOrder
             'quantity' => $line->quantity,
             'question' => $line->question,
         ]);
-
-        // **The pass never expires, so it cannot be sold to the same person
-        // twice.** StoreOrderRequest refuses this with a 422 naming the line,
-        // which is what a customer can be shown. The guard is here as well for
-        // the reason the declaration above is: this action is the shared seam,
-        // and phase B adds a payment path that does not route through that form
-        // request. What it prevents is the worst version of the failure, money
-        // taken for something the buyer already holds forever, which
-        // grantViewingRoomAccess will decline to deliver twice.
-        //
-        // Still stated here rather than in the declaration, deliberately. These
-        // join it on their own, in the ticket that follows.
-        $granting = collect($basket->lines())->filter(
-            fn (Line $line): bool => $line->product->fulfillment === Fulfillment::AccessGrant
-        );
-
-        if ($granting->isNotEmpty()) {
-            $key = $granting->first()->key;
-
-            if ($customer->hasViewingRoomAccess()) {
-                throw new InvalidArgumentException(
-                    "Customer [{$customer->id}] already holds the access [{$key}] grants."
-                );
-            }
-
-            if ($granting->sum(fn (Line $line): int => $line->quantity) > 1) {
-                throw new InvalidArgumentException(
-                    "Cannot place an order for more than one [{$key}]."
-                );
-            }
-        }
 
         $total = $priced->sum(fn (array $line): int => $line['unit_amount'] * $line['quantity']);
 

@@ -7,8 +7,11 @@ use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
+use App\Purchasability\Basket;
+use App\Purchasability\Purchasability;
 use App\Services\Payments\ManualSettlement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
 uses(RefreshDatabase::class);
@@ -590,3 +593,109 @@ it('says which fact was wrong to a developer and one sentence to a customer', fu
         ->assertStatus(422)
         ->assertJsonValidationErrors(['lines.0.product' => 'That is not something you can buy right now.']);
 });
+
+/*
+| The pass rules, now that they are in the declaration.
+|
+| They were the half of purchasability written twice for longest, and the two
+| things below are what had to survive the move: the rules follow a product's
+| fulfillment rather than its key, and an ordinary order still asks the
+| customers table nothing before it is placed.
+|
+| The second used to be a condition the form request remembered. It is the
+| basket's own promise now, kept by the lookup being lazy, which is why it is
+| proved here against the declaration rather than through the endpoint.
+*/
+
+function customerLookups(): int
+{
+    return collect(DB::getQueryLog())
+        ->filter(fn (array $query): bool => str_contains($query['query'], 'customers'))
+        ->count();
+}
+
+it('asks the customers table nothing for a basket that grants no access', function () {
+    sellable();
+    Customer::factory()->create(['email' => 'jennifer@example.com']);
+
+    // Built before the log is on, because finding the products is not the
+    // question and happens either way.
+    $basket = Basket::forGuest('jennifer@example.com', 'USD', [['product' => 'one-card', 'quantity' => 2]]);
+
+    DB::enableQueryLog();
+
+    expect(Purchasability::declared()->permits($basket))->toBeTrue()
+        ->and(customerLookups())->toBe(0);
+});
+
+it('asks it once for a basket that grants access, however many lines ask', function () {
+    pass();
+    Customer::factory()->withViewingRoomAccess()->create(['email' => 'jennifer@example.com']);
+
+    $basket = Basket::forGuest('jennifer@example.com', 'USD', [
+        ['product' => 'viewing-room-pass'],
+        ['product' => 'viewing-room-pass'],
+    ]);
+
+    DB::enableQueryLog();
+
+    // Three rules about access, asked of two lines. One lookup, memoised on the
+    // basket, and a null answer is memoised as hard as a row is.
+    expect(Purchasability::declared()->permits($basket))->toBeFalse()
+        ->and(customerLookups())->toBe(1);
+});
+
+it('asks it once even when the address has no account', function () {
+    pass();
+
+    $basket = Basket::forGuest('nobody@example.com', 'USD', [['product' => 'viewing-room-pass']]);
+
+    DB::enableQueryLog();
+
+    expect(Purchasability::declared()->permits($basket))->toBeTrue()
+        ->and($basket->buyer())->toBeNull()
+        ->and(customerLookups())->toBe(1);
+});
+
+it('matches a guest on the address they typed, whatever case it arrives in', function () {
+    pass();
+    $holder = Customer::factory()->withViewingRoomAccess()->create(['email' => 'jennifer@example.com']);
+
+    // `prepareForValidation` lowercases what a form request hands over. The
+    // seam has no form request, so the basket lowercases again rather than
+    // trusting, and the match stays the same one Customer::firstOrCreate makes
+    // a moment later.
+    $basket = Basket::forGuest('  JENNIFER@Example.com  ', 'USD', [['product' => 'viewing-room-pass']]);
+
+    expect($basket->buyer()?->is($holder))->toBeTrue()
+        ->and(Purchasability::declared()->permits($basket))->toBeFalse();
+});
+
+it('refuses at the seam every way a pass can be sold twice', function (string $state) {
+    $customer = $state === 'to somebody who already holds it'
+        ? Customer::factory()->withViewingRoomAccess()->create()
+        : Customer::factory()->create();
+
+    // There is only one access-granting product today. A second one pins that
+    // the rules follow fulfillment rather than the key, so neither the refusal
+    // nor the guard needs a new branch the day another arrives.
+    pass();
+    Product::factory()->addon()->create(['fulfillment' => Fulfillment::AccessGrant]);
+
+    $lines = match ($state) {
+        'twice on one line' => [['product' => 'viewing-room-pass', 'quantity' => 2]],
+        'twice across the basket' => [['product' => 'viewing-room-pass'], ['product' => 'viewing-room-pass']],
+        'as two different access grants' => [['product' => 'viewing-room-pass'], ['product' => 'rush-24h']],
+        'to somebody who already holds it' => [['product' => 'viewing-room-pass']],
+    };
+
+    expect(fn () => app(PlaceOrder::class)($customer, 'USD', $lines))
+        ->toThrow(InvalidArgumentException::class);
+
+    expect(Order::count())->toBe(0, "the seam wrote an order selling the pass {$state}");
+})->with([
+    'twice on one line',
+    'twice across the basket',
+    'as two different access grants',
+    'to somebody who already holds it',
+]);

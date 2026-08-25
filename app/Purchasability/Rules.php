@@ -2,6 +2,7 @@
 
 namespace App\Purchasability;
 
+use App\Enums\Fulfillment;
 use App\Models\Product;
 
 /**
@@ -106,6 +107,112 @@ final class Rules
             words: self::NOT_FOR_SALE,
             fault: fn (Line $line, Basket $basket): string => "Product [{$line->key}] is priced at nothing in {$basket->currency}.",
         );
+    }
+
+    /**
+     * No more than one pass on a line.
+     *
+     * **The pass never expires, so it is the one thing in the catalogue that
+     * cannot be sold to the same person twice.** Every other product is a new
+     * thing each time it is bought. A second pass delivers nothing at all,
+     * because grantViewingRoomAccess keeps the first date on purpose, so it is
+     * money taken for a refund conversation.
+     *
+     * The three rules below follow a product's fulfillment rather than its key,
+     * which is the same question MarkOrderPaid asks when it decides whether to
+     * grant access. None of them has to learn about a second access-granting
+     * product if one arrives.
+     */
+    public static function oneAccessGrantPerLine(): Rule
+    {
+        return Rule::aboutTheProduct(
+            met: fn (Product $product, Line $line): bool => ! self::grantsAccess($product) || $line->quantity <= 1,
+            field: 'quantity',
+            words: 'One of these is all anybody can hold.',
+            fault: fn (Line $line): string => "Cannot place an order for more than one [{$line->key}].",
+        );
+    }
+
+    /**
+     * And no more than one across the basket, however it is spelled.
+     *
+     * Counted across the whole basket rather than keyed by product, so the same
+     * pass on two lines is caught as well as two on one, and so would two
+     * different access-granting products. A rule stated more narrowly than the
+     * seam enforces it is a 500 waiting for the day a second one exists.
+     *
+     * The second one is the refused one. The first is the one they meant.
+     */
+    public static function oneAccessGrantPerBasket(): Rule
+    {
+        return Rule::aboutTheProduct(
+            met: function (Product $product, Line $line, Basket $basket): bool {
+                if (! self::grantsAccess($product)) {
+                    return true;
+                }
+
+                foreach ($basket->lines() as $earlier) {
+                    if ($earlier->index >= $line->index) {
+                        break;
+                    }
+
+                    if ($earlier->product !== null && self::grantsAccess($earlier->product)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+            field: 'product',
+            words: 'Only one of these can be on an order.',
+            fault: fn (Line $line): string => "Cannot place an order for more than one [{$line->key}].",
+        );
+    }
+
+    /**
+     * And none at all to somebody who already holds what it grants.
+     *
+     * **Somebody signed in is told plainly. A guest is told what an unavailable
+     * product is told, and the difference is deliberate.**
+     *
+     * **It narrows the leak rather than closing it, and that is worth being
+     * honest about.** Refusing a guest at all means a holder gets a 422 where
+     * anybody else gets a 201, so the status alone still answers "does this
+     * address hold a pass" to whoever asks. What the shared wording buys is
+     * that it does not confirm why, so a refusal is also what an unpublished or
+     * unpriced pass looks like. The leak is accepted knowingly: a customer
+     * charged twice for a thing they own forever is a worse outcome than
+     * somebody learning an address owns a pass, and the likeliest double
+     * purchase of all is a holder who is not signed in. Closing it properly
+     * means not offering the pass to that person in the first place, which is
+     * the frontend's to do with `has_viewing_room_access`.
+     *
+     * The buyer is asked of the basket, which looks them up at most once and
+     * only because this rule asked. An ordinary order consults the customers
+     * table nowhere.
+     */
+    public static function notAlreadyHeld(): Rule
+    {
+        return Rule::aboutTheProduct(
+            met: fn (Product $product, Line $line, Basket $basket): bool => ! self::grantsAccess($product)
+                || ! ($basket->buyer()?->hasViewingRoomAccess() ?? false),
+            field: 'product',
+            words: fn (Line $line, Basket $basket): string => $basket->isSignedIn()
+                ? 'You already have this, and it does not expire.'
+                : self::NOT_FOR_SALE,
+            fault: fn (Line $line, Basket $basket): string => "Customer [{$basket->buyer()?->getKey()}] already holds the access [{$line->key}] grants.",
+        );
+    }
+
+    /**
+     * Whether buying this delivers access rather than a thing.
+     *
+     * Fulfillment rather than the product key, in one place, so the three rules
+     * above cannot come to disagree about what they are even about.
+     */
+    private static function grantsAccess(Product $product): bool
+    {
+        return $product->fulfillment === Fulfillment::AccessGrant;
     }
 
     /**
