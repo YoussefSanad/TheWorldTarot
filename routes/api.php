@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\RegisterController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\SetPasswordController;
+use App\Http\Controllers\Api\V1\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -159,6 +160,21 @@ Route::prefix('v1')->group(function () {
     Route::post('/webhooks/bunny', BunnyWebhookController::class)
         ->middleware('throttle:60,1,bunny-webhook')
         ->name('webhooks.bunny');
+
+    /*
+    | Stripe telling us what happened to a payment. Unauthenticated by
+    | necessity, since Stripe holds no credentials of ours, and **trusted only
+    | because the signature is verified against the raw body before anything is
+    | read**, per hard rule 6.
+    |
+    | Rate limited, because it is a public endpoint that queues work. Higher
+    | than the Bunny callback: videos are uploaded twenty-two times and then
+    | almost never, while payments arrive whenever people buy, and a 429 here is
+    | a payment Stripe has to redeliver.
+    */
+    Route::post('/webhooks/stripe', StripeWebhookController::class)
+        ->middleware('throttle:120,1,stripe-webhook')
+        ->name('webhooks.stripe');
 
     /*
     | Content, addressed per language: /api/v1/en/products. Every language is
