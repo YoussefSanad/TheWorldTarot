@@ -118,10 +118,10 @@ final class Rules
      * because grantViewingRoomAccess keeps the first date on purpose, so it is
      * money taken for a refund conversation.
      *
-     * The three rules below follow a product's fulfillment rather than its key,
-     * which is the same question MarkOrderPaid asks when it decides whether to
-     * grant access. None of them has to learn about a second access-granting
-     * product if one arrives.
+     * This rule and the two after it follow a product's fulfillment rather than
+     * its key, which is the same question MarkOrderPaid asks when it decides
+     * whether to grant access. None of them has to learn about a second
+     * access-granting product if one arrives.
      */
     public static function oneAccessGrantPerLine(): Rule
     {
@@ -165,7 +165,7 @@ final class Rules
             },
             field: 'product',
             words: 'Only one of these can be on an order.',
-            fault: fn (Line $line): string => "Cannot place an order for more than one [{$line->key}].",
+            fault: fn (Line $line): string => "Cannot place an order for [{$line->key}] beside another product granting the same access.",
         );
     }
 

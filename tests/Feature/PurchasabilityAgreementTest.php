@@ -95,6 +95,14 @@ function aBasketThatIs(string $state): array
         // A currency the products table cannot price at all, which is what
         // "unpriced in the currency being charged" means in a system whose
         // prices are three NOT NULL columns.
+        //
+        // **The two sides agree here for different reasons, and that is worth
+        // saying.** At the till the currency rule refuses first and `after()`
+        // returns early, so `pricedInTheCurrencyCharged` is never reached; at
+        // the seam there is no currency rule and that rule is what refuses.
+        // This state pins that they agree, not that one rule did it. They
+        // cannot be made to agree by one rule either, because a supported
+        // currency always has a price, so this is the only shape the state has.
         'charged in a currency nothing is priced in' => ['JPY', [['product' => 'one-card']]],
 
         'asking a question of something that takes none' => ['USD', [
@@ -135,6 +143,13 @@ dataset('basket states', [
  * real defect on this route on 13 August 2026, and a real token is minted here
  * rather than `Sanctum::actingAs` for the reason PlaceOrderTest gives, that the
  * helper swaps the guard for a fake one and would go on passing through it.
+ *
+ * **A guest here always has an account already**, because the row is what the
+ * seam has to be handed and the pass states need one that holds a pass. So the
+ * guest whose address the customers table has never seen is not in this matrix.
+ * It is covered directly in PlaceOrderTest, by the test counting one lookup for
+ * an address with no account, and it is named here so nobody reads three buyers
+ * as four.
  *
  * @return array{0: Customer, 1: Closure(string, array<int, array<string, mixed>>): TestResponse}
  */
@@ -193,6 +208,13 @@ it('refuses at the till exactly what it refuses at the seam', function (string $
     );
 })->with('basket states')->with('buyers');
 
+/**
+ * **This one is close to a tautology and is kept knowingly.** `permits` is
+ * `refusals` being empty, so what it pins is that it stays that way: the day
+ * somebody gives the predicate an implementation of its own, this is what
+ * refuses it. The criterion about a rule reaching one rendering and not the
+ * other is carried by the two tests either side of this, not by this one.
+ */
 it('says the same thing in the predicate as in the refusals', function (string $state, string $who) {
     aCatalogue();
 

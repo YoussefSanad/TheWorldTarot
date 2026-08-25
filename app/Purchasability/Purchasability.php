@@ -75,14 +75,24 @@ final class Purchasability
      * wins, so the order rules are declared in is also the order they are
      * reported in.
      *
+     * **And nothing at all about a line once the product itself is refused.**
+     * Somebody who cannot buy the thing does not also need to hear that it
+     * takes no question and that one is all anybody can hold: the product is
+     * the field they have to change, and the rest of the line is moot until
+     * they do. This is the rule the form request used to keep as a `continue`
+     * after adding its product error, and it is a promise about the wording a
+     * customer sees rather than an optimisation, which is why it lives with the
+     * declaration now rather than at a call site that could forget it.
+     *
      * @return array<int, Refusal>
      */
     public function refusals(Basket $basket): array
     {
         $refusals = [];
-        $spoken = [];
 
         foreach ($basket->lines() as $line) {
+            $spoken = [];
+
             foreach ($this->rules as $rule) {
                 if ($rule->isMetBy($line, $basket)) {
                     continue;
@@ -90,12 +100,18 @@ final class Purchasability
 
                 $refusal = $rule->refusalOf($line, $basket);
 
-                if (isset($spoken[$refusal->key()])) {
+                if (isset($spoken[$refusal->field])) {
                     continue;
                 }
 
-                $spoken[$refusal->key()] = true;
+                $spoken[$refusal->field] = true;
                 $refusals[] = $refusal;
+
+                // The product is the field everything else on this line hangs
+                // off. Refuse it and the line is answered.
+                if ($refusal->field === 'product') {
+                    break;
+                }
             }
         }
 

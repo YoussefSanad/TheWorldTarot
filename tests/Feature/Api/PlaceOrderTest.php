@@ -582,6 +582,34 @@ function aProductTheSeamShouldRefuse(string $state): Product
     };
 }
 
+it('says nothing else about a line whose product it has already refused', function () {
+    // Unpublished, and sent with a question it does not take and a quantity it
+    // does not allow. **One message, on the product.** The other two rules are
+    // true of this line and saying so would be three things to fix for somebody
+    // who cannot buy the thing at all, so the product is the field they are
+    // sent to and the rest of the line is moot until they change it.
+    Product::factory()->pass()->create(['is_published' => false]);
+
+    $errors = $this->postJson('/api/v1/orders', orderPayload([
+        'lines' => [['product' => 'viewing-room-pass', 'quantity' => 2, 'question' => 'Why?']],
+    ]))->assertStatus(422)->json('errors');
+
+    expect(array_keys($errors))->toBe(['lines.0.product'])
+        ->and($errors['lines.0.product'])->toBe(['That is not something you can buy right now.']);
+});
+
+it('still says both when the product itself is fine', function () {
+    // The other side of the same rule. Nothing is wrong with buying this, so
+    // both things that are wrong with the line are worth telling somebody.
+    pass();
+
+    $errors = $this->postJson('/api/v1/orders', orderPayload([
+        'lines' => [['product' => 'viewing-room-pass', 'quantity' => 2, 'question' => 'Why?']],
+    ]))->assertStatus(422)->json('errors');
+
+    expect(array_keys($errors))->toEqualCanonicalizing(['lines.0.question', 'lines.0.quantity']);
+});
+
 it('says which fact was wrong to a developer and one sentence to a customer', function () {
     sellable(['is_published' => false]);
 
@@ -671,7 +699,7 @@ it('matches a guest on the address they typed, whatever case it arrives in', fun
         ->and(Purchasability::declared()->permits($basket))->toBeFalse();
 });
 
-it('refuses at the seam every way a pass can be sold twice', function (string $state) {
+it('refuses at the seam every way a pass can be sold twice', function (string $state, string $fault) {
     $customer = $state === 'to somebody who already holds it'
         ? Customer::factory()->withViewingRoomAccess()->create()
         : Customer::factory()->create();
@@ -689,13 +717,17 @@ it('refuses at the seam every way a pass can be sold twice', function (string $s
         'to somebody who already holds it' => [['product' => 'viewing-room-pass']],
     };
 
+    // **The message is asserted, not just the type.** Three of these four are
+    // different facts and the sentence a developer reads has to say which,
+    // because whoever reads it is holding a stack trace. Asserting only that
+    // something threw is how two rules came to share one sentence unnoticed.
     expect(fn () => app(PlaceOrder::class)($customer, 'USD', $lines))
-        ->toThrow(InvalidArgumentException::class);
+        ->toThrow(InvalidArgumentException::class, $fault);
 
     expect(Order::count())->toBe(0, "the seam wrote an order selling the pass {$state}");
 })->with([
-    'twice on one line',
-    'twice across the basket',
-    'as two different access grants',
-    'to somebody who already holds it',
+    'twice on one line' => ['twice on one line', 'more than one [viewing-room-pass]'],
+    'twice across the basket' => ['twice across the basket', 'beside another product granting the same access'],
+    'as two different access grants' => ['as two different access grants', 'beside another product granting the same access'],
+    'to somebody who already holds it' => ['to somebody who already holds it', 'already holds the access [viewing-room-pass] grants'],
 ]);
