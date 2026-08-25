@@ -290,16 +290,21 @@ it('leaves the customer nowhere to go, because nothing is collected yet', functi
         ->assertJsonPath('payment_url', null);
 });
 
-it('resolves the gateway from config, so naming another one changes what happens', function () {
+it('resolves the gateway from the registry, so naming another one changes what happens', function () {
     expect(app(PaymentGateway::class))->toBeInstanceOf(ManualSettlement::class);
 
-    config()->set('payments.gateway', new class implements PaymentGateway
-    {
-        public function begin(Order $order): ?string
+    config()->set('payments.methods', [
+        'manual' => ManualSettlement::class,
+        'invoice' => new class implements PaymentGateway
         {
-            return 'https://pay.example.test/'.$order->id;
-        }
-    }::class);
+            public function begin(Order $order): ?string
+            {
+                return 'https://pay.example.test/'.$order->id;
+            }
+        }::class,
+    ]);
+
+    config()->set('payments.default', 'invoice');
 
     sellable();
 

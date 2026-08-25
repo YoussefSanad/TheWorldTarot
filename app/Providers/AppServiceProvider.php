@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\CardController;
 use App\Http\Controllers\Api\V1\CardVideoController;
 use App\Models\Customer;
 use App\Observers\TranslatableContentObserver;
+use App\Services\Payments\PaymentMethods;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -40,12 +41,19 @@ class AppServiceProvider extends ServiceProvider
             ->needs(FilmSource::class)
             ->give(fn () => $this->app->make(config('viewing-room.source')));
 
-        // How money is collected, named in config/payments.php. Same reasoning
-        // as above, and resolved fresh rather than as a singleton so a test can
-        // name a different one and get it.
+        // How money is collected, named in config/payments.php.
+        //
+        // **A registry rather than one class**, because the checkout design
+        // lets the customer pick, so the method belongs to the payment rather
+        // than to the environment. PaymentMethods turns a name into a gateway
+        // and refuses a name it does not recognise.
+        //
+        // This binding is what a caller that does not choose gets: the method
+        // named by `payments.default`. Resolved fresh rather than as a
+        // singleton, so a test can name different methods and get them.
         $this->app->bind(
             PaymentGateway::class,
-            fn () => $this->app->make(config('payments.gateway')),
+            fn () => $this->app->make(PaymentMethods::class)->resolve(),
         );
 
         // Which mailing list people join, named in config/newsletter.php. Same
