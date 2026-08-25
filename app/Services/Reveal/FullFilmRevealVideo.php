@@ -2,12 +2,7 @@
 
 namespace App\Services\Reveal;
 
-use App\Availability\Condition;
-use App\Contracts\FilmSource;
-use App\Models\Card;
-use App\Services\Bunny\BunnyStream;
-use App\Support\Playback;
-use Illuminate\Database\Eloquent\Builder;
+use App\Services\Film\LivingTarotFilm;
 
 /**
  * The reveal plays the card's full Living Tarot film.
@@ -22,55 +17,27 @@ use Illuminate\Database\Eloquent\Builder;
  * The reasoning, and the alternatives that were declined, are in
  * `docs/plans/reveal-video-plan.md`. If that trade stops being acceptable, this
  * class is the thing to replace, and nothing else has to move.
+ *
+ * **What it does is `LivingTarotFilm`, and all this declares is its expiry
+ * key.** The two adapters were the same class twice, collapsed 25 August 2026
+ * and reasoned in `docs/adr/0001-one-film-implementation-two-named-adapters.md`.
+ * The name survives because the reasoning above is attached to it and belongs
+ * on the name it describes rather than merged into a third one.
+ * `config/reveal.php` still names a bare class that fully determines what
+ * happens.
  */
-class FullFilmRevealVideo implements FilmSource
+class FullFilmRevealVideo extends LivingTarotFilm
 {
-    public function __construct(private BunnyStream $bunny) {}
-
     /**
-     * Cards with a film somebody could actually watch.
+     * Its own key, deliberately, holding the same half hour the Viewing Room
+     * uses.
      *
-     * The same condition the Viewing Room uses, and now genuinely the same one
-     * rather than the same words twice, so the two cannot drift into
-     * disagreeing about what a watchable card is. What the reveal plays is the
-     * card's full Living Tarot film, so what it can play is that film being
-     * ready. A source serving a preview or a purpose-made clip would declare a
-     * condition of its own here instead.
-     *
-     * `bunny_video_id` only ever holds a ready video, so a card having a
-     * replacement prepared stays drawable and keeps playing what it has. That
-     * reasoning travels with the condition.
+     * The same figure today and not the same decision: shortening what the
+     * public gets must never reach into what a paying viewer gets, and one key
+     * each is what keeps that from being a code change.
      */
-    public function whatItCanPlay(): Condition
+    protected function expiryKey(): string
     {
-        return Card::filmReadyToPlay();
-    }
-
-    public function eligible(Builder $query): Builder
-    {
-        // The locale the request is being read in. This source's condition
-        // ignores it, as most conditions do, and one that cared would be asking
-        // about the language the visitor is actually being served.
-        $this->whatItCanPlay()->constrain($query, app()->getLocale());
-
-        return $query;
-    }
-
-    public function playbackFor(Card $card): ?Playback
-    {
-        if (! $card->isPlayable()) {
-            return null;
-        }
-
-        // Its own key, deliberately, holding the same half hour the Viewing Room
-        // uses. The same figure today and not the same decision: shortening what
-        // the public gets must never reach into what a paying viewer gets, and
-        // one key each is what keeps that from being a code change.
-        $expiresAt = now()->addSeconds(config('services.bunny.reveal_ttl'));
-
-        return new Playback(
-            $this->bunny->playbackUrl($card->bunny_video_id, $expiresAt),
-            $expiresAt,
-        );
+        return 'services.bunny.reveal_ttl';
     }
 }
