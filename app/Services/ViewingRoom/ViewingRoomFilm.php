@@ -43,9 +43,12 @@ class ViewingRoomFilm implements FilmSource
      * declaration and this endpoint used to agree only because both spelled the
      * rule the same way.
      *
-     * Composed with the language gate by the caller, never instead of it, which
-     * is what `Card::viewableIn` says in one scope: a card in the Library that
-     * also has a ready film. Paying for the pass does not reach past the gate.
+     * Composed with the language gate by `Card::viewingRoom()`, never instead
+     * of it, which is what `Card::viewableIn` says in one scope: a card in the
+     * Library that also has a ready film. Paying for the pass does not reach
+     * past the gate. The composing moved off the endpoint and into the
+     * declaration in #32, so this condition is now asked once and read by the
+     * panel, the card resource, the availability check and the endpoint alike.
      *
      * `bunny_video_id` only ever holds a ready video, so a card having a
      * replacement prepared stays watchable and keeps playing what it has.

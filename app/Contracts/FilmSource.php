@@ -63,6 +63,11 @@ interface FilmSource
      *
      * Applied on top of the language gate rather than instead of it, so a source
      * can never widen the pool to something that is not on the website.
+     *
+     * The reveal's caller is the one left. The Viewing Room reads its pool from
+     * `Card::viewingRoom()` instead, which asks this source for the same
+     * condition and composes the gate itself, because a rule composed at a call
+     * site is a rendering nothing else can read.
      */
     public function eligible(Builder $query): Builder;
 

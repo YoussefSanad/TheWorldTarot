@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Availability\Availability;
 use App\Availability\Condition;
 use App\Availability\Conditions;
+use App\Contracts\FilmSource;
 use App\Enums\VideoStatus;
 use App\Jobs\ForgetCardVideo;
 use App\Jobs\SendCardVideoToBunny;
@@ -290,14 +291,32 @@ class Card extends Model
      * Room are different questions, and a card is routinely finished for
      * readers and unfinished for watchers.
      *
-     * The film condition is still stated here rather than taken from whichever
-     * source is playing, so this and the endpoint agree only because the
-     * Viewing Room's adapter declares the same rule. Closing that is #32.
+     * **The film condition is the source's own, asked rather than assumed.**
+     * It used to be stated here and stated again in the adapter, so the
+     * declaration and the endpoint that serves the film agreed only because
+     * both spelled the rule the same way. A source serving a purpose-made clip
+     * narrows the pool by its own column, and the morning one shipped
+     * `in_viewing_room` would have started lying with the whole suite green.
+     *
+     * **The source is resolved here rather than handed in, and that is the
+     * settled answer to a question with no better one.** Four callers read this
+     * declaration and three of them have nowhere to get a source: the panel
+     * screen, the card resource and the availability check all run with no
+     * container context of their own. So it is resolved from
+     * `config/viewing-room.php`, the same key the video endpoint's adapter is
+     * bound from in `AppServiceProvider`, which is what stops the two being
+     * handed different films. A bare `app(FilmSource::class)` remains an error,
+     * deliberately: the reveal's adapter is not a thing to pick up by accident.
+     *
+     * @see FilmSource::whatItCanPlay()
      */
     public static function viewingRoom(): Availability
     {
+        /** @var FilmSource $film */
+        $film = app(config('viewing-room.source'));
+
         return Availability::of(
-            self::filmReadyToPlay(),
+            $film->whatItCanPlay(),
             // Last, because it reads oddly first and because it is the one
             // thing she fixes on a different screen.
             self::availability()->asCondition('to be on the website first'),
