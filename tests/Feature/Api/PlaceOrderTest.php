@@ -7,8 +7,11 @@ use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
+use App\Purchasability\Basket;
+use App\Purchasability\Purchasability;
 use App\Services\Payments\ManualSettlement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
 uses(RefreshDatabase::class);
@@ -113,16 +116,26 @@ it('refuses the whole order when one line is wrong', function () {
 it('cannot buy something unpublished, unpriced, or retired', function (callable $make) {
     $make();
 
+    // Somebody who cannot buy it is told one thing, whichever of the four it
+    // was. Which one would answer a question nobody buying anything needs
+    // answered: whether a key exists, and what Jennifer switched off this week.
     $this->postJson('/api/v1/orders', orderPayload())
         ->assertStatus(422)
-        ->assertJsonValidationErrors('lines.0.product');
+        ->assertJsonValidationErrors(['lines.0.product' => 'That is not something you can buy right now.']);
 
     expect(Order::count())->toBe(0);
 })->with([
-    'unpublished' => fn () => fn () => sellable(['is_published' => false]),
-    'priced at nothing' => fn () => fn () => sellable(['price_usd' => 0]),
-    'retired' => fn () => fn () => sellable()->delete(),
-    'never existed' => fn () => fn () => null,
+    // **One arrow, not two.** Pest hands a closure dataset entry to the test as
+    // it is written rather than resolving it, so `fn () => fn () => ...` gave
+    // every case a `$make` that returned another closure and made nothing at
+    // all. Three of these four states were never reached: each one built no
+    // product and was refused as one that never existed, so the same case
+    // passed four times under four names. Found 25 August 2026 by neutering
+    // the published rule and watching this test stay green.
+    'unpublished' => fn () => sellable(['is_published' => false]),
+    'priced at nothing' => fn () => sellable(['price_usd' => 0]),
+    'retired' => fn () => sellable()->delete(),
+    'never existed' => fn () => null,
 ]);
 
 it('takes a question on a reading and refuses one on the pass', function () {
@@ -515,3 +528,206 @@ it('refuses to place an order granting access to somebody who already has it', f
 
     expect(Order::count())->toBe(0);
 });
+
+/*
+| One declaration, two renderings.
+|
+| The rules were written twice: as prose on a numbered line, so a customer gets
+| a 422 they can act on, and again as exceptions, so the seam cannot be made to
+| write a nonsense order. They are declared once now and both are rendered from
+| it.
+|
+| What that changed is the seam's half. It guarded two of the rules and let the
+| other three through, so a caller skipping validation could write an order for
+| an unpublished product at a price of nothing. Phase B adds exactly such a
+| caller.
+*/
+
+it('refuses at the seam everything the customer is refused at the till', function (string $state, string $fault) {
+    $product = aProductTheSeamShouldRefuse($state);
+
+    expect(fn () => app(PlaceOrder::class)(
+        Customer::factory()->create(),
+        'USD',
+        [['product' => $product->key->value, 'quantity' => 1, 'question' => 'Will it work out?']],
+    ))->toThrow(InvalidArgumentException::class, $fault);
+
+    expect(Order::count())->toBe(0);
+})->with([
+    // The two the seam already guarded, still guarded and still saying which
+    // fact it was rather than one merged sentence.
+    'retired' => ['retired', 'unknown product'],
+
+    // The three it did not.
+    'unpublished' => ['unpublished', 'is not published'],
+    'priced at nothing' => ['priced at nothing', 'priced at nothing in USD'],
+    'taking no question' => ['taking no question', 'does not take a question'],
+]);
+
+/**
+ * One product in a named state, so a failure says which basket broke rather
+ * than which line.
+ *
+ * Its own name rather than `aProductThatIs` from AvailabilityAgreementTest,
+ * because Pest's helpers share one namespace across the suite and these are
+ * different states asked for a different reason.
+ */
+function aProductTheSeamShouldRefuse(string $state): Product
+{
+    return match ($state) {
+        'retired' => tap(sellable(), fn (Product $product) => $product->delete()),
+        'unpublished' => sellable(['is_published' => false]),
+        'priced at nothing' => sellable(['price_usd' => 0]),
+        'taking no question' => pass(),
+    };
+}
+
+it('says nothing else about a line whose product it has already refused', function () {
+    // Unpublished, and sent with a question it does not take and a quantity it
+    // does not allow. **One message, on the product.** The other two rules are
+    // true of this line and saying so would be three things to fix for somebody
+    // who cannot buy the thing at all, so the product is the field they are
+    // sent to and the rest of the line is moot until they change it.
+    Product::factory()->pass()->create(['is_published' => false]);
+
+    $errors = $this->postJson('/api/v1/orders', orderPayload([
+        'lines' => [['product' => 'viewing-room-pass', 'quantity' => 2, 'question' => 'Why?']],
+    ]))->assertStatus(422)->json('errors');
+
+    expect(array_keys($errors))->toBe(['lines.0.product'])
+        ->and($errors['lines.0.product'])->toBe(['That is not something you can buy right now.']);
+});
+
+it('still says both when the product itself is fine', function () {
+    // The other side of the same rule. Nothing is wrong with buying this, so
+    // both things that are wrong with the line are worth telling somebody.
+    pass();
+
+    $errors = $this->postJson('/api/v1/orders', orderPayload([
+        'lines' => [['product' => 'viewing-room-pass', 'quantity' => 2, 'question' => 'Why?']],
+    ]))->assertStatus(422)->json('errors');
+
+    expect(array_keys($errors))->toEqualCanonicalizing(['lines.0.question', 'lines.0.quantity']);
+});
+
+it('says which fact was wrong to a developer and one sentence to a customer', function () {
+    sellable(['is_published' => false]);
+
+    // The customer's half is deliberately one message for unpublished,
+    // unpriced and retired: which of the three it was answers a question
+    // nobody buying anything needs answered. The developer's half is not
+    // merged, because whoever reads it is holding a stack trace.
+    $this->postJson('/api/v1/orders', orderPayload())
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['lines.0.product' => 'That is not something you can buy right now.']);
+});
+
+/*
+| The pass rules, now that they are in the declaration.
+|
+| They were the half of purchasability written twice for longest, and the two
+| things below are what had to survive the move: the rules follow a product's
+| fulfillment rather than its key, and an ordinary order still asks the
+| customers table nothing before it is placed.
+|
+| The second used to be a condition the form request remembered. It is the
+| basket's own promise now, kept by the lookup being lazy, which is why it is
+| proved here against the declaration rather than through the endpoint.
+*/
+
+function customerLookups(): int
+{
+    return collect(DB::getQueryLog())
+        ->filter(fn (array $query): bool => str_contains($query['query'], 'customers'))
+        ->count();
+}
+
+it('asks the customers table nothing for a basket that grants no access', function () {
+    sellable();
+    Customer::factory()->create(['email' => 'jennifer@example.com']);
+
+    // Built before the log is on, because finding the products is not the
+    // question and happens either way.
+    $basket = Basket::forGuest('jennifer@example.com', 'USD', [['product' => 'one-card', 'quantity' => 2]]);
+
+    DB::enableQueryLog();
+
+    expect(Purchasability::declared()->permits($basket))->toBeTrue()
+        ->and(customerLookups())->toBe(0);
+});
+
+it('asks it once for a basket that grants access, however many lines ask', function () {
+    pass();
+    Customer::factory()->withViewingRoomAccess()->create(['email' => 'jennifer@example.com']);
+
+    $basket = Basket::forGuest('jennifer@example.com', 'USD', [
+        ['product' => 'viewing-room-pass'],
+        ['product' => 'viewing-room-pass'],
+    ]);
+
+    DB::enableQueryLog();
+
+    // Three rules about access, asked of two lines. One lookup, memoised on the
+    // basket, and a null answer is memoised as hard as a row is.
+    expect(Purchasability::declared()->permits($basket))->toBeFalse()
+        ->and(customerLookups())->toBe(1);
+});
+
+it('asks it once even when the address has no account', function () {
+    pass();
+
+    $basket = Basket::forGuest('nobody@example.com', 'USD', [['product' => 'viewing-room-pass']]);
+
+    DB::enableQueryLog();
+
+    expect(Purchasability::declared()->permits($basket))->toBeTrue()
+        ->and($basket->buyer())->toBeNull()
+        ->and(customerLookups())->toBe(1);
+});
+
+it('matches a guest on the address they typed, whatever case it arrives in', function () {
+    pass();
+    $holder = Customer::factory()->withViewingRoomAccess()->create(['email' => 'jennifer@example.com']);
+
+    // `prepareForValidation` lowercases what a form request hands over. The
+    // seam has no form request, so the basket lowercases again rather than
+    // trusting, and the match stays the same one Customer::firstOrCreate makes
+    // a moment later.
+    $basket = Basket::forGuest('  JENNIFER@Example.com  ', 'USD', [['product' => 'viewing-room-pass']]);
+
+    expect($basket->buyer()?->is($holder))->toBeTrue()
+        ->and(Purchasability::declared()->permits($basket))->toBeFalse();
+});
+
+it('refuses at the seam every way a pass can be sold twice', function (string $state, string $fault) {
+    $customer = $state === 'to somebody who already holds it'
+        ? Customer::factory()->withViewingRoomAccess()->create()
+        : Customer::factory()->create();
+
+    // There is only one access-granting product today. A second one pins that
+    // the rules follow fulfillment rather than the key, so neither the refusal
+    // nor the guard needs a new branch the day another arrives.
+    pass();
+    Product::factory()->addon()->create(['fulfillment' => Fulfillment::AccessGrant]);
+
+    $lines = match ($state) {
+        'twice on one line' => [['product' => 'viewing-room-pass', 'quantity' => 2]],
+        'twice across the basket' => [['product' => 'viewing-room-pass'], ['product' => 'viewing-room-pass']],
+        'as two different access grants' => [['product' => 'viewing-room-pass'], ['product' => 'rush-24h']],
+        'to somebody who already holds it' => [['product' => 'viewing-room-pass']],
+    };
+
+    // **The message is asserted, not just the type.** Three of these four are
+    // different facts and the sentence a developer reads has to say which,
+    // because whoever reads it is holding a stack trace. Asserting only that
+    // something threw is how two rules came to share one sentence unnoticed.
+    expect(fn () => app(PlaceOrder::class)($customer, 'USD', $lines))
+        ->toThrow(InvalidArgumentException::class, $fault);
+
+    expect(Order::count())->toBe(0, "the seam wrote an order selling the pass {$state}");
+})->with([
+    'twice on one line' => ['twice on one line', 'more than one [viewing-room-pass]'],
+    'twice across the basket' => ['twice across the basket', 'beside another product granting the same access'],
+    'as two different access grants' => ['as two different access grants', 'beside another product granting the same access'],
+    'to somebody who already holds it' => ['to somebody who already holds it', 'already holds the access [viewing-room-pass] grants'],
+]);

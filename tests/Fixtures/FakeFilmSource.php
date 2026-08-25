@@ -2,6 +2,7 @@
 
 namespace Tests\Fixtures;
 
+use App\Availability\Condition;
 use App\Contracts\FilmSource;
 use App\Models\Card;
 use App\Support\Playback;
@@ -26,8 +27,27 @@ class FakeFilmSource implements FilmSource
      */
     public const URL = 'https://example.test/a-film-from-the-fake/playlist.m3u8';
 
+    /**
+     * Every card it is handed, so a test naming this in config sees its URL
+     * whatever the row looks like.
+     *
+     * Deliberately not the real rule. A fake proves which adapter a caller got
+     * and nothing else, so narrowing here would only give a test a second way
+     * to pass for the wrong reason.
+     */
+    public function whatItCanPlay(): Condition
+    {
+        return Condition::make(
+            missing: 'nothing at all, because this fake plays every card',
+            query: fn (Builder $query) => $query,
+            record: fn (): bool => true,
+        );
+    }
+
     public function eligible(Builder $query): Builder
     {
+        $this->whatItCanPlay()->constrain($query, app()->getLocale());
+
         return $query;
     }
 

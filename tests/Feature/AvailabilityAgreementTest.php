@@ -1,9 +1,18 @@
 <?php
 
 use App\Availability\UnpriceableCurrency;
+use App\Enums\LocaleStatus;
+use App\Filament\Resources\Cards\Pages\EditCard;
+use App\Models\Admin;
 use App\Models\Card;
+use App\Models\Customer;
+use App\Models\Locale;
 use App\Models\Product;
+use App\Support\Locales;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
+use Tests\Fixtures\ClipFilmSource;
 
 uses(RefreshDatabase::class);
 
@@ -280,4 +289,83 @@ it('tells her about one name, not two, when both languages are waiting for it', 
     // condition. A card unwritten in both is waiting for one name.
     expect($card->whatIsMissing('es'))
         ->toBe(['a name', 'a short description', 'a full description']);
+});
+
+it('serves the video for exactly the cards the declaration calls watchable', function (string $state) {
+    $card = aCardThatIs($state);
+    $passHolder = Customer::factory()->withViewingRoomAccess()->create();
+
+    // Spanish has to be servable for the route to be reachable at all, and it
+    // is flipped after the rows exist. Saving or removing a record that is not
+    // translated takes a language straight back off the website, which is a
+    // real rule and a different one from the one under test.
+    Locale::where('code', 'es')->update(['status' => LocaleStatus::Live]);
+    Locales::forget();
+
+    foreach (['en', 'es'] as $locale) {
+        // The fourth rendering, and the one that was never asked. The endpoint
+        // composed the rule at the call site, so it agreed with the
+        // declaration only because the Viewing Room's adapter happened to
+        // repeat the declaration's video condition word for word.
+        $served = $this->actingAs($passHolder, 'sanctum')
+            ->getJson("/api/v1/{$locale}/cards/{$card->id}/video")
+            ->getStatusCode() === 200;
+
+        expect($served)->toBe(
+            $card->isViewableIn($locale),
+            "the video route disagreed with the declaration about a card {$state}, in {$locale}",
+        );
+    }
+})->with('card states');
+
+it('moves the flag, the panel and the 404 together when a source narrows differently', function () {
+    // A card the adapters in place today can play: its film is live while a
+    // replacement transcodes. That is the case the two video columns exist
+    // for, and the one a source asking the status rather than the id gets
+    // wrong.
+    $card = aCardThatIs('with a film being replaced');
+    $passHolder = Customer::factory()->withViewingRoomAccess()->create();
+
+    $flag = fn (): bool => collect($this->getJson('/api/v1/en/cards')->assertOk()->json())
+        ->firstWhere('id', $card->id)['in_viewing_room'];
+
+    $served = fn (): int => $this->actingAs($passHolder, 'sanctum')
+        ->getJson("/api/v1/en/cards/{$card->id}/video")
+        ->getStatusCode();
+
+    $panel = fn (): array => $card->fresh()->whatTheViewingRoomIsWaitingFor('en');
+
+    expect($flag())->toBeTrue()
+        ->and($served())->toBe(200)
+        ->and($panel())->toBe([]);
+
+    // The morning a purpose-made clip ships.
+    //
+    // **The swap lands after a request has already been made, deliberately.**
+    // The router caches a controller on the route once it has built one, so the
+    // endpoint goes on holding the adapter it was given and would still play
+    // this card if asked. What refuses it is the declaration alone, which is
+    // exactly the authority this ticket moved the refusal to. Before that, the
+    // endpoint composed the rule itself and served the film while
+    // `in_viewing_room` and the panel had already stopped calling it watchable.
+    config()->set('viewing-room.source', ClipFilmSource::class);
+
+    expect($flag())->toBeFalse()
+        ->and($served())->toBe(404)
+        ->and($panel())->toBe(['a clip cut for the Viewing Room']);
+});
+
+it('shows the panel a source that narrows differently, in the wording that source gives', function () {
+    $card = aCardThatIs('with a film being replaced');
+
+    config()->set('viewing-room.source', ClipFilmSource::class);
+
+    Filament::setCurrentPanel('admin');
+
+    // The wording finishes the same sentence every other condition finishes,
+    // so a source's rule reads in her list rather than beside it.
+    Livewire::actingAs(Admin::factory()->create(), 'admin')
+        ->test(EditCard::class, ['record' => $card->getRouteKey()])
+        ->assertSee('Not in the Viewing Room yet')
+        ->assertSee('a clip cut for the Viewing Room');
 });

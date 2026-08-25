@@ -60,15 +60,20 @@ class CardVideoController extends Controller
         // card looks identical from outside the Viewing Room.
         Gate::authorize('enter-viewing-room');
 
-        // The source narrows the pool to what it can actually play, on top of
-        // the language gate and never instead of it, so a card that is
-        // unpublished, unwritten, unpictured or untranslated into this language
-        // cannot be reached by knowing its id. Together these are what
-        // `Card::viewableIn` says in one scope.
-        $card = $this->films
-            ->eligible(Card::availableIn(app()->getLocale()))
-            ->whereKey($id)
-            ->first();
+        // **One question, asked of the declaration.** This composed the rule at
+        // the call site until #32: the language gate, narrowed by whatever the
+        // source could play, assembled here. That was a fourth rendering of a
+        // rule declared in `Card::viewingRoom()`, and it agreed with the other
+        // three only because the Viewing Room's adapter repeated the
+        // declaration's video condition word for word. A source narrowing by
+        // its own column would have left `in_viewing_room` and the panel saying
+        // a card was watchable while this answered 404.
+        //
+        // The gate is still never replaced, only narrowed, because the
+        // declaration is built on the Library's declaration entire. A card that
+        // is unpublished, unwritten, unpictured or untranslated into this
+        // language cannot be reached by knowing its id.
+        $card = Card::viewableIn(app()->getLocale())->whereKey($id)->first();
 
         // Null is not an error from a source. It is a card it has nothing for,
         // and this endpoint turns that into the same 404 an unknown id gets.

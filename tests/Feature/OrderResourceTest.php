@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\MarkOrderFulfilled;
 use App\Actions\MarkOrderPaid;
 use App\Enums\OrderStatus;
 use App\Filament\Resources\Orders\OrderResource;
@@ -11,6 +12,7 @@ use App\Models\Order;
 use App\Models\Product;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Mail;
 use Livewire\Livewire;
 
@@ -163,4 +165,51 @@ it('keeps orders out of reach of anybody who is not an admin', function () {
     auth('admin')->logout();
 
     $this->get('/admin/orders')->assertRedirect('/admin/login');
+});
+
+/*
+| One writer for an order being delivered.
+|
+| The column had two, one at payment and one on this screen, agreeing only
+| because both wrote `now()`. What proves there is one now is not that they
+| write the same date, which is exactly the agreement by hand that was the
+| problem. It is that replacing the writer moves both.
+*/
+
+it('sends the payment path and this screen through one writer', function () {
+    // A date nobody arrives at by accident, from a writer bound over the real
+    // one. Both callers have to produce it, which is only true if neither of
+    // them stamps a date of its own.
+    app()->bind(MarkOrderFulfilled::class, fn (): MarkOrderFulfilled => new class extends MarkOrderFulfilled
+    {
+        public function __invoke(Order $order): bool
+        {
+            $order->forceFill(['fulfilled_at' => Date::parse('2001-01-01 00:00:00')])->save();
+
+            return true;
+        }
+    });
+
+    // Nothing on it needs a person, so the money landing is what delivers it.
+    $atPayment = pendingOrder(product: Product::factory()->pass()->create());
+    app(MarkOrderPaid::class)($atPayment);
+
+    // A reading, delivered when Jennifer says she has emailed it.
+    $byHand = Order::factory()->paid()->forProduct(Product::factory()->create())->create();
+    Livewire::test(ListOrders::class)->callTableAction('markAsFulfilled', $byHand);
+
+    expect($atPayment->refresh()->fulfilled_at?->toDateString())->toBe('2001-01-01')
+        ->and($byHand->refresh()->fulfilled_at?->toDateString())->toBe('2001-01-01');
+});
+
+it('leaves the first date alone when an order is fulfilled again', function () {
+    $order = Order::factory()->fulfilled()->forProduct(Product::factory()->create())->create();
+    $first = $order->fulfilled_at;
+
+    $this->travel(2)->days();
+
+    // The panel hides the action on something already fulfilled, so this is the
+    // writer being asked directly, which is what phase B's payment path will do.
+    expect(app(MarkOrderFulfilled::class)($order))->toBeFalse()
+        ->and($order->refresh()->fulfilled_at->eq($first))->toBeTrue();
 });

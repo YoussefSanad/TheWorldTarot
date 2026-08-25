@@ -2,11 +2,7 @@
 
 namespace App\Services\ViewingRoom;
 
-use App\Contracts\FilmSource;
-use App\Models\Card;
-use App\Services\Bunny\BunnyStream;
-use App\Support\Playback;
-use Illuminate\Database\Eloquent\Builder;
+use App\Services\Film\LivingTarotFilm;
 
 /**
  * The Viewing Room plays the card's full Living Tarot film.
@@ -27,41 +23,31 @@ use Illuminate\Database\Eloquent\Builder;
  * **This does not decide who may watch.** That is `enter-viewing-room`, asked by
  * the controller before a card is ever looked up, so every card looks identical
  * from outside the Viewing Room.
+ *
+ * **What is in the Viewing Room is decided by `Card::viewingRoom()`, which asks
+ * this adapter what it can play.** The endpoint composed that rule at the call
+ * site until #32, so the declaration and what actually served the film agreed
+ * only because both spelled the video rule the same way.
+ *
+ * **What it does is `LivingTarotFilm`, and all this declares is its expiry
+ * key.** The two adapters were the same class twice, collapsed 25 August 2026
+ * and reasoned in `docs/adr/0001-one-film-implementation-two-named-adapters.md`.
+ * The name survives because the reasoning above is attached to it and belongs
+ * on the name it describes rather than merged into a third one.
+ * `config/viewing-room.php` still names a bare class that fully determines what
+ * happens.
  */
-class ViewingRoomFilm implements FilmSource
+class ViewingRoomFilm extends LivingTarotFilm
 {
-    public function __construct(private BunnyStream $bunny) {}
-
     /**
-     * Cards with a film a pass holder could actually watch.
+     * Its own key, deliberately, holding the same half hour the reveal uses.
      *
-     * Composed with the language gate by the caller, never instead of it, which
-     * is what `Card::viewableIn` says in one scope: a card in the Library that
-     * also has a ready film. Paying for the pass does not reach past the gate.
-     *
-     * `bunny_video_id` only ever holds a ready video, so a card having a
-     * replacement prepared stays watchable and keeps playing what it has.
+     * The same figure today and not the same decision: lengthening what a
+     * paying viewer gets must never lengthen a public credential, and one key
+     * each is what keeps that from being a code change.
      */
-    public function eligible(Builder $query): Builder
+    protected function expiryKey(): string
     {
-        return $query->whereNotNull('bunny_video_id');
-    }
-
-    public function playbackFor(Card $card): ?Playback
-    {
-        if (! $card->isPlayable()) {
-            return null;
-        }
-
-        // Its own key, deliberately, holding the same half hour the reveal uses.
-        // The same figure today and not the same decision: lengthening what a
-        // paying viewer gets must never lengthen a public credential, and one
-        // key each is what keeps that from being a code change.
-        $expiresAt = now()->addSeconds(config('services.bunny.playback_ttl'));
-
-        return new Playback(
-            $this->bunny->playbackUrl($card->bunny_video_id, $expiresAt),
-            $expiresAt,
-        );
+        return 'services.bunny.playback_ttl';
     }
 }
