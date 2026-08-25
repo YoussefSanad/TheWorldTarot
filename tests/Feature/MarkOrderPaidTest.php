@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\MarkOrderPaid;
+use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
 use App\Mail\OrderPaid;
 use App\Mail\ReadingToWrite;
@@ -240,3 +241,66 @@ it('queues every message rather than sending it while the order is being settled
     Mail::assertNothingSent();
     Mail::assertQueued(OrderPaid::class);
 });
+
+/*
+| One question, asked once.
+|
+| "Does a person have to do something about this order" decides two things:
+| whether the order is fulfilled the instant the money lands, and whether
+| Jennifer is told there is a reading waiting. They were derived separately, a
+| few lines apart, so nothing would have failed if they came to disagree.
+|
+| They are exact opposites, and this is what says so. An order fulfilled at
+| payment that Jennifer is also told about is work on her list that is already
+| done; an order left waiting that she never hears about is a customer who paid
+| and never receives anything.
+*/
+
+it('either fulfills an order at payment or tells Jennifer about it, never both and never neither', function (string $state) {
+    $order = anOrderHolding($state);
+
+    settle($order);
+
+    $told = Mail::queued(ReadingToWrite::class)->isNotEmpty();
+
+    expect($order->refresh()->isFulfilled())->toBe(
+        ! $told,
+        "settling an order holding {$state} both fulfilled it and asked for it",
+    );
+})->with([
+    'a pass',
+    'a reading',
+    'a pass and a reading',
+    'two readings',
+    'two things that need nobody',
+]);
+
+/**
+ * One order in a named state, so a failure says which basket broke.
+ */
+function anOrderHolding(string $state): Order
+{
+    $products = match ($state) {
+        'a pass' => [Product::factory()->pass()->create()],
+        'a reading' => [Product::factory()->create()],
+        'a pass and a reading' => [Product::factory()->pass()->create(), Product::factory()->create()],
+        'two readings' => [Product::factory()->create(), Product::factory()->create()],
+        'two things that need nobody' => [
+            Product::factory()->pass()->create(),
+            Product::factory()->addon()->create(['fulfillment' => Fulfillment::AccessGrant]),
+        ],
+    };
+
+    $order = Order::factory()->create();
+
+    foreach ($products as $product) {
+        $order->lines()->create([
+            'product_id' => $product->id,
+            'product_key' => $product->key,
+            'unit_amount' => $product->price_usd,
+            'quantity' => 1,
+        ]);
+    }
+
+    return $order;
+}
