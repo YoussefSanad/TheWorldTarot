@@ -355,7 +355,7 @@ it('moves the flag, the panel and the 404 together when a source narrows differe
         ->and($panel())->toBe(['a clip cut for the Viewing Room']);
 });
 
-it('shows the panel a source that narrows differently, in the source own words', function () {
+it('shows the panel a source that narrows differently, in the wording that source gives', function () {
     $card = aCardThatIs('with a film being replaced');
 
     config()->set('viewing-room.source', ClipFilmSource::class);

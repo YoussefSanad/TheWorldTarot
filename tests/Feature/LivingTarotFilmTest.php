@@ -11,6 +11,7 @@ use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\Fixtures\FakeFilmSource;
+use Tests\Fixtures\NarrowedLivingTarotFilm;
 
 uses(RefreshDatabase::class);
 
@@ -46,6 +47,27 @@ dataset('film adapters', [
     'the reveal' => FullFilmRevealVideo::class,
     'the Viewing Room' => ViewingRoomFilm::class,
 ]);
+
+/**
+ * Every shape a card's film comes in, named, so a failure says which row broke.
+ *
+ * Shared by the two tests that ask one rule both ways across all of them. The
+ * card whose film is being replaced is the one that matters: it is playable by
+ * id and `Processing` by status, so a source asking the wrong question gets it
+ * wrong and only that row shows it.
+ *
+ * @return array<string, callable(): Card>
+ */
+function everyFilmState(): array
+{
+    return [
+        'with a film ready' => fn (): Card => Card::factory()->watchable()->create(),
+        'with a first film still being prepared' => fn (): Card => Card::factory()->videoProcessing()->create(),
+        'with a film that failed' => fn (): Card => Card::factory()->videoFailed()->create(),
+        'with a film being replaced' => fn (): Card => Card::factory()->videoBeingReplaced()->create(),
+        'with no film at all' => fn (): Card => Card::factory()->create(),
+    ];
+}
 
 it('offers only cards with a film somebody could actually watch', function (string $adapter) {
     $watchable = Card::factory()->watchable()->create();
@@ -91,13 +113,7 @@ it('agrees with itself about which cards it can play', function (string $adapter
     // declaration takes `in_viewing_room` and the panel's wording from the
     // predicate while the pool comes from the query, so a disagreement here is
     // a card that says it is watchable and 404s when watched.
-    $states = [
-        'with a film ready' => fn (): Card => Card::factory()->watchable()->create(),
-        'with a first film still being prepared' => fn (): Card => Card::factory()->videoProcessing()->create(),
-        'with a film that failed' => fn (): Card => Card::factory()->videoFailed()->create(),
-        'with a film being replaced' => fn (): Card => Card::factory()->videoBeingReplaced()->create(),
-        'with no film at all' => fn (): Card => Card::factory()->create(),
-    ];
+    $states = everyFilmState();
 
     $source = app($adapter);
 
@@ -156,6 +172,42 @@ it('has nothing to offer for a card with no watchable film', function (string $a
         Card::factory()->videoProcessing()->create(),
     ))->toBeNull();
 })->with('film adapters');
+
+it('refuses to play what it has just said it cannot play', function (string $adapter) {
+    // The guard and the declaration are one rule, asked twice. `playbackFor`
+    // used to ask `Card::isPlayable()` directly, which is the same answer
+    // `filmReadyToPlay()` gives and not the same question: the two agreed by
+    // coincidence, which is the arrangement #28 and #32 exist to end. A guard
+    // that stops following the condition serves a film for a card the Viewing
+    // Room declaration has already stopped calling watchable.
+    $states = everyFilmState();
+
+    $source = app($adapter);
+
+    foreach ($states as $state => $makeCard) {
+        $card = $makeCard();
+
+        expect($source->playbackFor($card) !== null)->toBe(
+            $source->whatItCanPlay()->isMetBy($card, 'en'),
+            "{$adapter} played a card {$state} its own condition refuses, or refused one it allows",
+        );
+    }
+})->with('film adapters');
+
+it('follows the condition rather than the column when a subclass narrows', function () {
+    // The real subclasses declare nothing but an expiry key, so they cannot ask
+    // this question: their condition and `Card::isPlayable()` give the same
+    // answer for every row. This one narrows the way a purpose-made clip would.
+    //
+    // A card whose film is being replaced is playable by id and `Processing` by
+    // status, so the two disagree about a row that exists.
+    $card = Card::factory()->videoBeingReplaced()->create();
+    $source = app(NarrowedLivingTarotFilm::class);
+
+    expect($source->whatItCanPlay()->isMetBy($card, 'en'))->toBeFalse()
+        ->and($card->isPlayable())->toBeTrue()
+        ->and($source->playbackFor($card))->toBeNull();
+});
 
 it('hands two viewers of the same card the same url', function (string $adapter) {
     $card = Card::factory()->watchable()->create();
@@ -231,6 +283,21 @@ it('plays whatever source config/viewing-room.php names, and only in the Viewing
 
     expect($public)->not->toBe(FakeFilmSource::URL)
         ->and($public)->toContain('bcdn_token=');
+});
+
+it('refuses a config value that does not name a film source', function () {
+    // `Card::viewingRoom()` resolves the adapter itself, because the panel, the
+    // card resource and the availability check all read the declaration with no
+    // container context of their own. That route around the contextual binding
+    // is the one place a `FilmSource` is resolved outside `AppServiceProvider`,
+    // and the controller's constructor type is what guards the other one.
+    //
+    // So this is typed too, rather than annotated and hoped for. There is no
+    // static analyser here, and a config key naming the wrong class used to
+    // surface as an undefined method deep inside the declaration.
+    config()->set('viewing-room.source', stdClass::class);
+
+    expect(fn () => Card::viewingRoom())->toThrow(TypeError::class);
 });
 
 it('refuses to resolve a film source without saying which one', function () {

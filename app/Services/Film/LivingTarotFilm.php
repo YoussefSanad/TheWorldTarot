@@ -110,10 +110,20 @@ abstract class LivingTarotFilm implements FilmSource
      * Null is not an error. It is a card this source has nothing for, which the
      * caller decides what to do about: a 404 in the Viewing Room, and an empty
      * pool at the reveal.
+     *
+     * **The guard asks the condition rather than the column.** It asked
+     * `Card::isPlayable()` directly until 25 August 2026, which is the answer
+     * `filmReadyToPlay()` gives and not the same question. Two statements of
+     * one rule agreeing by coincidence is what #28 and #32 spent three tickets
+     * ending, and this was the last of them: a source narrowing to something
+     * else would have gone on signing films for cards `Card::viewingRoom()`
+     * had already stopped calling watchable.
      */
     public function playbackFor(Card $card): ?Playback
     {
-        if (! $card->isPlayable()) {
+        // The locale the request is being read in, as `eligible()` reads it.
+        // This condition ignores it, as most conditions do.
+        if (! $this->whatItCanPlay()->isMetBy($card, app()->getLocale())) {
             return null;
         }
 

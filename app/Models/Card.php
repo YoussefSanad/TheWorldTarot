@@ -243,11 +243,13 @@ class Card extends Model
     /**
      * The card's Living Tarot film is ready for somebody to watch.
      *
-     * Its own condition, and named, because two things ask it and neither owns
-     * it. `Card::viewingRoom()` asks it to decide whether a card is in the
-     * Viewing Room at all, and both film adapters declare it as what they can
-     * play. It was written out in all three places, agreeing by hand, which is
-     * the arrangement this module exists to end.
+     * Its own condition, and named, because it belongs to the card rather than
+     * to whatever is playing the film. `LivingTarotFilm` declares it as what it
+     * can play, and that is now the only thing that asks: `Card::viewingRoom()`
+     * reaches it through the source rather than restating it, so a source
+     * playing something else moves the declaration with it. The rule was
+     * written out in three places and agreed by hand, which is the arrangement
+     * this module exists to end.
      *
      * An adapter that played something else, a preview or a purpose-made clip,
      * would declare its own condition against its own column rather than
@@ -274,6 +276,23 @@ class Card extends Model
             query: fn (Builder $query) => $query->whereNotNull('bunny_video_id'),
             record: fn (self $card): bool => $card->isPlayable(),
         );
+    }
+
+    /**
+     * The adapter `config/viewing-room.php` names.
+     *
+     * Typed rather than annotated, because this is the one place a `FilmSource`
+     * is resolved outside `AppServiceProvider` and nothing else would check it.
+     * The video endpoint gets the same adapter through a contextual binding, so
+     * PHP's own check on the controller's constructor refuses a config value
+     * naming something that is not a source. This route around the container
+     * had no equivalent, and there is no static analyser here, so a wrong key
+     * surfaced as an undefined method deep inside the declaration instead of at
+     * the seam it came from.
+     */
+    private static function filmSource(): FilmSource
+    {
+        return app(config('viewing-room.source'));
     }
 
     /**
@@ -312,11 +331,8 @@ class Card extends Model
      */
     public static function viewingRoom(): Availability
     {
-        /** @var FilmSource $film */
-        $film = app(config('viewing-room.source'));
-
         return Availability::of(
-            $film->whatItCanPlay(),
+            self::filmSource()->whatItCanPlay(),
             // Last, because it reads oddly first and because it is the one
             // thing she fixes on a different screen.
             self::availability()->asCondition('to be on the website first'),
