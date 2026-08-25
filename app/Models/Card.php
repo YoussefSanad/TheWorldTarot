@@ -240,6 +240,42 @@ class Card extends Model
     }
 
     /**
+     * The card's Living Tarot film is ready for somebody to watch.
+     *
+     * Its own condition, and named, because two things ask it and neither owns
+     * it. `Card::viewingRoom()` asks it to decide whether a card is in the
+     * Viewing Room at all, and both film adapters declare it as what they can
+     * play. It was written out in all three places, agreeing by hand, which is
+     * the arrangement this module exists to end.
+     *
+     * An adapter that played something else, a preview or a purpose-made clip,
+     * would declare its own condition against its own column rather than
+     * return this one. That is the seam working, and it is why this lives here
+     * as a condition a source may name rather than as something a source
+     * inherits.
+     */
+    public static function filmReadyToPlay(): Condition
+    {
+        return Condition::make(
+            missing: fn (self $card): string => match (true) {
+                ! $card->hasVideo() => 'a video',
+                // Something has been uploaded and nothing is watchable yet,
+                // which is the first upload still being prepared or one
+                // that failed. A replacement never lands here, because the
+                // old video is playable.
+                $card->video_status === VideoStatus::Failed => 'its video uploading again, because the last one went wrong',
+                default => 'its video to finish being prepared',
+            },
+            // Does not look at the status, and that is the point.
+            // `bunny_video_id` only ever holds a video that is ready, so a
+            // replacement being prepared cannot take a card off the site
+            // while it transcodes.
+            query: fn (Builder $query) => $query->whereNotNull('bunny_video_id'),
+            record: fn (self $card): bool => $card->isPlayable(),
+        );
+    }
+
+    /**
      * What a card additionally needs before it is in the Viewing Room.
      *
      * Built on the Library declaration rather than beside it, deliberately, and
@@ -253,27 +289,15 @@ class Card extends Model
      * What keeps a card out of the Library and what keeps it out of the Viewing
      * Room are different questions, and a card is routinely finished for
      * readers and unfinished for watchers.
+     *
+     * The film condition is still stated here rather than taken from whichever
+     * source is playing, so this and the endpoint agree only because the
+     * Viewing Room's adapter declares the same rule. Closing that is #32.
      */
     public static function viewingRoom(): Availability
     {
         return Availability::of(
-            Condition::make(
-                missing: fn (self $card): string => match (true) {
-                    ! $card->hasVideo() => 'a video',
-                    // Something has been uploaded and nothing is watchable yet,
-                    // which is the first upload still being prepared or one
-                    // that failed. A replacement never lands here, because the
-                    // old video is playable.
-                    $card->video_status === VideoStatus::Failed => 'its video uploading again, because the last one went wrong',
-                    default => 'its video to finish being prepared',
-                },
-                // Does not look at the status, and that is the point.
-                // `bunny_video_id` only ever holds a video that is ready, so a
-                // replacement being prepared cannot take a card off the site
-                // while it transcodes.
-                query: fn (Builder $query) => $query->whereNotNull('bunny_video_id'),
-                record: fn (self $card): bool => $card->isPlayable(),
-            ),
+            self::filmReadyToPlay(),
             // Last, because it reads oddly first and because it is the one
             // thing she fixes on a different screen.
             self::availability()->asCondition('to be on the website first'),

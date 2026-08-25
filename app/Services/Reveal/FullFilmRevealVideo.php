@@ -2,6 +2,7 @@
 
 namespace App\Services\Reveal;
 
+use App\Availability\Condition;
 use App\Contracts\FilmSource;
 use App\Models\Card;
 use App\Services\Bunny\BunnyStream;
@@ -29,14 +30,30 @@ class FullFilmRevealVideo implements FilmSource
     /**
      * Cards with a film somebody could actually watch.
      *
-     * The same condition the Viewing Room uses, and reused rather than restated
-     * so the two cannot drift into disagreeing about what a watchable card is.
+     * The same condition the Viewing Room uses, and now genuinely the same one
+     * rather than the same words twice, so the two cannot drift into
+     * disagreeing about what a watchable card is. What the reveal plays is the
+     * card's full Living Tarot film, so what it can play is that film being
+     * ready. A source serving a preview or a purpose-made clip would declare a
+     * condition of its own here instead.
+     *
      * `bunny_video_id` only ever holds a ready video, so a card having a
-     * replacement prepared stays drawable and keeps playing what it has.
+     * replacement prepared stays drawable and keeps playing what it has. That
+     * reasoning travels with the condition.
      */
+    public function whatItCanPlay(): Condition
+    {
+        return Card::filmReadyToPlay();
+    }
+
     public function eligible(Builder $query): Builder
     {
-        return $query->whereNotNull('bunny_video_id');
+        // The locale the request is being read in. This source's condition
+        // ignores it, as most conditions do, and one that cared would be asking
+        // about the language the visitor is actually being served.
+        $this->whatItCanPlay()->constrain($query, app()->getLocale());
+
+        return $query;
     }
 
     public function playbackFor(Card $card): ?Playback

@@ -130,3 +130,56 @@ it('hands two viewers of the same card the same url', function () {
     expect($source->playbackFor($card)?->url)
         ->toBe($source->playbackFor($card)?->url);
 });
+
+it('agrees with itself about which cards it can play', function () {
+    // One condition rendered two ways, asked both ways on real rows. The reveal
+    // takes its pool from the query and, once the declaration reads this, the
+    // panel and the resource flag take theirs from the predicate. A
+    // disagreement between them is a card that is drawable and unplayable, and
+    // nothing failed when the query was the only thing tested.
+    $states = [
+        'with a film ready' => fn (): Card => Card::factory()->watchable()->create(),
+        'with a first film still being prepared' => fn (): Card => Card::factory()->videoProcessing()->create(),
+        'with a film that failed' => fn (): Card => Card::factory()->videoFailed()->create(),
+        'with a film being replaced' => fn (): Card => Card::factory()->videoBeingReplaced()->create(),
+        'with no film at all' => fn (): Card => Card::factory()->create(),
+    ];
+
+    $source = app(FullFilmRevealVideo::class);
+
+    foreach ($states as $state => $makeCard) {
+        $card = $makeCard();
+
+        $query = Card::query()->whereKey($card->id);
+        $source->whatItCanPlay()->constrain($query, 'en');
+
+        expect($query->exists())->toBe(
+            $source->whatItCanPlay()->isMetBy($card, 'en'),
+            "the reveal disagreed with itself about a card {$state}",
+        );
+    }
+
+    // The same rows, not merely the same answer a row at a time. This is what
+    // `eligible` hands the draw, and it is derived from the condition rather
+    // than written beside it.
+    $everyCard = Card::all();
+
+    expect($source->eligible(Card::query())->pluck('id')->sort()->values()->all())
+        ->toBe($everyCard
+            ->filter(fn (Card $card): bool => $source->whatItCanPlay()->isMetBy($card, 'en'))
+            ->pluck('id')->sort()->values()->all());
+});
+
+it('says what a card it cannot play is waiting for, in her words', function () {
+    // The third rendering, which a source has never had. It finishes the same
+    // sentence every other condition finishes, so the panel can read it
+    // alongside the rest of the list rather than beside it.
+    $condition = app(FullFilmRevealVideo::class)->whatItCanPlay();
+
+    expect($condition->whatIsMissing(Card::factory()->create(), 'en'))
+        ->toBe(['a video'])
+        ->and($condition->whatIsMissing(Card::factory()->videoProcessing()->create(), 'en'))
+        ->toBe(['its video to finish being prepared'])
+        ->and($condition->whatIsMissing(Card::factory()->videoFailed()->create(), 'en'))
+        ->toBe(['its video uploading again, because the last one went wrong']);
+});

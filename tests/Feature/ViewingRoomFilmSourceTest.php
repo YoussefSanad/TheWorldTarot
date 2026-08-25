@@ -134,3 +134,55 @@ it('does not let the public reveal reach into what a pass buys', function () {
     expect($url)->not->toBe(FakeFilmSource::URL)
         ->and($url)->toContain('bcdn_token=');
 });
+
+it('agrees with itself about which cards it can play', function () {
+    // One condition rendered two ways, asked both ways on real rows. The video
+    // endpoint takes its 404 from the query while `in_viewing_room` and the
+    // panel's subheading take theirs from the predicate, so a disagreement
+    // here is a card that says it is watchable and 404s when watched.
+    $states = [
+        'with a film ready' => fn (): Card => Card::factory()->watchable()->create(),
+        'with a first film still being prepared' => fn (): Card => Card::factory()->videoProcessing()->create(),
+        'with a film that failed' => fn (): Card => Card::factory()->videoFailed()->create(),
+        'with a film being replaced' => fn (): Card => Card::factory()->videoBeingReplaced()->create(),
+        'with no film at all' => fn (): Card => Card::factory()->create(),
+    ];
+
+    $source = app(ViewingRoomFilm::class);
+
+    foreach ($states as $state => $makeCard) {
+        $card = $makeCard();
+
+        $query = Card::query()->whereKey($card->id);
+        $source->whatItCanPlay()->constrain($query, 'en');
+
+        expect($query->exists())->toBe(
+            $source->whatItCanPlay()->isMetBy($card, 'en'),
+            "the Viewing Room disagreed with itself about a card {$state}",
+        );
+    }
+
+    // The same rows, not merely the same answer a row at a time. This is what
+    // `eligible` hands the endpoint, and it is derived from the condition
+    // rather than written beside it.
+    $everyCard = Card::all();
+
+    expect($source->eligible(Card::query())->pluck('id')->sort()->values()->all())
+        ->toBe($everyCard
+            ->filter(fn (Card $card): bool => $source->whatItCanPlay()->isMetBy($card, 'en'))
+            ->pluck('id')->sort()->values()->all());
+});
+
+it('says what a card it cannot play is waiting for, in her words', function () {
+    // The third rendering, which a source has never had. It finishes the same
+    // sentence every other condition finishes, so the panel can read it
+    // alongside the rest of the list rather than beside it.
+    $condition = app(ViewingRoomFilm::class)->whatItCanPlay();
+
+    expect($condition->whatIsMissing(Card::factory()->create(), 'en'))
+        ->toBe(['a video'])
+        ->and($condition->whatIsMissing(Card::factory()->videoProcessing()->create(), 'en'))
+        ->toBe(['its video to finish being prepared'])
+        ->and($condition->whatIsMissing(Card::factory()->videoFailed()->create(), 'en'))
+        ->toBe(['its video uploading again, because the last one went wrong']);
+});

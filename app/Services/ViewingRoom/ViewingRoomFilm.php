@@ -2,6 +2,7 @@
 
 namespace App\Services\ViewingRoom;
 
+use App\Availability\Condition;
 use App\Contracts\FilmSource;
 use App\Models\Card;
 use App\Services\Bunny\BunnyStream;
@@ -35,6 +36,13 @@ class ViewingRoomFilm implements FilmSource
     /**
      * Cards with a film a pass holder could actually watch.
      *
+     * The card's full Living Tarot film being ready, which is the condition
+     * `Card::viewingRoom()` also reads, named once rather than written out in
+     * both places. A source selling something else would declare its own
+     * condition here, and that is the case this shape exists to survive: the
+     * declaration and this endpoint used to agree only because both spelled the
+     * rule the same way.
+     *
      * Composed with the language gate by the caller, never instead of it, which
      * is what `Card::viewableIn` says in one scope: a card in the Library that
      * also has a ready film. Paying for the pass does not reach past the gate.
@@ -42,9 +50,19 @@ class ViewingRoomFilm implements FilmSource
      * `bunny_video_id` only ever holds a ready video, so a card having a
      * replacement prepared stays watchable and keeps playing what it has.
      */
+    public function whatItCanPlay(): Condition
+    {
+        return Card::filmReadyToPlay();
+    }
+
     public function eligible(Builder $query): Builder
     {
-        return $query->whereNotNull('bunny_video_id');
+        // The locale the request is being read in. This source's condition
+        // ignores it, as most conditions do, and one that cared would be asking
+        // about the language the visitor is actually being served.
+        $this->whatItCanPlay()->constrain($query, app()->getLocale());
+
+        return $query;
     }
 
     public function playbackFor(Card $card): ?Playback
