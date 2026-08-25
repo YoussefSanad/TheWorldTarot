@@ -282,37 +282,42 @@ it('sends nothing at all when an order is placed', function () {
     Mail::assertNothingSent();
 });
 
-it('leaves the customer nowhere to go, because nothing is collected yet', function () {
+/**
+ * **Placing an order starts no payment.**
+ *
+ * `payment_url` is gone, replaced by `pay_token` on 25 August 2026. Checkout
+ * happens on the frontend's own page, so there is no URL to send anybody to,
+ * and what the frontend needs from here is the address of this order. Two calls
+ * rather than one, so a payment that fails leaves the order to retry against
+ * instead of producing a duplicate.
+ */
+it('hands back the token that pays for the order, and starts nothing', function () {
     sellable();
 
-    $this->postJson('/api/v1/orders', orderPayload())
+    $response = $this->postJson('/api/v1/orders', orderPayload())
         ->assertCreated()
-        ->assertJsonPath('payment_url', null);
+        ->assertJsonMissingPath('payment_url');
+
+    $order = Order::findOrFail($response->json('id'));
+
+    expect($response->json('pay_token'))->toBe($order->pay_token)
+        ->and($order->stripe_payment_intent_id)->toBeNull()
+        ->and($order->charged_amount)->toBeNull();
 });
 
-it('resolves the gateway from the registry, so naming another one changes what happens', function () {
-    expect(app(PaymentGateway::class))->toBeInstanceOf(ManualSettlement::class);
-
-    config()->set('payments.methods', [
-        'manual' => ManualSettlement::class,
-        'invoice' => new class implements PaymentGateway
-        {
-            public function begin(Order $order): ?string
-            {
-                return 'https://pay.example.test/'.$order->id;
-            }
-        }::class,
-    ]);
-
-    config()->set('payments.default', 'invoice');
-
+it('hands back a token nobody could have guessed from the id', function () {
     sellable();
 
-    // A fake gateway proves this caller and proves nothing about any real one,
-    // per .claude/external-services.md.
-    $this->postJson('/api/v1/orders', orderPayload())
-        ->assertCreated()
-        ->assertJsonPath('payment_url', fn (?string $url): bool => str_starts_with((string) $url, 'https://pay.example.test/'));
+    $mine = $this->postJson('/api/v1/orders', orderPayload())->assertCreated()->json('pay_token');
+    $yours = $this->postJson('/api/v1/orders', orderPayload(['email' => 'someone@example.com']))
+        ->assertCreated()->json('pay_token');
+
+    expect($mine)->not->toBe($yours)
+        ->and(strlen($mine))->toBeGreaterThanOrEqual(32);
+});
+
+it('offers hand settlement, which is what this environment collects with', function () {
+    expect(app(PaymentGateway::class))->toBeInstanceOf(ManualSettlement::class);
 });
 
 it('refuses to be cached', function () {

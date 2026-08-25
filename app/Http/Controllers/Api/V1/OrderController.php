@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\PlaceOrder;
-use App\Contracts\PaymentGateway;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\StoreOrderRequest;
 use App\Http\Resources\Api\V1\OrderResource;
@@ -22,7 +21,6 @@ class OrderController extends Controller
     public function __invoke(
         StoreOrderRequest $request,
         PlaceOrder $placeOrder,
-        PaymentGateway $gateway,
     ): JsonResponse {
         $customer = $this->customerFor($request);
 
@@ -32,11 +30,12 @@ class OrderController extends Controller
             $request->validated('lines'),
         );
 
-        // Whatever the customer does next, which is nothing at all while orders
-        // are settled by hand. Resolved from config/payments.php.
-        $next = $gateway->begin($order);
-
-        return (new OrderResource($order, $next))
+        // **Nothing is collected here, and no payment is started.** This
+        // records what somebody chose and what it costs, and the answer carries
+        // the order's `pay_token`, which is what POST /orders/{pay_token}/pay
+        // needs. Two calls rather than one, so that a payment that fails leaves
+        // the order intact to retry against instead of producing a duplicate.
+        return (new OrderResource($order))
             ->response()
             ->setStatusCode(201)
             ->header('Cache-Control', 'no-store');

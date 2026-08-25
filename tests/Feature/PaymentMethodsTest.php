@@ -2,6 +2,7 @@
 
 use App\Contracts\PaymentGateway;
 use App\Models\Order;
+use App\Payments\PaymentInstruction;
 use App\Services\Payments\ManualSettlement;
 use App\Services\Payments\PaymentMethods;
 use App\Services\Payments\UnknownPaymentMethod;
@@ -126,8 +127,8 @@ it('offers hand settlement everywhere, because support needs it after launch', f
  */
 class FakeInvoicing implements PaymentGateway
 {
-    public function begin(Order $order): ?string
+    public function begin(Order $order): PaymentInstruction
     {
-        return null;
+        return PaymentInstruction::nothingToPay();
     }
 }

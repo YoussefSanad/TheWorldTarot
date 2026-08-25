@@ -108,6 +108,35 @@ return [
         'timeout' => (int) env('MAILCHIMP_TIMEOUT', 10),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Stripe
+    |--------------------------------------------------------------------------
+    |
+    | Taking the money. Per environment, and both halves of that matter.
+    |
+    | `secret` is the API key. Test mode keys start `sk_test_`, live ones
+    | `sk_live_`, and nothing here checks which is which because the same code
+    | is correct for both and the environment decides.
+    |
+    | **`webhook_secret` is per endpoint, not per account.** Stripe issues one
+    | `whsec_` for each endpoint registered in the dashboard, so staging and
+    | production have different values, and using the wrong one fails
+    | identically to a forged request. A missing one refuses everything, which
+    | is the safe direction: failing open on a webhook is failing open on
+    | granting access for free.
+    |
+    | **There is deliberately no tolerance setting.** The endpoint uses
+    | stripe-php's default, and a knob here would be a way to switch replay
+    | protection off in production without anything going red.
+    |
+    */
+
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),

@@ -49,7 +49,7 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 - **A customer token cannot reach the admin panel**, which is the guard isolation that had never been walked from the customer side
 - A forgotten password request answers identically whether or not the address exists
 - A claim link cannot be used on an account that already has a password
-- Orders: recorded as pending with `payment_url` null, totals summed from lines, money as integers, questions refused where they do not belong, one bad line refusing the whole order, an unsupported currency refused
+- Orders: recorded as pending with a `pay_token` and nothing collected, totals summed from lines, money as integers, questions refused where they do not belong, one bad line refusing the whole order, an unsupported currency refused
 - **The whole purchase path**: no access, 403 on a film, buy the pass, settle it in the panel, access appears, and then the film plays through **manifest, rendition and segment** with a tampered token refused
 
 That last one is deliberate. A 200 from the video endpoint is not evidence of anything: a token scoped to the manifest rather than the directory answers 200 for `playlist.m3u8` and 403 for everything it points at. That is what M4 shipped, and following the manifest down is the only way to tell the difference.

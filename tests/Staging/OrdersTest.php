@@ -93,9 +93,13 @@ it('records an order, and does not pretend it has been paid for', function (): v
     $order = Target::json($response);
 
     expect($order['status'])->toBe('pending')
-        // Null is not an error. Nothing collects money yet, so there is nowhere
-        // to send anybody, and the frontend must not read 201 as "paid".
-        ->and($order['payment_url'])->toBeNull()
+        // **Placing an order collects nothing.** The token is how the frontend
+        // pays for it, in a second call, and the frontend must not read 201 as
+        // "paid". `payment_url` is gone: checkout happens on their page, so
+        // there is no URL to send anybody to.
+        ->and($order)->not->toHaveKey('payment_url')
+        ->and($order['pay_token'])->toBeString()
+        ->and(strlen($order['pay_token']))->toBeGreaterThanOrEqual(32)
         ->and($order['currency'])->toBe(walkCurrency())
         ->and($order['lines'])->toHaveCount(1)
         ->and($response->getHeaderLine('Cache-Control'))->toContain('no-store');

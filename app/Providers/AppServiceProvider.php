@@ -14,6 +14,7 @@ use Illuminate\Auth\Access\Response;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Stripe\StripeClient;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -55,6 +56,20 @@ class AppServiceProvider extends ServiceProvider
             PaymentGateway::class,
             fn () => $this->app->make(PaymentMethods::class)->resolve(),
         );
+
+        /*
+        | The one place this application talks to Stripe's wire.
+        |
+        | Resolved from the container and configured from config/services.php,
+        | so a test substitutes one object in one place. **Nothing wraps it in
+        | an interface of ours.** An interface naming a payment intent would be
+        | Stripe with a different name, which is the seam in the wrong place by
+        | the rule in .claude/external-services.md. The seam we do own is
+        | PaymentGateway, one method wide, and it names no Stripe concept at all.
+        */
+        $this->app->singleton(StripeClient::class, fn (): StripeClient => new StripeClient([
+            'api_key' => config('services.stripe.secret'),
+        ]));
 
         // Which mailing list people join, named in config/newsletter.php. Same
         // reasoning again. See docs/plans/newsletter-signup-plan.md.

@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Payments\ManualSettlement;
+use App\Services\Payments\StripeCheckout;
 
 return [
 
@@ -42,6 +43,18 @@ return [
         | offered everywhere and is never removed.
         */
         'manual' => ManualSettlement::class,
+
+        /*
+        | Apple Pay, Google Pay and card, which are one method here because they
+        | are one PaymentIntent at Stripe and the customer's choice between them
+        | is made in the page.
+        |
+        | **Offered only where Stripe is configured.** Nobody has Jennifer's
+        | keys on a laptop, and a method that resolves and then fails on the
+        | first API call is a button that breaks at the worst moment a shop has.
+        | Refusing to offer it at all fails earlier and says why.
+        */
+        'stripe' => env('STRIPE_SECRET') === null ? null : StripeCheckout::class,
 
     ]),
 

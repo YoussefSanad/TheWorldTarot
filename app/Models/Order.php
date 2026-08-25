@@ -83,6 +83,15 @@ class Order extends Model
         return $this->status === OrderStatus::Paid;
     }
 
+    /**
+     * Placed and not collected for, which is the only state a payment may start
+     * from.
+     */
+    public function isPending(): bool
+    {
+        return $this->status === OrderStatus::Pending;
+    }
+
     public function isFulfilled(): bool
     {
         return $this->fulfilled_at !== null;
