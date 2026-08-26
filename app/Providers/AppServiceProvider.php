@@ -14,6 +14,8 @@ use Illuminate\Auth\Access\Response;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Stripe\ApiRequestor;
+use Stripe\HttpClient\CurlClient;
 use Stripe\StripeClient;
 
 class AppServiceProvider extends ServiceProvider
@@ -67,9 +69,42 @@ class AppServiceProvider extends ServiceProvider
         | the rule in .claude/external-services.md. The seam we do own is
         | PaymentGateway, one method wide, and it names no Stripe concept at all.
         */
-        $this->app->singleton(StripeClient::class, fn (): StripeClient => new StripeClient([
-            'api_key' => config('services.stripe.secret'),
-        ]));
+        $this->app->singleton(StripeClient::class, function (): StripeClient {
+            /*
+            | **Bounded, because this call happens inside a customer's request.**
+            |
+            | Added 26 August 2026. Creating a PaymentIntent cannot be queued:
+            | the client secret it returns is the only thing that lets the page
+            | take a payment, so the customer waits for it. .claude/api.md wants
+            | a slow downstream queued and this one cannot be, which is a hard
+            | rule 14 departure stated in PayOrderController.
+            |
+            | What is left of that concern is the part worth honouring. The
+            | library defaults to eighty seconds with thirty to connect, so a
+            | Stripe outage would hold a PHP worker for over a minute per
+            | customer while they sit on a spinner, and enough of them together
+            | is the whole site rather than the checkout. Ten and five turn that
+            | into a fast, honest failure they can retry.
+            |
+            | **No network retries**, left at the library's default of zero. A
+            | retry doubles the worst case in the one place where waiting is the
+            | thing being avoided, and a customer pressing the button again is a
+            | better retry than one they cannot see. The webhook and the sweep
+            | are what make a payment that did go through reconcilable.
+            |
+            | Set globally rather than per client, because stripe-php takes its
+            | HTTP client from a static and its config array has no key for one.
+            */
+            $http = CurlClient::instance();
+            $http->setTimeout(10);
+            $http->setConnectTimeout(5);
+
+            ApiRequestor::setHttpClient($http);
+
+            return new StripeClient([
+                'api_key' => config('services.stripe.secret'),
+            ]);
+        });
 
         // Which mailing list people join, named in config/newsletter.php. Same
         // reasoning again. See docs/plans/newsletter-signup-plan.md.

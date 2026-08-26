@@ -136,6 +136,17 @@ function intentIdIn(string $clientSecret): string
  *
  * Raw HTTP to Stripe, with a publishable key and the client secret, which is
  * the call Stripe.js makes. Nothing of ours is involved on this side.
+ *
+ * **This reaches the real Stripe API, and that is deliberate.** It is the one
+ * carve-out in `.claude/testing.md`, granted 26 August 2026 and granted to this
+ * directory alone. Test mode only, off unless `STAGING_CARD=1` is asked for,
+ * never against production, never in CI. Read that section before copying this
+ * shape anywhere else, because everywhere else the rule is still absolute.
+ *
+ * The reason it is worth the exception, in one line: the feature suite drives a
+ * substituted `StripeClient`, which agrees with our code whatever our code does,
+ * and that is precisely how M4 shipped video playback that had never once
+ * worked. Only Stripe can say a payment succeeded.
  */
 function confirmAtStripe(string $clientSecret, string $paymentMethod): ResponseInterface
 {
@@ -206,8 +217,9 @@ function orderReadyToPay(string $tag): array
     if ($paying->getStatusCode() !== 200) {
         test()->fail(
             'The pay endpoint answered '.$paying->getStatusCode().' rather than a client secret. '
-            .'Stripe is probably not configured on this environment, which means STRIPE_SECRET is unset and the '
-            .'stripe method is not even offered. Response: '.$paying->getBody()
+            .'Stripe is probably not configured on this environment, which needs BOTH STRIPE_SECRET and '
+            .'STRIPE_WEBHOOK_SECRET filled before the stripe method is offered at all. Either one missing looks '
+            .'exactly like this. Response: '.$paying->getBody()
         );
     }
 
