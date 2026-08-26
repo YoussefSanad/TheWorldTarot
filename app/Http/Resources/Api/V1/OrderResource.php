@@ -21,16 +21,6 @@ class OrderResource extends JsonResource
     public static $wrap = null;
 
     /**
-     * @param  string|null  $paymentUrl  Where to send the customer to pay, or
-     *                                   null when there is nowhere to send
-     *                                   them and the order simply waits.
-     */
-    public function __construct($resource, private readonly ?string $paymentUrl = null)
-    {
-        parent::__construct($resource);
-    }
-
-    /**
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array
@@ -48,9 +38,18 @@ class OrderResource extends JsonResource
                 'question' => $line->question,
             ])->all(),
 
-            // Null today, and null is not an error. Nothing is collected until
-            // phase B, so an order waits for somebody to settle it.
-            'payment_url' => $this->paymentUrl,
+            // **How the customer pays for this, and how they come back to it.**
+            //
+            // Replaced `payment_url` on 25 August 2026. There is no URL to send
+            // anybody to any more: checkout happens on the frontend's own page,
+            // and what it needs is the address of this order rather than the
+            // address of a payment. POST it to /api/v1/orders/{pay_token}/pay
+            // and that answers with what to do next.
+            //
+            // Unguessable, because ids here are sequential integers. Holding
+            // this is the whole of the authority to pay for the order, so it
+            // belongs in a response that is never cached, which this one is not.
+            'pay_token' => $this->resource->pay_token,
 
             // Deliberately absent: who it belongs to. The caller either is that
             // person or has just told us who they are, so echoing an email back

@@ -8,7 +8,9 @@ Status: draft, not yet acknowledged. Until you confirm it, these shapes can stil
 
 **Updated 12 August 2026 with member accounts and orders**, the endpoints at the end of section 2. They are the first part of this document you build against rather than only read from: registering, signing in, passwords, `me`, and placing an order. `GET /api/v1/user`, which this document always warned you not to build on, is gone and `GET /api/v1/me` replaces it.
 
-**One thing is deliberately missing, and it is the obvious one.** Nothing collects money yet. An order is created and then waits for somebody here to mark it paid by hand. Card payment, the checkout redirect, gift codes and the 24 hour rush are the next piece of work, and `payment_url` is the field they will arrive in.
+**One thing is deliberately missing, and it is the obvious one.** Nothing collects money yet. An order is created and then waits for somebody here to mark it paid by hand.
+
+**Updated 25 August 2026 with the checkout design**, and section 9 described it before it existed so you could object while objecting was cheap. **The two endpoints are now in section 2, where the built things are.** The short version, because it changes an assumption this document carried since it was written: **checkout happens on your page, not on a Stripe page**. `payment_url` is gone, replaced by `pay_token` on the order and a second call to `/pay`.
 
 ---
 
@@ -87,7 +89,7 @@ Everything on sale, in the order the client arranged them.
 
 **The viewing room pass is in this list, as of 20 August 2026.** It was deliberately excluded before then, on the grounds that it has a page of its own rather than sitting among the readings. That was the wrong cut: your Choose Your Journey section sells all four things side by side, so excluding one only meant fetching it separately to rebuild a list we could have returned whole. It is still also available at its own key.
 
-**So expect five entries, not four:** `one-card`, `three-card`, `month-ahead`, `in-depth`, `viewing-room-pass`. If your homepage shows four tiles, match on `key` and ignore what you have no artwork for — `in-depth` has no tile today.
+**So expect five entries, not four:** `one-card`, `three-card`, `month-ahead`, `in-depth`, `viewing-room-pass`. If your homepage shows four tiles, match on `key` and ignore what you have no artwork for. `in-depth` has no tile today.
 
 **When the rush add-on arrives it will not appear here**, because nothing sells an add-on on its own. If you would rather filter yourself, ask and we will add `?type=`.
 
@@ -353,7 +355,7 @@ No language segment: an order is the same order whatever language it was placed 
     { "product": "one-card", "unit_amount": 1900, "quantity": 1, "question": "What should I focus on this month?" },
     { "product": "viewing-room-pass", "unit_amount": 4500, "quantity": 1, "question": null }
   ],
-  "payment_url": null
+  "pay_token": "kQ3rN8xvT1sLb0Zy..."
 }
 ```
 
@@ -370,9 +372,43 @@ No language segment: an order is the same order whatever language it was placed 
 - `Cache-Control: no-store`
 - Rate limited to 20 a minute per address
 
-**`payment_url` is null today and null is not an error.** It is where a checkout URL will appear once card payment is built. Until then an order sits at `pending` until somebody here marks it paid, so **treat 201 as "your order is recorded", never as "you have paid"**, and say something to that effect on your confirmation screen rather than thanking somebody for a payment that has not happened.
+**`pay_token` replaced `payment_url` on 25 August 2026**, and it is the one change to this endpoint. The body you send, the rules and the errors are all unchanged. There is no checkout URL any more, because checkout happens on your page: what you get back is the address of this order, and you POST it to `/api/v1/orders/{pay_token}/pay` to start a payment. See the next endpoint.
+
+**Placing an order collects nothing**, so **treat 201 as "your order is recorded", never as "you have paid"**. It sits at `pending` until a payment succeeds or somebody here settles it by hand.
+
+**`pay_token` is unguessable and it is a credential.** Order ids are sequential integers, so an id in a URL is a number anybody can count to. Holding this token is the whole of the authority to pay for the order, which is what lets a guest come back to theirs. **Do not put it in an address bar, a redirect, an analytics event or a log.** Keep it in memory for the checkout, or in the customer's own browser storage if you want them to be able to come back.
 
 **There is no way to read an order back yet**, and no order history. If your checkout or account area needs either, say so and we will add them.
+
+### POST /api/v1/orders/{pay_token}/pay
+
+**Starting a payment for an order you have already placed.** Built 25 August 2026. Open to anybody, because the token is the authority. No language segment.
+
+The body is optional and has one field:
+
+```json
+{ "method": "stripe" }
+```
+
+**200**, and it is always one of two shapes, each naming itself:
+
+```json
+{ "type": "client_secret", "client_secret": "pi_..._secret_..." }
+{ "type": "nothing_to_pay" }
+```
+
+- **Read `type` and then read the field it names.** Do not infer from the shape of what came back. Handle an unknown `type` by not crashing, since a new payment method can add one
+- **A third shape, `redirect`, was published here and has been withdrawn**, 26 August 2026. It never had an implementation and cannot acquire one in this design: checkout happens on your page precisely because a hosted page cannot pre-select a wallet. If you wrote a branch for it, delete it
+- **`client_secret` is what you confirm with Stripe** in the Express Checkout Element or the Payment Element, on your own page
+- **`nothing_to_pay` means there is nothing to collect** and you should go straight to your confirmation. It is what an order already settled answers, what a hand settled order answers, and what a gift code redemption will answer
+- **`method` is optional and you can leave it out.** Everything a card processor handles, Apple Pay and Google Pay included, is one method. It exists now so that gifting can add `gift_code` without changing the shape of this call. **A method this environment does not offer is a 422 on `method`**, never a fallback to one that does
+- **Calling this twice on a pending order is safe** and gives you a fresh secret, which is what a declined card should do. It creates no second order
+- **Orders never expire.** A customer who closes the tab mid-payment still has theirs days later
+- **An order already paid answers `nothing_to_pay` and creates nothing**, so a customer cannot be charged twice for one thing
+- **An unknown token is a 404. So is a token for somebody else's order while you are signed in as a different customer**, and the two answer identically, because the difference between them is information
+- **Nothing about the order is echoed back.** Not the amount, not the email, not the id. A guessed token leaks nothing
+- `Cache-Control: no-store`
+- Rate limited to 30 a minute per address, looser than placing an order, because a declined card is a retry
 
 ### POST /api/v1/newsletter
 
@@ -511,8 +547,46 @@ The country header only exists once traffic flows through the CDN. Before DNS cu
 
 Nothing here has a shape yet, and we would rather agree them with you before writing them than after.
 
-- **Paying.** An order is placed and then waits to be marked paid by hand here. What is missing is the card payment itself, which is what `payment_url` becomes, and everything that hangs off it: the return journey to your site, receipts, VAT, refunds
-- **Gift codes and the 24 hour rush.** The rush is an add-on and the order shape already carries it as an extra line, so nothing structural changes for you when it arrives. Gift codes have no shape at all yet
+### Paying, designed 25 August 2026 and now built
+
+**The two endpoints are documented in section 2** and this stays as the design and the reasoning behind them. **The last two items in section 10 are still yours and still take real-world time**, and Apple Pay will not appear until the first of them is done.
+
+**Checkout happens on your page.** Not on a Stripe hosted page, and there is no redirect anywhere. Jennifer's design puts Apple Pay and Google Pay buttons on the reading page itself, and **Stripe has no parameter that pre-selects a wallet on its hosted page**, so a redirect cannot deliver that design.
+
+- **Apple Pay and Google Pay**: Stripe's **Express Checkout Element**, mounted on the reading page
+- **Pay with Card**: Stripe's **Payment Element**, on the same page. It needs an email field above it, which the current design does not have
+- **Redeem a code**: a fourth payment method, arriving with gifting
+
+**The sequence, and the order of it matters.** Nothing exists on our side until after the customer has authenticated:
+
+1. You mount the element with the amount and currency. **No order and no payment exist yet**
+2. Customer taps Apple Pay. The wallet sheet opens. They authenticate
+3. Your `onConfirm` fires, **carrying their email**
+4. You call `POST /api/v1/orders` with that email. **This endpoint does not change.** Same body, same rules, same errors
+5. You call `POST /api/v1/orders/{pay_token}/pay` and get back what to do next. **The token comes back from step 4**, and it is the token rather than the id because ids here are sequential integers
+6. You confirm the payment with Stripe
+
+**`payment_url` was replaced**, because there are genuinely different answers and a nullable string cannot carry them. `/pay` returns an object naming which it is:
+
+```json
+{ "type": "client_secret", "client_secret": "pi_..._secret_..." }
+{ "type": "nothing_to_pay" }
+```
+
+`nothing_to_pay` means the order is already settled and you should go straight to your confirmation. It is what a gift code redemption returns, and what a hand-settled order returns today.
+
+**Calling `/pay` twice on a pending order is safe** and gives you a fresh secret. Orders do not expire, so a customer who abandons a checkout and returns days later still has theirs.
+
+**Two things that are requirements, not suggestions:**
+
+- **`emailRequired: true` on the Express Checkout Element.** Wallets do not share the customer's email by default. Without it the payment still succeeds and we receive an order with no email, which cannot resolve to a customer. This is the single easiest thing to omit and the hardest to notice
+- **Register `theworldtarot.com` as a Stripe payment method domain**, in test and live. Apple Pay does not render on an unregistered domain
+
+**And two things that are gone:** the **24 hour rush** was dropped by the client on 25 August, so remove it from the reading page if you have built it. **There are no refunds.**
+
+### Gift codes
+
+Designed 25 August 2026, built after payment and **before launch**. A code names a reading rather than an amount, so it is worth the right price in every currency. The recipient enters it as a **payment method** on that reading's page, alongside the wallets and the card, and pays nothing. The buyer's side is a recipient email and a message captured on the order line, the way `question` already is.
 - **Reading an order back, and order history.** There is no `GET /orders` or `GET /orders/{id}`. Tell us if your checkout confirmation or an account area needs one
 - FAQ and legal content. **Newsletter signup has moved out of this list**, built 15 August 2026 and documented in section 2
 - Editable page copy, delivered as named blocks per page
@@ -533,5 +607,13 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
    - Both pages read `token` and `email` from the query string and post them back to us unchanged, along with the new password
 8. **Whether you want an order history or an order lookup**, and whether your confirmation screen needs to re-read the order after placing it. Neither exists today
 9. **Confirmation you are not caching `/api/v1/me`**, in a service worker, a persisted store, or anything at the edge
+
+**Added 25 August 2026, for checkout. The first two have lead time and nothing on our side unblocks them:**
+
+10. **Register `theworldtarot.com` as a Stripe payment method domain**, in both test and live mode. Apple Pay will not render until you do, and it fails by simply not appearing rather than by erroring
+11. **Confirm you will pass `emailRequired: true`** to the Express Checkout Element. Without it we get orders with no customer
+12. **An email field on the card path**, since the wallets supply one and a card does not. Jennifer's design has no field anywhere
+13. **Confirmation you have the design without the 24 hour rush.** The version we have shows it as a radio under the price and as a bullet in the feature list, and it was dropped on 25 August
+14. **Whether you want the Payment Element or a hosted redirect for the card path.** We propose the element, so there is one integration rather than two, but the card path is the only place a redirect is still possible and it is your call to make
 
 One question from us: your application can read the visitor's country directly at the edge. If you would rather detect currency yourself and always send `?currency=`, we can drop `detected` and the caching complication with it.

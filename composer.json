@@ -19,7 +19,8 @@
         "laravel/tinker": "^3.0",
         "league/flysystem-aws-s3-v3": "^3.35",
         "resend/resend-php": "^1.7",
-        "spatie/laravel-translatable": "^6.14"
+        "spatie/laravel-translatable": "^6.14",
+        "stripe/stripe-php": "^21.2"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
