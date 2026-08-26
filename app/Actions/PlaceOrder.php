@@ -5,9 +5,10 @@ namespace App\Actions;
 use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Models\Product;
+use App\Purchasability\Basket;
+use App\Purchasability\Line;
+use App\Purchasability\Purchasability;
 use Illuminate\Support\Facades\DB;
-use InvalidArgumentException;
 
 /**
  * Turning a validated basket into a record of what somebody bought.
@@ -23,51 +24,45 @@ class PlaceOrder
      */
     public function __invoke(Customer $customer, string $currency, array $lines): Order
     {
-        $products = Product::whereIn('key', collect($lines)->pluck('product'))
-            ->get()
-            ->keyBy(fn (Product $product): string => $product->key->value);
+        $basket = Basket::forCustomer($customer, $currency, $lines);
+
+        // **The guard is here as well as in the form request, and that is not
+        // belt and braces.** StoreOrderRequest is the right place for the rule,
+        // since a customer naming a product that does not exist deserves a 422
+        // with the field named rather than an exception.
+        //
+        // This action is the shared seam though, and phase B adds a second
+        // caller in the payment path that will not route through that form
+        // request. Reaching `$product->id` on null and writing null into a
+        // NOT NULL integer column are both poor ways for the one action that
+        // turns money into a record to fail, and neither says what went wrong.
+        //
+        // **What is not here any more is a second copy of the rules.** Both
+        // callers ask one declaration, so a rule added to the 422 cannot be
+        // forgotten here. Anything arriving has already been validated, so this
+        // firing is a fault in the caller and says so.
+        //
+        // That includes the pass, which is the thing here worth taking money
+        // for wrongly. It never expires, so it is the one product that cannot
+        // be sold to the same person twice, and a second one delivers nothing
+        // at all because grantViewingRoomAccess keeps the first date on
+        // purpose. The rule follows fulfillment rather than the product key,
+        // so this seam and MarkOrderPaid are asking one question.
+        //
+        // **The buyer is the customer this order is being placed for**, which
+        // is the authority here rather than an address somebody typed. The
+        // basket looks nothing up unless a rule about access asks it to.
+        Purchasability::declared()->guard($basket);
 
         // Priced before anything is written, so an order is never briefly
         // stored with a total of nothing.
-        $priced = collect($lines)->map(function (array $line) use ($products, $currency): array {
-            $product = $products->get($line['product']);
-            $quantity = (int) ($line['quantity'] ?? 1);
-
-            // **The guard is here as well as in the form request, and that is
-            // not belt and braces.** StoreOrderRequest::after() makes both of
-            // these impossible today and is the right place for the rule, since
-            // a customer naming a product that does not exist deserves a 422
-            // with the field named rather than an exception.
-            //
-            // This action is the shared seam though, and phase B adds a second
-            // caller in the payment path that will not route through that form
-            // request. Reaching `$product->id` on null and writing null into a
-            // NOT NULL integer column are both poor ways for the one action
-            // that turns money into a record to fail, and neither says what
-            // went wrong. Anything arriving here has already been validated, so
-            // this firing is a fault in the caller and says so.
-            if ($product === null) {
-                throw new InvalidArgumentException(
-                    "Cannot place an order for unknown product [{$line['product']}]."
-                );
-            }
-
-            $unitAmount = $product->priceIn($currency);
-
-            if ($unitAmount === null) {
-                throw new InvalidArgumentException(
-                    "Product [{$product->key->value}] has no price in {$currency}."
-                );
-            }
-
-            return [
-                'product_id' => $product->id,
-                'product_key' => $product->key,
-                'unit_amount' => $unitAmount,
-                'quantity' => $quantity,
-                'question' => $line['question'] ?? null,
-            ];
-        });
+        $priced = collect($basket->lines())->map(fn (Line $line): array => [
+            'product_id' => $line->product->id,
+            'product_key' => $line->product->key,
+            'unit_amount' => $line->product->priceIn($currency),
+            'quantity' => $line->quantity,
+            'question' => $line->question,
+        ]);
 
         $total = $priced->sum(fn (array $line): int => $line['unit_amount'] * $line['quantity']);
 

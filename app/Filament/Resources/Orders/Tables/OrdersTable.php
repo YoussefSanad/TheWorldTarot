@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Orders\Tables;
 
+use App\Actions\MarkOrderFulfilled;
 use App\Actions\MarkOrderPaid;
 use App\Enums\OrderStatus;
 use App\Models\Order;
@@ -142,6 +143,11 @@ class OrdersTable
      * "Fulfilled" rather than "sent", because a pass is fulfilled by access
      * being granted and nothing about it is ever sent. One word has to cover
      * both, and only this one is true of both.
+     *
+     * **The stamping is not hers alone.** This screen and the payment path both
+     * reach MarkOrderFulfilled, so an order delivered by a person and one
+     * delivered by the money landing cannot come to mean different things. What
+     * is decided here is only when she is offered the button.
      */
     private static function markAsFulfilled(): Action
     {
@@ -154,7 +160,7 @@ class OrdersTable
             ->modalSubmitActionLabel('Yes, it is done')
             ->visible(fn (Order $record): bool => $record->isPaid() && ! $record->isFulfilled())
             ->action(function (Order $record): void {
-                $record->forceFill(['fulfilled_at' => now()])->save();
+                app(MarkOrderFulfilled::class)($record);
 
                 Notification::make()->success()->title('Marked as fulfilled')->send();
             });

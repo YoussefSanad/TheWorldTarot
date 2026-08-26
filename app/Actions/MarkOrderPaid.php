@@ -39,6 +39,8 @@ use Illuminate\Support\Facades\Password;
  */
 class MarkOrderPaid
 {
+    public function __construct(private readonly MarkOrderFulfilled $markFulfilled) {}
+
     /**
      * @return bool Whether this call is the one that changed anything. False
      *              means it was already paid, which is a success.
@@ -97,11 +99,24 @@ class MarkOrderPaid
         // Anything written by hand is the opposite: it is fulfilled when she
         // says it is, and an order holding one reading and one pass waits for
         // the reading, because half delivered is not delivered.
+        //
+        // The stamping itself is MarkOrderFulfilled's, which is the same writer
+        // her "Mark as fulfilled" button reaches. What is decided here is only
+        // whether this order is one of the ones that needs nobody.
         if (! $this->needsAPerson($order)) {
-            $order->forceFill(['fulfilled_at' => now()])->save();
+            ($this->markFulfilled)($order);
         }
     }
 
+    /**
+     * Whether anything on this order is waiting for Jennifer.
+     *
+     * Asked twice by two callers and answered once, because the two answers are
+     * exact opposites and nothing would fail if they came apart. An order
+     * fulfilled at payment that she is also told about is work on her list that
+     * is already done, and one left waiting that she never hears about is a
+     * customer who paid and receives nothing.
+     */
     private function needsAPerson(Order $order): bool
     {
         return $order->lines->contains(
@@ -133,7 +148,7 @@ class MarkOrderPaid
         // One message for the whole order rather than one per line, so Jennifer
         // gets a single thing to work from instead of three that arrive
         // together and have to be reassembled.
-        if ($order->lines->contains(fn ($line): bool => $line->product?->fulfillment === Fulfillment::ManualPdf)) {
+        if ($this->needsAPerson($order)) {
             Mail::to(config('mail.notify.fulfillment'))->send(new ReadingToWrite($order));
         }
     }

@@ -3,7 +3,9 @@
 namespace App\Http\Requests\Api\V1;
 
 use App\Enums\ProductKey;
-use App\Models\Product;
+use App\Models\Customer;
+use App\Purchasability\Basket;
+use App\Purchasability\Purchasability;
 use App\Support\CurrencyResolver;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -64,6 +66,12 @@ class StoreOrderRequest extends FormRequest
      * naming the line that was wrong, which is what the frontend can actually
      * show somebody.
      *
+     * **The rules themselves are not here.** They are declared once in
+     * App\Purchasability and this pours them into the validator, so the same
+     * list that refuses a customer is the list PlaceOrder guards on. A rule
+     * added to one of them cannot be forgotten in the other, which is the whole
+     * of why this file used to be twice as long.
+     *
      * @return array<int, callable>
      */
     public function after(): array
@@ -76,45 +84,49 @@ class StoreOrderRequest extends FormRequest
                     return;
                 }
 
-                $currency = (string) $this->input('currency');
-
-                // Soft deleted products are excluded by the default scope, so a
-                // retired product cannot be bought while old orders go on
-                // referring to it.
-                $products = Product::whereIn('key', collect($lines)->pluck('product')->filter())
-                    ->get()
-                    ->keyBy(fn (Product $product): string => $product->key->value);
-
-                foreach ($lines as $index => $line) {
-                    $key = is_array($line) ? ($line['product'] ?? null) : null;
-
-                    if (! is_string($key)) {
+                foreach (Purchasability::declared()->refusals($this->basket($lines)) as $refusal) {
+                    // Nothing more about a field the validator has already
+                    // refused. A line naming no product has been told that one
+                    // is required, and being told as well that it is not
+                    // something you can buy is noise on top of an answer.
+                    if ($validator->errors()->has($refusal->key())) {
                         continue;
                     }
 
-                    $product = $products->get($key);
-
-                    // One bad line refuses the whole order. Silently dropping
-                    // it would charge somebody for a basket they did not agree
-                    // to, which is worse than making them try again.
-                    if ($product === null || ! $product->is_published || $product->priceIn($currency) === null || $product->priceIn($currency) <= 0) {
-                        $validator->errors()->add(
-                            "lines.{$index}.product",
-                            'That is not something you can buy right now.',
-                        );
-
-                        continue;
-                    }
-
-                    if (filled($line['question'] ?? null) && ! $product->allows_question) {
-                        $validator->errors()->add(
-                            "lines.{$index}.question",
-                            'This one does not take a question.',
-                        );
-                    }
+                    $validator->errors()->add($refusal->key(), $refusal->words);
                 }
             },
         ];
+    }
+
+    /**
+     * What is being bought, and who by.
+     *
+     * **The guard is named, and it has to be.** Nothing has resolved the caller
+     * by the time a request is validated, so a bare `user()` asks the default
+     * guard, which reads sessions and has never heard of a bearer token. A
+     * customer carrying one arrived here as a guest. Found on staging on
+     * 13 August 2026, see PlaceOrderTest.
+     *
+     * **The same two paths OrderController resolves, minus the creating.** A
+     * guest hands over the address they typed and the basket matches on it if
+     * anything asks, which is what makes that match the same one
+     * `Customer::firstOrCreate` will make a moment later.
+     *
+     * @param  array<int|string, mixed>  $lines
+     */
+    private function basket(array $lines): Basket
+    {
+        $currency = (string) $this->input('currency');
+        $signedIn = $this->user('sanctum');
+
+        if ($signedIn instanceof Customer) {
+            return Basket::forCustomer($signedIn, $currency, $lines);
+        }
+
+        $email = $this->input('email');
+
+        return Basket::forGuest(is_string($email) ? $email : null, $currency, $lines);
     }
 
     protected function prepareForValidation(): void

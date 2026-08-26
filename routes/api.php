@@ -9,11 +9,13 @@ use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\NewsletterController;
 use App\Http\Controllers\Api\V1\OrderController;
+use App\Http\Controllers\Api\V1\PayOrderController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\RegisterController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\SetPasswordController;
+use App\Http\Controllers\Api\V1\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -116,6 +118,24 @@ Route::prefix('v1')->group(function () {
         ->name('orders.store');
 
     /*
+    | Paying for an order that has already been placed. Open to anybody for the
+    | same reason placing one is, and addressed by the order's `pay_token`
+    | rather than its id, because ids here are sequential integers and the token
+    | is what a guest holds to prove an order is theirs.
+    |
+    | Not behind a language, for the same reason as above: paying is not
+    | content.
+    |
+    | **Its own throttle key prefix**, per the note at the top of this file.
+    | Looser than placing an order, because a declined card is a retry and a
+    | customer fighting with a wallet sheet must not be locked out of paying by
+    | the attempts that failed.
+    */
+    Route::post('/orders/{payToken}/pay', PayOrderController::class)
+        ->middleware('throttle:30,1,orders-pay')
+        ->name('orders.pay');
+
+    /*
     | Joining the mailing list. Open to anybody, and flat rather than behind a
     | language, because a list is not content and whoever joins it has no
     | account and may never have one.
@@ -140,6 +160,21 @@ Route::prefix('v1')->group(function () {
     Route::post('/webhooks/bunny', BunnyWebhookController::class)
         ->middleware('throttle:60,1,bunny-webhook')
         ->name('webhooks.bunny');
+
+    /*
+    | Stripe telling us what happened to a payment. Unauthenticated by
+    | necessity, since Stripe holds no credentials of ours, and **trusted only
+    | because the signature is verified against the raw body before anything is
+    | read**, per hard rule 6.
+    |
+    | Rate limited, because it is a public endpoint that queues work. Higher
+    | than the Bunny callback: videos are uploaded twenty-two times and then
+    | almost never, while payments arrive whenever people buy, and a 429 here is
+    | a payment Stripe has to redeliver.
+    */
+    Route::post('/webhooks/stripe', StripeWebhookController::class)
+        ->middleware('throttle:120,1,stripe-webhook')
+        ->name('webhooks.stripe');
 
     /*
     | Content, addressed per language: /api/v1/en/products. Every language is

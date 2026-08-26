@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Availability\Availability;
 use App\Availability\Condition;
 use App\Availability\Conditions;
+use App\Contracts\FilmSource;
 use App\Enums\VideoStatus;
 use App\Jobs\ForgetCardVideo;
 use App\Jobs\SendCardVideoToBunny;
@@ -240,6 +241,61 @@ class Card extends Model
     }
 
     /**
+     * The card's Living Tarot film is ready for somebody to watch.
+     *
+     * Its own condition, and named, because it belongs to the card rather than
+     * to whatever is playing the film. `LivingTarotFilm` declares it as what it
+     * can play, and that is now the only thing that asks: `Card::viewingRoom()`
+     * reaches it through the source rather than restating it, so a source
+     * playing something else moves the declaration with it. The rule was
+     * written out in three places and agreed by hand, which is the arrangement
+     * this module exists to end.
+     *
+     * An adapter that played something else, a preview or a purpose-made clip,
+     * would declare its own condition against its own column rather than
+     * return this one. That is the seam working, and it is why this lives here
+     * as a condition a source may name rather than as something a source
+     * inherits.
+     */
+    public static function filmReadyToPlay(): Condition
+    {
+        return Condition::make(
+            missing: fn (self $card): string => match (true) {
+                ! $card->hasVideo() => 'a video',
+                // Something has been uploaded and nothing is watchable yet,
+                // which is the first upload still being prepared or one
+                // that failed. A replacement never lands here, because the
+                // old video is playable.
+                $card->video_status === VideoStatus::Failed => 'its video uploading again, because the last one went wrong',
+                default => 'its video to finish being prepared',
+            },
+            // Does not look at the status, and that is the point.
+            // `bunny_video_id` only ever holds a video that is ready, so a
+            // replacement being prepared cannot take a card off the site
+            // while it transcodes.
+            query: fn (Builder $query) => $query->whereNotNull('bunny_video_id'),
+            record: fn (self $card): bool => $card->isPlayable(),
+        );
+    }
+
+    /**
+     * The adapter `config/viewing-room.php` names.
+     *
+     * Typed rather than annotated, because this is the one place a `FilmSource`
+     * is resolved outside `AppServiceProvider` and nothing else would check it.
+     * The video endpoint gets the same adapter through a contextual binding, so
+     * PHP's own check on the controller's constructor refuses a config value
+     * naming something that is not a source. This route around the container
+     * had no equivalent, and there is no static analyser here, so a wrong key
+     * surfaced as an undefined method deep inside the declaration instead of at
+     * the seam it came from.
+     */
+    private static function filmSource(): FilmSource
+    {
+        return app(config('viewing-room.source'));
+    }
+
+    /**
      * What a card additionally needs before it is in the Viewing Room.
      *
      * Built on the Library declaration rather than beside it, deliberately, and
@@ -253,27 +309,30 @@ class Card extends Model
      * What keeps a card out of the Library and what keeps it out of the Viewing
      * Room are different questions, and a card is routinely finished for
      * readers and unfinished for watchers.
+     *
+     * **The film condition is the source's own, asked rather than assumed.**
+     * It used to be stated here and stated again in the adapter, so the
+     * declaration and the endpoint that serves the film agreed only because
+     * both spelled the rule the same way. A source serving a purpose-made clip
+     * narrows the pool by its own column, and the morning one shipped
+     * `in_viewing_room` would have started lying with the whole suite green.
+     *
+     * **The source is resolved here rather than handed in, and that is the
+     * settled answer to a question with no better one.** Four callers read this
+     * declaration and three of them have nowhere to get a source: the panel
+     * screen, the card resource and the availability check all run with no
+     * container context of their own. So it is resolved from
+     * `config/viewing-room.php`, the same key the video endpoint's adapter is
+     * bound from in `AppServiceProvider`, which is what stops the two being
+     * handed different films. A bare `app(FilmSource::class)` remains an error,
+     * deliberately: the reveal's adapter is not a thing to pick up by accident.
+     *
+     * @see FilmSource::whatItCanPlay()
      */
     public static function viewingRoom(): Availability
     {
         return Availability::of(
-            Condition::make(
-                missing: fn (self $card): string => match (true) {
-                    ! $card->hasVideo() => 'a video',
-                    // Something has been uploaded and nothing is watchable yet,
-                    // which is the first upload still being prepared or one
-                    // that failed. A replacement never lands here, because the
-                    // old video is playable.
-                    $card->video_status === VideoStatus::Failed => 'its video uploading again, because the last one went wrong',
-                    default => 'its video to finish being prepared',
-                },
-                // Does not look at the status, and that is the point.
-                // `bunny_video_id` only ever holds a video that is ready, so a
-                // replacement being prepared cannot take a card off the site
-                // while it transcodes.
-                query: fn (Builder $query) => $query->whereNotNull('bunny_video_id'),
-                record: fn (self $card): bool => $card->isPlayable(),
-            ),
+            self::filmSource()->whatItCanPlay(),
             // Last, because it reads oddly first and because it is the one
             // thing she fixes on a different screen.
             self::availability()->asCondition('to be on the website first'),

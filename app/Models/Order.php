@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 /**
  * Something somebody bought.
@@ -28,9 +29,40 @@ class Order extends Model
         return [
             'status' => OrderStatus::class,
             'total_amount' => 'integer',
+            'charged_amount' => 'integer',
             'paid_at' => 'datetime',
             'fulfilled_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Every order gets the token that lets whoever placed it pay for it.
+     *
+     * Here rather than in PlaceOrder, because there is more than one way an
+     * order comes into existence and an order without one cannot be paid for.
+     * A single writer is what keeps that from depending on which path made it.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (Order $order): void {
+            $order->pay_token ??= self::mintPayToken();
+        });
+    }
+
+    /**
+     * An unguessable name for one order.
+     *
+     * **Not derived from anything about the order**, and that is the point.
+     * Ids here are sequential integers, so an id in a URL is a number somebody
+     * can count to, and the next one along belongs to another customer. This is
+     * random, and it is the whole of the authority a guest has to pay.
+     *
+     * `Str::random` reads from random_bytes, so this is as unguessable as the
+     * session cookie beside it.
+     */
+    public static function mintPayToken(): string
+    {
+        return Str::random(48);
     }
 
     public function customer(): BelongsTo
@@ -49,6 +81,15 @@ class Order extends Model
     public function isPaid(): bool
     {
         return $this->status === OrderStatus::Paid;
+    }
+
+    /**
+     * Placed and not collected for, which is the only state a payment may start
+     * from.
+     */
+    public function isPending(): bool
+    {
+        return $this->status === OrderStatus::Pending;
     }
 
     public function isFulfilled(): bool

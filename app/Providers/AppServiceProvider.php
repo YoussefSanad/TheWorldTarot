@@ -9,10 +9,14 @@ use App\Http\Controllers\Api\V1\CardController;
 use App\Http\Controllers\Api\V1\CardVideoController;
 use App\Models\Customer;
 use App\Observers\TranslatableContentObserver;
+use App\Services\Payments\PaymentMethods;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Stripe\ApiRequestor;
+use Stripe\HttpClient\CurlClient;
+use Stripe\StripeClient;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -40,13 +44,67 @@ class AppServiceProvider extends ServiceProvider
             ->needs(FilmSource::class)
             ->give(fn () => $this->app->make(config('viewing-room.source')));
 
-        // How money is collected, named in config/payments.php. Same reasoning
-        // as above, and resolved fresh rather than as a singleton so a test can
-        // name a different one and get it.
+        // How money is collected, named in config/payments.php.
+        //
+        // **A registry rather than one class**, because the checkout design
+        // lets the customer pick, so the method belongs to the payment rather
+        // than to the environment. PaymentMethods turns a name into a gateway
+        // and refuses a name it does not recognise.
+        //
+        // This binding is what a caller that does not choose gets: the method
+        // named by `payments.default`. Resolved fresh rather than as a
+        // singleton, so a test can name different methods and get them.
         $this->app->bind(
             PaymentGateway::class,
-            fn () => $this->app->make(config('payments.gateway')),
+            fn () => $this->app->make(PaymentMethods::class)->resolve(),
         );
+
+        /*
+        | The one place this application talks to Stripe's wire.
+        |
+        | Resolved from the container and configured from config/services.php,
+        | so a test substitutes one object in one place. **Nothing wraps it in
+        | an interface of ours.** An interface naming a payment intent would be
+        | Stripe with a different name, which is the seam in the wrong place by
+        | the rule in .claude/external-services.md. The seam we do own is
+        | PaymentGateway, one method wide, and it names no Stripe concept at all.
+        */
+        $this->app->singleton(StripeClient::class, function (): StripeClient {
+            /*
+            | **Bounded, because this call happens inside a customer's request.**
+            |
+            | Added 26 August 2026. Creating a PaymentIntent cannot be queued:
+            | the client secret it returns is the only thing that lets the page
+            | take a payment, so the customer waits for it. .claude/api.md wants
+            | a slow downstream queued and this one cannot be, which is a hard
+            | rule 14 departure stated in PayOrderController.
+            |
+            | What is left of that concern is the part worth honouring. The
+            | library defaults to eighty seconds with thirty to connect, so a
+            | Stripe outage would hold a PHP worker for over a minute per
+            | customer while they sit on a spinner, and enough of them together
+            | is the whole site rather than the checkout. Ten and five turn that
+            | into a fast, honest failure they can retry.
+            |
+            | **No network retries**, left at the library's default of zero. A
+            | retry doubles the worst case in the one place where waiting is the
+            | thing being avoided, and a customer pressing the button again is a
+            | better retry than one they cannot see. The webhook and the sweep
+            | are what make a payment that did go through reconcilable.
+            |
+            | Set globally rather than per client, because stripe-php takes its
+            | HTTP client from a static and its config array has no key for one.
+            */
+            $http = CurlClient::instance();
+            $http->setTimeout(10);
+            $http->setConnectTimeout(5);
+
+            ApiRequestor::setHttpClient($http);
+
+            return new StripeClient([
+                'api_key' => config('services.stripe.secret'),
+            ]);
+        });
 
         // Which mailing list people join, named in config/newsletter.php. Same
         // reasoning again. See docs/plans/newsletter-signup-plan.md.

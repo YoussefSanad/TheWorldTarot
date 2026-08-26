@@ -2,6 +2,7 @@
 
 namespace App\Contracts;
 
+use App\Availability\Condition;
 use App\Models\Card;
 use App\Support\Playback;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,10 +39,35 @@ use Illuminate\Database\Eloquent\Builder;
 interface FilmSource
 {
     /**
-     * Narrow a card query to the ones this source can actually play.
+     * What this source can play, declared as a condition.
+     *
+     * A condition rather than a narrowed query, because a query is the one
+     * shape that cannot join the availability declaration. `Condition` carries
+     * the query, the predicate and the wording together, so a source that
+     * changes what it can play changes the pool, the answer a loaded card
+     * gives, and what the panel tells Jennifer, all at once. A source used to
+     * be able to contribute only the first of those, which is why the endpoint
+     * and the declaration agreed by coincidence rather than by construction.
+     *
+     * The wording finishes the sentence "it needs ...", the same sentence every
+     * other condition finishes, so the panel reads it in the same list.
+     */
+    public function whatItCanPlay(): Condition;
+
+    /**
+     * The same declaration as a query, narrowing a card query to the ones this
+     * source can actually play.
+     *
+     * Derived from `whatItCanPlay` rather than written beside it. Stating the
+     * rule here as well is exactly the drift `Condition` exists to prevent.
      *
      * Applied on top of the language gate rather than instead of it, so a source
      * can never widen the pool to something that is not on the website.
+     *
+     * The reveal's caller is the one left. The Viewing Room reads its pool from
+     * `Card::viewingRoom()` instead, which asks this source for the same
+     * condition and composes the gate itself, because a rule composed at a call
+     * site is a rendering nothing else can read.
      */
     public function eligible(Builder $query): Builder;
 
