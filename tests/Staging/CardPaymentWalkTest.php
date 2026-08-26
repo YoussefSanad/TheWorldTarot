@@ -256,8 +256,23 @@ it('takes a card and delivers what was bought, with nobody touching the panel', 
 
     // Stripe's own word that the money moved. Everything after this is about
     // whether the deployed environment noticed.
+    //
+    // **`amount` rather than `amount_received`**, corrected 26 August 2026 on
+    // this file's first execution. A publishable key is given a **limited**
+    // PaymentIntent, which carries amount, currency and status and withholds
+    // the settlement fields: amount_received and latest_charge need a secret
+    // key. Confirming the way Stripe.js does was always going to get the
+    // limited object, so the original assertion asked this call for something
+    // it can never answer and read as a failed payment on a payment that
+    // succeeded.
+    //
+    // Nothing weakens. `amount` is what the customer is being charged, checked
+    // against our own total, and `succeeded` is Stripe saying it took it. That
+    // the money reached the account is proved by the pass appearing below,
+    // which only the webhook can cause.
     expect($body['status'] ?? null)->toBe('succeeded')
-        ->and($body['amount_received'] ?? null)->toBe($order['total_amount']);
+        ->and($body['amount'] ?? null)->toBe($order['total_amount'])
+        ->and(strtoupper((string) ($body['currency'] ?? '')))->toBe(cardWalkCurrency());
 
     Target::say('Stripe took the payment. Watching for the pass to appear.');
 
