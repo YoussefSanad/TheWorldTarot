@@ -118,15 +118,49 @@ What it asked for was wrong, and dangerously so. It used `Target::sharedAccount(
 
 The general lesson is in `docs/CHECKPOINT.md` under traps: a skipped test reads as a passing one, and when a test and a documented security decision disagree, find out which is older before touching either.
 
-## The card walk has never been run
+## The card walk, first run 26 August 2026
 
-Written 26 August 2026, executed never. **Four tests that have skipped every run since the moment they were written**, and this paragraph exists so that nobody reads the totals and concludes payment is proved.
+**It passed.** Written 26 August, executed the same day, against
+`staging-api.theworldtarot.com` carrying phase B as merged that morning.
 
-It cannot be run from where it was written. It needs a deployed environment carrying `STRIPE_SECRET`, a webhook endpoint registered at Stripe pointing at it, and the test mode publishable key for that same Stripe account. None of those existed when the tests were.
+The result worth writing down: **a customer can hand over a card and receive
+what they bought, with nobody in the panel.** An order placed, a client secret
+issued, `pm_card_visa` confirmed against Stripe the way a browser confirms it,
+and the pass appearing by itself well inside two minutes. The sweep does not
+touch an order for fifteen, so **that can only have been the webhook**, which
+makes it the first evidence anywhere that the endpoint is registered for this
+environment, reachable from outside, and carrying a matching signing secret.
 
-So the position today is exact and worth stating plainly: **no evidence exists that this system can take a payment.** The feature suite proves our code does what we meant it to. The captured signature vector, itself still uncaptured, would prove one webhook body's format. Neither is the same claim as a customer handing over a card and receiving what they bought, and the only thing that makes that claim is a run of this file against a real environment.
+That retires the sentence this section used to carry. **Evidence now exists
+that this system can take a payment.** On staging. Production is still unwalked
+by anybody.
 
-That is the M4 shape precisely, and the 23 August one on top of it: a skipped test reads as a passing one. Run it, then replace this section with what happened.
+It took four runs, and the three failures are worth keeping, because none was in
+the application and all three were in configuration or in this suite:
+
+1. **The pay endpoint answered 422**, reporting Stripe as unconfigured while the
+   keys were plainly set. The variables were named `STRIPE_SECRET_KEY` and
+   `STRIPE_PUBLISHABLE_KEY` on the environment, and `config/payments.php` reads
+   `STRIPE_SECRET`. `blank()` cannot tell a misspelled variable from an absent
+   one, so a name that is nearly right looks exactly like a key that is missing.
+   **The backend reads no publishable key at all**: it is a browser credential
+   and reaches this suite as `STAGING_STRIPE_PUBLISHABLE`
+2. **Stripe answered 401, `Invalid API Key provided: pk_test_...`.** That is the
+   placeholder out of this file, passed through verbatim. The guard above checks
+   the `pk_test_` prefix, which the placeholder satisfies, so the one wrong
+   value a person is most likely to supply is the one it waves through
+3. **`amount_received` came back null on a payment that had succeeded**, which
+   was a defect in this suite and is fixed. **A publishable key is given a
+   limited PaymentIntent**: amount, currency and status, with the settlement
+   fields withheld, because `amount_received` and `latest_charge` need a secret
+   key. Confirming the way Stripe.js does was always going to get the limited
+   object, so the assertion asked that call for something it can never answer.
+   It reads as a failed payment on a payment that worked
+
+The general lesson is the one already recorded above from 23 August, arriving
+for the third time: **a test that has never executed asks for whatever its
+author imagined**, and its totals look clean until the first environment able to
+run it. Two of these three were written the day before and skipped every run.
 
 ## What it cannot prove, and who has to
 
