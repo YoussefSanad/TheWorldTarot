@@ -15,7 +15,12 @@ Artisan::command('inspire', function () {
 |
 | Daily, decided 29 July 2026. Videos are uploaded rarely, twenty-two of them
 | once and then almost never, so the sweep exists for an exception rather than a
-| routine. It costs nothing either way, since it makes no request at all unless
+| routine.
+|
+| **`daily()` is `0 0 * * *`, which needs an invocation inside the midnight
+| minute itself.** The platform invokes every five minutes, so this runs if that
+| cadence is aligned to the hour and has never run if it is not. See the note on
+| the sweep below. It costs nothing either way, since it makes no request at all unless
 | something is actually in flight, and Bunny bills bandwidth rather than calls.
 |
 | The trade accepted: a lost callback now costs up to a day rather than five
@@ -45,13 +50,14 @@ Schedule::command('cards:reconcile-videos')
 | table and makes no Stripe request at all unless something is genuinely
 | outstanding, which is a number in the low tens.
 |
-| **The platform tick has never been measured, and this frequency is a ceiling
-| rather than a floor.** It has been carried as unknown since M4. Task frequency
-| lives here in code, so if Laravel Cloud runs `schedule:run` hourly then this
-| is hourly whatever this line says, and if it runs daily then a lost
-| notification costs a customer a day. Measuring it on a deployed environment is
-| outstanding work and is not done: run `orders:reconcile` by hand in the
-| meantime if a payment is known to be missing.
+| **The platform invokes `schedule:run` every five minutes**, measured on
+| staging 26 August 2026 and carried as unknown since M4 before that. That is
+| not the same as this task running every five minutes. `schedule:run` runs an
+| event only when its expression matches the minute it was invoked, so the
+| every-fifth-minute expression here fires when the platform's invocations land
+| on minutes 0, 5, 10 and so on, and never at all if they land between. **Whether this environment's cadence is
+| aligned is not yet known**, and until it is, run `orders:reconcile` by hand if
+| a payment is known to be missing.
 |
 | Without overlapping, so a slow sweep never has a second one beside it asking
 | Stripe the same questions.
@@ -59,24 +65,3 @@ Schedule::command('cards:reconcile-videos')
 Schedule::command('orders:reconcile')
     ->everyFiveMinutes()
     ->withoutOverlapping();
-
-/*
-| The measurement, not a feature. **Remove this and the command it names once
-| the answer is written into docs/CHECKPOINT.md.**
-|
-| Nobody has ever measured how often this platform invokes `schedule:run`, and
-| it has been carried as unknown since M4. Every frequency in this file is a
-| ceiling rather than a floor until somebody does: the sweep above says five
-| minutes, and on an hourly tick it is hourly, with nothing anywhere saying so
-| and a customer who paid and received nothing wearing the difference.
-|
-| Every minute, because the gaps between recorded ticks are the measurement.
-| Asking for a tick more often than the platform can give one is what makes the
-| real interval visible.
-|
-| It costs one cache write a minute and holds four hours of timestamps.
-|
-| Read it with `php artisan scheduler:check --report` on the environment.
-*/
-Schedule::command('scheduler:check')
-    ->everyMinute();
