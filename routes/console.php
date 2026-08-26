@@ -59,3 +59,24 @@ Schedule::command('cards:reconcile-videos')
 Schedule::command('orders:reconcile')
     ->everyFiveMinutes()
     ->withoutOverlapping();
+
+/*
+| The measurement, not a feature. **Remove this and the command it names once
+| the answer is written into docs/CHECKPOINT.md.**
+|
+| Nobody has ever measured how often this platform invokes `schedule:run`, and
+| it has been carried as unknown since M4. Every frequency in this file is a
+| ceiling rather than a floor until somebody does: the sweep above says five
+| minutes, and on an hourly tick it is hourly, with nothing anywhere saying so
+| and a customer who paid and received nothing wearing the difference.
+|
+| Every minute, because the gaps between recorded ticks are the measurement.
+| Asking for a tick more often than the platform can give one is what makes the
+| real interval visible.
+|
+| It costs one cache write a minute and holds four hours of timestamps.
+|
+| Read it with `php artisan scheduler:check --report` on the environment.
+*/
+Schedule::command('scheduler:check')
+    ->everyMinute();
