@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\PayOrderRequest;
+use App\Http\Resources\Api\V1\PaymentInstructionResource;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Payments\PaymentInstruction;
 use App\Services\Payments\PaymentMethods;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
@@ -26,6 +28,20 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *
  * Nothing about the order is echoed back. The answer says what to do next and
  * nothing else, so a guessed token leaks no amount and no email.
+ *
+ * **Hard rule 14, a departure from .claude/api.md stated rather than built
+ * around.** That file says a slow downstream is queued and never called inside
+ * a request. This endpoint calls Stripe synchronously, and it has to: the
+ * client secret it returns is what lets the page take the payment, so there is
+ * nobody to hand it to later. A job would finish after the response that needed
+ * its result.
+ *
+ * What the rule is actually protecting against is a worker held open by
+ * somebody else's outage, and that part is honoured where it can be. The Stripe
+ * client is bound with a ten second timeout and five to connect, in
+ * AppServiceProvider, against a library default of eighty. A Stripe outage
+ * becomes a quick failure the customer can retry rather than a spinner and a
+ * pool of stuck workers. Recorded 26 August 2026.
  */
 class PayOrderController extends Controller
 {
@@ -44,7 +60,7 @@ class PayOrderController extends Controller
 
         $this->refuseAnybodyElse($request, $order);
 
-        return $this->answer($this->instructionFor($request, $order, $methods));
+        return $this->answer($this->instructionFor($request, $order, $methods), $request);
     }
 
     /**
@@ -85,11 +101,14 @@ class PayOrderController extends Controller
         return $methods->resolve($request->validated('method'))->begin($order);
     }
 
-    private function answer(PaymentInstruction $instruction): JsonResponse
+    private function answer(PaymentInstruction $instruction, Request $request): JsonResponse
     {
-        // A client secret is a credential with this order's money attached.
-        return response()
-            ->json($instruction->toArray())
+        // A client secret is a credential with this order's money attached, so
+        // the header matters as much as the body. It is set here rather than
+        // left to the resource because a resource shapes what is said and this
+        // is about who is allowed to keep it.
+        return PaymentInstructionResource::make($instruction)
+            ->toResponse($request)
             ->header('Cache-Control', 'no-store');
     }
 }

@@ -2,6 +2,7 @@
 
 use App\Contracts\PaymentGateway;
 use App\Enums\OrderStatus;
+use App\Http\Resources\Api\V1\PaymentInstructionResource;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
@@ -186,6 +187,27 @@ it('refuses a typo rather than falling through to something that charges', funct
 /*
 | Shape and plumbing.
 */
+
+/**
+ * Finding 6 of the phase B review. The endpoint answers through
+ * `PaymentInstructionResource` as .claude/api.md requires, and the body it
+ * produces is byte for byte what the raw JSON was.
+ *
+ * The resource is unwrapped, so nothing here should ever see a `data` key. The
+ * guesser test above pins the same thing from the other direction, by naming
+ * every key that may appear.
+ */
+it('answers through a resource without changing what the frontend receives', function () {
+    $order = payableOrder();
+
+    $response = $this->postJson('/api/v1/orders/'.$order->pay_token.'/pay');
+
+    expect($response->json())
+        ->toBe(PaymentInstructionResource::make(
+            PaymentInstruction::clientSecret($response->json('client_secret'))
+        )->toArray(request()))
+        ->and($response->json())->not->toHaveKey('data');
+});
 
 it('refuses to be cached, because a client secret is a credential', function () {
     $order = payableOrder();
