@@ -16,6 +16,16 @@ STAGING_ORIGIN=https://staging.theworldtarot.com \
 composer test:staging
 ```
 
+The card walk is off unless you ask for it, because it moves money at Stripe:
+
+```bash
+STAGING_URL=https://staging-api.theworldtarot.com \
+STAGING_ORIGIN=https://staging.theworldtarot.com \
+STAGING_CARD=1 \
+STAGING_STRIPE_PUBLISHABLE=pk_test_... \
+composer test:staging
+```
+
 Without `STAGING_URL` every test skips itself with the reason attached, so a run that says "skipped" is telling you it was never configured rather than that it passed.
 
 ## Settings
@@ -27,6 +37,8 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 | `STAGING_EMAIL` | **Your own address.** Every walk account becomes `you+walk-...@yours`, so each is a separate customer and all the mail lands in one inbox |
 | `STAGING_EMAIL_DOMAIN` | The blunter older form: a whole domain you can receive at. `STAGING_EMAIL` wins if both are set |
 | `STAGING_INTERACTIVE=1` | Runs the purchase walk, which waits for you to mark an order paid in the panel |
+| `STAGING_CARD=1` | Runs the **card walk**, which takes real Stripe test payments against the environment. Needs the key below |
+| `STAGING_STRIPE_PUBLISHABLE` | The **test mode** publishable key for the Stripe account this environment is configured with. A `pk_live_` key is refused outright |
 | `STAGING_THROTTLE_TESTS=1` | Runs the forgotten-password rate limit test, which locks your address out for a minute |
 | `STAGING_LOCALE`, `STAGING_CURRENCY`, `STAGING_READING_KEY`, `STAGING_PASS_KEY` | Defaults are `en`, `GBP`, `one-card`, `viewing-room-pass` |
 
@@ -35,6 +47,7 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 - **Products need prices.** They seed at zero in every currency and an order refuses a line priced at zero. The order tests skip with an explanation rather than failing, so a skip here means the catalogue is not ready to sell, not that anything is broken
 - **A card needs a finished film**, or the Viewing Room tests have nothing to walk
 - **An admin account**, since settling an order is done in the panel. `php artisan app:create-admin` on the environment console
+- **For the card walk**: `STRIPE_SECRET` set on the environment, or the `stripe` method is not even offered and the pay endpoint refuses it. A webhook endpoint registered at Stripe pointing at `/api/v1/webhooks/stripe` on that environment, with its `whsec_` in `STRIPE_WEBHOOK_SECRET` there
 
 ## What it proves
 
@@ -51,6 +64,10 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 - A claim link cannot be used on an account that already has a password
 - Orders: recorded as pending with a `pay_token` and nothing collected, totals summed from lines, money as integers, questions refused where they do not belong, one bad line refusing the whole order, an unsupported currency refused
 - **The whole purchase path**: no access, 403 on a film, buy the pass, settle it in the panel, access appears, and then the film plays through **manifest, rendition and segment** with a tampered token refused
+
+- **A real card payment, end to end, with nobody in the panel**: an order placed, a client secret issued, a Stripe test card confirmed against it the way a browser confirms it, and the pass appearing by itself. A declined card leaves the order payable and a second card settles it. A card requiring 3D Secure is genuinely challenged rather than quietly charged
+
+The card walk is the only thing in this repository that proves payment works. The feature suite drives a substituted `StripeClient`, which agrees with our code whatever our code does, and the captured signature vector proves the format of one body and nothing about whether an endpoint is reachable. **A pass appearing within two minutes can only be the webhook**, because the reconcile sweep leaves an order alone for its first fifteen, so the wait itself proves the endpoint is registered, reachable, and carrying a matching signing secret.
 
 That last one is deliberate. A 200 from the video endpoint is not evidence of anything: a token scoped to the manifest rather than the directory answers 200 for `playlist.m3u8` and 403 for everything it points at. That is what M4 shipped, and following the manifest down is the only way to tell the difference.
 
@@ -95,11 +112,21 @@ It took two runs, and the first one failed for a reason worth keeping.
 
 **`it answers 404 for a card with nothing to watch` had never executed before.** It was written on 13 August and skipped every run since, because no card on staging had a finished film, so its totals looked clean and nobody noticed what it was asking for. This was the first environment to carry both a card with a film and a card without one.
 
-What it asked for was wrong, and dangerously so. It used `Target::sharedAccount()`, which is the account the rest of this file relies on **not** holding a pass, and expected 404. The pass is asked about before the card is ever looked up, so that account gets 403 for every id. For the test to pass, the gate would have to run second — and then a card with no film would answer 404 while a card with one answered 403. That difference is an oracle: anybody with a free account could walk the ids and learn exactly which films exist, without paying for any of them.
+What it asked for was wrong, and dangerously so. It used `Target::sharedAccount()`, which is the account the rest of this file relies on **not** holding a pass, and expected 404. The pass is asked about before the card is ever looked up, so that account gets 403 for every id. For the test to pass, the gate would have to run second, and then a card with no film would answer 404 while a card with one answered 403. That difference is an oracle: anybody with a free account could walk the ids and learn exactly which films exist, without paying for any of them.
 
 **No application code changed.** The ordering has been in `CardVideoController` since `d23fe09` and is documented there and in `.claude/api.md`. The 403 case joined `it refuses a film to somebody who has not paid for one`, which now proves a card with a film and a card without one answer **identically**. The 404 case moved into the purchase walk, where an account that has actually paid exists to tell the two apart.
 
 The general lesson is in `docs/CHECKPOINT.md` under traps: a skipped test reads as a passing one, and when a test and a documented security decision disagree, find out which is older before touching either.
+
+## The card walk has never been run
+
+Written 26 August 2026, executed never. **Four tests that have skipped every run since the moment they were written**, and this paragraph exists so that nobody reads the totals and concludes payment is proved.
+
+It cannot be run from where it was written. It needs a deployed environment carrying `STRIPE_SECRET`, a webhook endpoint registered at Stripe pointing at it, and the test mode publishable key for that same Stripe account. None of those existed when the tests were.
+
+So the position today is exact and worth stating plainly: **no evidence exists that this system can take a payment.** The feature suite proves our code does what we meant it to. The captured signature vector, itself still uncaptured, would prove one webhook body's format. Neither is the same claim as a customer handing over a card and receiving what they bought, and the only thing that makes that claim is a run of this file against a real environment.
+
+That is the M4 shape precisely, and the 23 August one on top of it: a skipped test reads as a passing one. Run it, then replace this section with what happened.
 
 ## What it cannot prove, and who has to
 
@@ -107,11 +134,13 @@ The general lesson is in `docs/CHECKPOINT.md` under traps: a skipped test reads 
 
 **A browser.** curl believes whatever it is told about cookies. What is left for a real browser on the real origin is `SameSite` behaviour, third party cookie blocking, private-mode partitioning, and whether the frontend sends `credentials: "include"` on every request including the first. The server-side half is proved here; the client-side half waits for the frontend.
 
+**The 3D Secure challenge, and the wallets.** The card walk gets as far as Stripe demanding authentication, which is the assertion worth making from out here. The challenge after it is an iframe a person completes. Apple Pay and Google Pay confirm the same PaymentIntent the card does, so the intent is proved, but whether the buttons appear at all needs a registered payment method domain and a real device. **Apple Pay fails by simply not appearing on an unregistered domain**, which looks like nothing rather than like an error.
+
 **A player.** A segment answering 200 means the bytes are reachable. Whether an HLS stream plays smoothly, renews before it expires, and behaves in Safari and in Chrome is the frontend partner's to confirm.
 
 ## What it leaves behind
 
-Real customer rows and real orders, in whatever environment you point it at. That is acceptable on staging and is the reason for the production guard. Each run uses fresh addresses prefixed `walk-`, so they are easy to find and clear out:
+Real customer rows and real orders, in whatever environment you point it at. With `STAGING_CARD=1`, real Stripe test mode payments too, which show up in the Stripe dashboard for that account. That is acceptable on staging and is the reason for the production guard. Each run uses fresh addresses prefixed `walk-`, so they are easy to find and clear out:
 
 ```php
 // php artisan tinker, on the environment console

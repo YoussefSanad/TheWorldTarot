@@ -9,7 +9,7 @@ use Tests\Staging\Target;
  *
  * **These tests need at least one product with a real price.** Since
  * 20 August 2026 the seeder gives every product a real price in every currency,
- * so a freshly seeded environment can sell immediately — this used to seed
+ * so a freshly seeded environment can sell immediately. This used to seed
  * zeros, and an order refuses any line priced at zero, so nothing could be
  * bought until Jennifer set prices by hand. The skip below stays regardless:
  * a price can still be cleared in the panel, and a test that says why it
