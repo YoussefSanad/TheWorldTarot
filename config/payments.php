@@ -53,8 +53,30 @@ return [
         | keys on a laptop, and a method that resolves and then fails on the
         | first API call is a button that breaks at the worst moment a shop has.
         | Refusing to offer it at all fails earlier and says why.
+        |
+        | **Configured means both keys, not just the secret.** Corrected 26
+        | August 2026. The secret alone is what it takes to charge a card. The
+        | webhook secret is what it takes to hear that the charge succeeded, and
+        | an environment holding the first without the second takes the money and
+        | then verifies nothing, which is hard rule 6 arriving one step later and
+        | at the only moment it costs anything. A payment nobody can confirm is
+        | worse than a payment nobody can start.
+        |
+        | **`blank()` rather than `=== null`, because `.env.example` ships both
+        | of these present and empty.** A key that is set to nothing is not a key,
+        | and `=== null` read an empty string as configured, which registered
+        | Stripe on every laptop that had copied the example file. That is the
+        | defect this comment described and the code did not do.
+        |
+        | Read from `env()` rather than `config('services.stripe.*')`, which
+        | would be the tidier seam and does not work here: config files load in
+        | filename order, so `services.php` is not in the repository yet when
+        | this line runs. It would resolve to null uncached and to the right
+        | value once `config:cache` ran, which is the worst of both.
         */
-        'stripe' => env('STRIPE_SECRET') === null ? null : StripeCheckout::class,
+        'stripe' => blank(env('STRIPE_SECRET')) || blank(env('STRIPE_WEBHOOK_SECRET'))
+            ? null
+            : StripeCheckout::class,
 
     ]),
 
