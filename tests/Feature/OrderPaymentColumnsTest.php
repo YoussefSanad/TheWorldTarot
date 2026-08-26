@@ -69,16 +69,32 @@ it('gives every order a token, however the order was made', function () {
 });
 
 it('mints a token nobody can derive from the order', function () {
-    $order = Order::factory()->create();
+    // Sequential ids are the reason this column exists, and the model says the
+    // token is derived from nothing about the order. The way to hold it to
+    // that is to make the same order twice: identical id, customer, status,
+    // currency and total, the second minted after the first is gone. Any
+    // function of the order's own data hands back the first token, and that
+    // includes the hash somebody would reach for on the way to fixing a
+    // guessable id.
+    //
+    // **This replaces a substring check**, `not->toContain((string) $order->id)`,
+    // which read as if it said this and did not. A random forty eight character
+    // token contains any given digit about half the time, so against a single
+    // digit id it was a coin flip, and it only looked green because a full run
+    // gives orders two digit ids. It failed six times in eight when run alone.
+    $first = Order::factory()->create();
 
-    // Sequential ids are the reason this column exists. A token that contained
-    // the id, or was any function of it, would put us back where we started.
-    expect($order->pay_token)->not->toContain((string) $order->id);
+    $was = $first->pay_token;
+    $sameOrder = collect($first->getAttributes())
+        ->except(['pay_token', 'created_at', 'updated_at'])
+        ->all();
 
-    $mine = Order::factory()->create();
-    $yours = Order::factory()->create();
+    $first->delete();
 
-    expect($mine->pay_token)->not->toBe($yours->pay_token);
+    $again = Order::factory()->create($sameOrder);
+
+    expect($again->id)->toBe($sameOrder['id'])
+        ->and($again->pay_token)->not->toBe($was);
 });
 
 it('refuses two orders sharing a token', function () {
