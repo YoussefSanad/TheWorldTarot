@@ -43,11 +43,39 @@ class CheckSchedulerTick extends Command
     protected $description = 'Record a scheduler tick, or report the measured interval between them';
 
     /**
-     * Where the ticks live. Namespaced under the environment so a staging
-     * measurement and a production one can never be read as one series if the
-     * two ever share a cache store.
+     * Where the ticks live, namespaced by host so a staging measurement and a
+     * production one can never be read as one series.
+     *
+     * **The host and not `app()->environment()`**, corrected 26 August 2026.
+     * Laravel Cloud sets `APP_ENV=production` on every environment it hosts, so
+     * staging and production both answered `production` and the key separated
+     * nothing. The two happened not to collide because they hold separate
+     * databases, which is luck rather than design, and a comment claiming the
+     * key did the work was the trap this project keeps meeting: a label that
+     * looks right and is about the wrong thing.
      */
     private function key(): string
+    {
+        $host = parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        return 'scheduler-ticks:'.(is_string($host) && $host !== '' ? $host : 'unknown-host');
+    }
+
+    /**
+     * The key the previous version of this command wrote to.
+     *
+     * It exists only so that renaming the key cannot fabricate the worst
+     * verdict this report has. An environment that had been ticking happily for
+     * an hour would have answered "nothing has been recorded" the moment the
+     * rename deployed, and that sentence means "this platform runs no scheduler
+     * at all", which is a conclusion worth an afternoon in the dashboard. A
+     * measurement that reports the effect of its own deploy is measuring
+     * itself.
+     *
+     * Read before the host key and adopted by the next tick, then dropped.
+     * Delete it with the command.
+     */
+    private function legacyKey(): string
     {
         return 'scheduler-ticks:'.app()->environment();
     }
@@ -87,6 +115,13 @@ class CheckSchedulerTick extends Command
         // evidence and report a healthy tick over whatever survived.
         Cache::forever($this->key(), array_slice($ticks, -self::KEEP));
 
+        // Whatever was under the old key has now been written under the new
+        // one, so drop it rather than leave a second copy that a later reader
+        // could add to this one.
+        if ($this->legacyKey() !== $this->key()) {
+            Cache::forget($this->legacyKey());
+        }
+
         return self::SUCCESS;
     }
 
@@ -95,24 +130,50 @@ class CheckSchedulerTick extends Command
      */
     private function ticks(): array
     {
-        $ticks = Cache::get($this->key(), []);
+        $ticks = $this->series($this->key());
+
+        return $ticks === [] ? $this->series($this->legacyKey()) : $ticks;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function series(string $key): array
+    {
+        $ticks = Cache::get($key, []);
 
         return is_array($ticks) ? array_values($ticks) : [];
     }
 
     private function report(): int
     {
-        $ticks = $this->ticks();
+        $ticks = $this->series($this->key());
+        $adopted = $ticks === [] && $this->series($this->legacyKey()) !== [];
 
+        if ($adopted) {
+            $ticks = $this->series($this->legacyKey());
+        }
+
+        // The URL as well as APP_ENV, because Laravel Cloud sets APP_ENV to
+        // production on every environment it hosts unless somebody overrides
+        // it. A report about money that says "production" while describing
+        // staging is the kind of label this project has been caught by before.
         $this->components->twoColumnDetail('Environment', app()->environment());
+        $this->components->twoColumnDetail('Target', (string) config('app.url'));
         $this->components->twoColumnDetail('Ticks recorded', (string) count($ticks));
+
+        if ($adopted) {
+            $this->components->twoColumnDetail('Read from', $this->legacyKey().', written before the key became the host');
+        }
 
         if ($ticks === []) {
             $this->newLine();
-            $this->components->error('Nothing has been recorded.');
+            $this->components->error('Nothing has been recorded, under either key.');
             $this->line('  Either the heartbeat is not deployed, or this platform is not running');
             $this->line('  `schedule:run` at all. Those are different problems and the second one is');
             $this->line('  much worse: it would mean `orders:reconcile` has never executed here.');
+            $this->line('  Both `'.$this->key().'` and `'.$this->legacyKey().'` were empty, so');
+            $this->line('  this is not the key rename of 26 August hiding an older series.');
 
             return self::FAILURE;
         }
@@ -124,6 +185,28 @@ class CheckSchedulerTick extends Command
         $this->components->twoColumnDetail('First tick', $first->toDateTimeString().' UTC');
         $this->components->twoColumnDetail('Last tick', $last->toDateTimeString().' UTC');
         $this->components->twoColumnDetail('Watched for', $this->humanise($first->diffInSeconds($last)));
+
+        $sinceLast = $last->diffInSeconds(CarbonImmutable::now());
+
+        $this->components->twoColumnDetail('Last tick was', $this->humanise($sinceLast).' ago');
+
+        // A tick that has gone quiet is the loudest thing this command can
+        // find, and it is not the same as never having started. If the
+        // scheduler were running at any sane rate there would be another one by
+        // now, so silence for this long means it has stopped or was never
+        // configured, and every scheduled task in routes/console.php is
+        // therefore not running at all.
+        if ($sinceLast > 900) {
+            $this->newLine();
+            $this->components->error('The heartbeat has gone quiet for '.$this->humanise($sinceLast).'.');
+            $this->line('  Nothing is asking this environment to tick. Check that a scheduler is');
+            $this->line('  configured for it at all: Laravel Cloud does not run one by default, and');
+            $this->line('  without it `orders:reconcile` and `cards:reconcile-videos` have never run');
+            $this->line('  here even once. A single old tick usually means somebody invoked this');
+            $this->line('  command by hand, which writes one exactly like a real tick does.');
+
+            return self::FAILURE;
+        }
 
         if (count($times) < 2) {
             $this->newLine();
