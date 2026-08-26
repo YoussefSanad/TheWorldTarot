@@ -390,15 +390,15 @@ The body is optional and has one field:
 { "method": "stripe" }
 ```
 
-**200**, and it is always one of three shapes, each naming itself:
+**200**, and it is always one of two shapes, each naming itself:
 
 ```json
 { "type": "client_secret", "client_secret": "pi_..._secret_..." }
 { "type": "nothing_to_pay" }
-{ "type": "redirect", "url": "https://..." }
 ```
 
-- **Read `type` and then read the field it names.** Do not infer from the shape of what came back. `redirect` has no implementation today and is in the type because a payment method that redirects is plausible
+- **Read `type` and then read the field it names.** Do not infer from the shape of what came back. Handle an unknown `type` by not crashing, since a new payment method can add one
+- **A third shape, `redirect`, was published here and has been withdrawn**, 26 August 2026. It never had an implementation and cannot acquire one in this design: checkout happens on your page precisely because a hosted page cannot pre-select a wallet. If you wrote a branch for it, delete it
 - **`client_secret` is what you confirm with Stripe** in the Express Checkout Element or the Payment Element, on your own page
 - **`nothing_to_pay` means there is nothing to collect** and you should go straight to your confirmation. It is what an order already settled answers, what a hand settled order answers, and what a gift code redemption will answer
 - **`method` is optional and you can leave it out.** Everything a card processor handles, Apple Pay and Google Pay included, is one method. It exists now so that gifting can add `gift_code` without changing the shape of this call. **A method this environment does not offer is a 422 on `method`**, never a fallback to one that does
@@ -566,12 +566,11 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 5. You call `POST /api/v1/orders/{pay_token}/pay` and get back what to do next. **The token comes back from step 4**, and it is the token rather than the id because ids here are sequential integers
 6. You confirm the payment with Stripe
 
-**`payment_url` was replaced**, because there are three genuinely different answers and a nullable string cannot carry them. `/pay` returns an object naming which it is:
+**`payment_url` was replaced**, because there are genuinely different answers and a nullable string cannot carry them. `/pay` returns an object naming which it is:
 
 ```json
 { "type": "client_secret", "client_secret": "pi_..._secret_..." }
 { "type": "nothing_to_pay" }
-{ "type": "redirect", "url": "https://..." }
 ```
 
 `nothing_to_pay` means the order is already settled and you should go straight to your confirmation. It is what a gift code redemption returns, and what a hand-settled order returns today.

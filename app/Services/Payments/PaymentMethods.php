@@ -24,8 +24,20 @@ class PaymentMethods
     public function __construct(private readonly Container $container) {}
 
     /**
-     * @return array<int, string> Every method this environment offers, in the
-     *                            order config declares them.
+     * Every method this environment offers, in the order config declares them.
+     *
+     * **Kept over finding 10 of the phase B review, which correctly says no
+     * production code calls it yet.** The frontend has to know which buttons to
+     * draw, and it cannot infer that: whether Stripe is offered depends on
+     * whether that environment is configured, which is exactly the thing the
+     * registry decides and nobody outside can see. Gifting adds a fourth method
+     * to the same list. The endpoint that reads this is the caller, and it is
+     * not built here because the frontend has not asked for it yet.
+     *
+     * `offers()` is the same answer for one name, and both are used by
+     * PaymentMethodsTest to pin that the registry is what config says it is.
+     *
+     * @return array<int, string>
      */
     public function offered(): array
     {

@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Mail;
 use Stripe\Exception\ApiConnectionException;
 use Stripe\PaymentIntent;
 use Stripe\Service\PaymentIntentService;
-use Stripe\StripeClient;
 
 uses(RefreshDatabase::class);
 
@@ -55,10 +54,7 @@ function stripeHolding(array $intents, ?array &$asked = null): void
         },
     );
 
-    $client = Mockery::mock(StripeClient::class);
-    $client->paymentIntents = $service;
-
-    app()->instance(StripeClient::class, $client);
+    substitutedStripe($service);
 }
 
 /**

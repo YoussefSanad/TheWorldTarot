@@ -55,11 +55,13 @@ return new class extends Migration
         // Every order that already exists gets one, so nothing placed before
         // today is unpayable. Both deployed environments hold disposable data,
         // confirmed 25 August 2026, so this is a handful of rows.
-        Order::withoutEvents(function (): void {
-            foreach (DB::table('orders')->whereNull('pay_token')->pluck('id') as $id) {
-                DB::table('orders')->where('id', $id)->update(['pay_token' => Order::mintPayToken()]);
-            }
-        });
+        // `Order::withoutEvents()` wrapped this and has been removed, 26 August
+        // 2026. These are query builder writes, which never load a model and
+        // never fire a model event, so it suppressed nothing and only suggested
+        // there was something here to suppress.
+        foreach (DB::table('orders')->whereNull('pay_token')->pluck('id') as $id) {
+            DB::table('orders')->where('id', $id)->update(['pay_token' => Order::mintPayToken()]);
+        }
     }
 
     public function down(): void

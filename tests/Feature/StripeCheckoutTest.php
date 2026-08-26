@@ -1,14 +1,15 @@
 <?php
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentInstructionType;
 use App\Models\Order;
 use App\Models\Product;
 use App\Payments\OrderCannotBeCharged;
 use App\Services\Payments\StripeCheckout;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Stripe\PaymentIntent;
 use Stripe\Service\PaymentIntentService;
-use Stripe\StripeClient;
 
 uses(RefreshDatabase::class);
 
@@ -39,10 +40,7 @@ function stripeAccepting(array &$sent, string $intentId = 'pi_3Abc', string $sec
         },
     );
 
-    $client = Mockery::mock(StripeClient::class);
-    $client->paymentIntents = $intents;
-
-    app()->instance(StripeClient::class, $client);
+    substitutedStripe($intents);
 }
 
 function orderWorth(int $amount, string $currency = 'USD'): Order
@@ -133,7 +131,7 @@ it('writes the payment back to the order before handing out the secret', functio
     // because a lost notification is exactly what the sweep exists for and by
     // then there is nothing left to write this from.
     expect($order->fresh()->stripe_payment_intent_id)->toBe('pi_written_1')
-        ->and($instruction->type)->toBe('client_secret')
+        ->and($instruction->type)->toBe(PaymentInstructionType::ClientSecret)
         ->and($instruction->clientSecret)->toBe('pi_3Abc_secret_xyz_1');
 });
 
@@ -191,4 +189,35 @@ it('refuses to charge an order whose total disagrees with its own lines', functi
         ->toThrow(OrderCannotBeCharged::class);
 
     expect($sent)->toBe([]);
+});
+
+/**
+ * **And says so loudly**, decided 26 August 2026 as finding 14 of the phase B
+ * review.
+ *
+ * This refusal is beyond what the spec asked for, and the reason it stays is
+ * that it cannot fire innocently: prices are tax inclusive by decision, so
+ * nothing rounds and a mismatch means something wrote an order badly. Refusing
+ * silently would protect this customer and leave the next one to find it again.
+ */
+it('logs the mismatch as an error, because it can only be a defect upstream', function () {
+    Log::spy();
+
+    $sent = [];
+    stripeAccepting($sent);
+
+    $order = orderWorth(2500);
+    $order->forceFill(['total_amount' => 100])->save();
+
+    try {
+        app(StripeCheckout::class)->begin($order->refresh());
+    } catch (OrderCannotBeCharged) {
+        // The refusal is the test above. This one is about what it left behind.
+    }
+
+    Log::shouldHaveReceived('error')->once()->withArgs(
+        fn (string $message, array $context): bool => $context['order_id'] === $order->id
+            && $context['total_amount'] === 100
+            && $context['total_of_lines'] === 2500
+    );
 });

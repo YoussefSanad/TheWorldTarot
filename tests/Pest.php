@@ -2,6 +2,8 @@
 
 use App\Support\Locales;
 use Illuminate\Support\Facades\Http;
+use Stripe\Service\PaymentIntentService;
+use Stripe\StripeClient;
 use Tests\TestCase;
 
 pest()->extend(TestCase::class)
@@ -32,3 +34,29 @@ pest()->extend(TestCase::class)
         Http::preventStrayRequests();
     })
     ->in('Feature');
+
+/**
+ * The Stripe client, substituted for one that answers however a test says.
+ *
+ * **`Http::preventStrayRequests()` above cannot see stripe-php**, which uses
+ * curl directly rather than Laravel's client, so nothing stops a test in this
+ * suite from reaching the real Stripe except this substitution being used
+ * everywhere. That is the reason this lives here rather than in one test file:
+ * the shape was built twice, in StripeCheckoutTest and ReconcileOrdersTest, and
+ * a third copy is how one of them ends up talking to a live service.
+ *
+ * **It proves nothing about Stripe and is not evidence of anything.** A mock
+ * agrees with the code under test whatever the code does, which is how M4
+ * shipped video playback that had never once worked. The authority on Stripe is
+ * the captured signature vector and the walk in tests/Staging. See
+ * .claude/external-services.md.
+ */
+function substitutedStripe(PaymentIntentService $paymentIntents): StripeClient
+{
+    $client = Mockery::mock(StripeClient::class);
+    $client->paymentIntents = $paymentIntents;
+
+    app()->instance(StripeClient::class, $client);
+
+    return $client;
+}

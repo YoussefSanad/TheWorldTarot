@@ -3,10 +3,10 @@
 namespace App\Services\Payments;
 
 use App\Contracts\PaymentGateway;
-use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Payments\OrderCannotBeCharged;
 use App\Payments\PaymentInstruction;
+use Illuminate\Support\Facades\Log;
 use Stripe\StripeClient;
 
 /**
@@ -78,14 +78,29 @@ class StripeCheckout implements PaymentGateway
      */
     private function refuseAnythingButAPendingOrder(Order $order): void
     {
-        if ($order->status !== OrderStatus::Pending) {
+        if (! $order->isPending()) {
             throw OrderCannotBeCharged::itIsNotPending($order);
         }
 
         // The stored total is the authority on what was charged, and the lines
         // are what it was arrived at from. If they disagree, something wrote
         // one without the other and there is no honest number here.
+        //
+        // **Beyond what section 3 of the spec asked for, kept deliberately, and
+        // made loud on 26 August 2026.** Prices are tax inclusive by decision,
+        // so charged_amount equals total_amount and there is no rounding that
+        // could produce this. A mismatch is therefore a defect upstream in
+        // whatever wrote the order, not a condition to be handled, and refusing
+        // quietly would protect the customer while hiding the bug that reached
+        // them. Refusing and shouting does both jobs.
         if ($order->totalOfLines() !== $order->total_amount) {
+            Log::error('An order was refused because its total disagrees with its lines.', [
+                'order_id' => $order->id,
+                'total_amount' => $order->total_amount,
+                'total_of_lines' => $order->totalOfLines(),
+                'currency' => $order->currency,
+            ]);
+
             throw OrderCannotBeCharged::totalDisagreesWithItsLines($order);
         }
     }

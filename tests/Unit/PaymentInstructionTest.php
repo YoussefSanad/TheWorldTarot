@@ -1,14 +1,19 @@
 <?php
 
+use App\Enums\PaymentInstructionType;
 use App\Payments\PaymentInstruction;
 
 /**
  * What the customer does next, as the frontend reads it.
  *
  * **Our own shape, so asserting it against our own intent is exactly right**,
- * per .claude/testing.md. These three objects are published in section 9 of
+ * per .claude/testing.md. These objects are published in section 9 of
  * API_CONTRACT.md and the frontend partner is building against them, which is
  * what makes the key names worth pinning rather than a detail.
+ *
+ * The values are pinned as literal strings here on purpose. Asserting
+ * `PaymentInstructionType::ClientSecret->value` back at itself would agree with
+ * the enum whatever the enum said, and the published contract is the string.
  */
 it('names a client secret as a client secret', function () {
     expect(PaymentInstruction::clientSecret('pi_1_secret_2')->toArray())
@@ -20,9 +25,17 @@ it('says there is nothing to pay, and says nothing else', function () {
         ->toBe(['type' => 'nothing_to_pay']);
 });
 
-it('names a redirect as a redirect', function () {
-    expect(PaymentInstruction::redirectTo('https://pay.example.test/1')->toArray())
-        ->toBe(['type' => 'redirect', 'url' => 'https://pay.example.test/1']);
+/**
+ * **Two cases, and only two.** The redirect case was removed on 26 August 2026
+ * having never had a caller. This pins the absence, so adding a case is a
+ * deliberate act that updates the contract rather than something that arrives
+ * quietly.
+ */
+it('has exactly the cases the contract publishes', function () {
+    expect(array_map(
+        fn (PaymentInstructionType $type): string => $type->value,
+        PaymentInstructionType::cases(),
+    ))->toBe(['nothing_to_pay', 'client_secret']);
 });
 
 /**
@@ -37,7 +50,6 @@ it('always says which kind of answer it is', function (PaymentInstruction $instr
 })->with([
     fn () => PaymentInstruction::nothingToPay(),
     fn () => PaymentInstruction::clientSecret('pi_1_secret_2'),
-    fn () => PaymentInstruction::redirectTo('https://pay.example.test/1'),
 ]);
 
 /**
@@ -46,7 +58,5 @@ it('always says which kind of answer it is', function (PaymentInstruction $instr
  */
 it('carries no empty fields for the cases that do not have them', function () {
     expect(PaymentInstruction::nothingToPay()->toArray())->not->toHaveKey('client_secret')
-        ->and(PaymentInstruction::nothingToPay()->toArray())->not->toHaveKey('url')
-        ->and(PaymentInstruction::clientSecret('s')->toArray())->not->toHaveKey('url')
-        ->and(PaymentInstruction::redirectTo('u')->toArray())->not->toHaveKey('client_secret');
+        ->and(array_keys(PaymentInstruction::clientSecret('s')->toArray()))->toBe(['type', 'client_secret']);
 });
