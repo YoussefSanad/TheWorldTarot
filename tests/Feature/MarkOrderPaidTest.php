@@ -178,7 +178,11 @@ it('invites an unclaimed account to choose a password', function () {
 
         // Its own page, not the reset page. "Reset your password" is confusing
         // wording for somebody who has never had one.
-        return str_contains($rendered, 'https://staging.theworldtarot.com/set-password?')
+        //
+        // The trailing slash is asserted rather than tolerated. The website is
+        // a static export, so the slashless address is a redirect, and a
+        // receipt is the one mail we most want landing in one hop.
+        return str_contains($rendered, 'https://staging.theworldtarot.com/set-password/?')
             && str_contains($rendered, 'token=');
     });
 });

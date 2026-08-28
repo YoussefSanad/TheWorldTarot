@@ -28,15 +28,22 @@ return [
     | Each receives `token` and `email` as query parameters, and both have to be
     | sent back to this API unchanged for the reset to work.
     |
+    | **Both carry a trailing slash, and it is not decoration.** The partner
+    | confirmed on 28 August 2026 that the website is a static export built with
+    | `trailingSlash`, so `/set-password` is a redirect to `/set-password/`.
+    | Without the slash every receipt and every reset mail costs the person
+    | reading it a hop, which is the kind of thing a mail client strips or a
+    | scanner follows and burns the single-use token on.
+    |
     */
 
     'paths' => [
-        'reset_password' => env('FRONTEND_RESET_PASSWORD_PATH', '/reset-password'),
+        'reset_password' => env('FRONTEND_RESET_PASSWORD_PATH', '/reset-password/'),
 
         // Where somebody who bought before they had an account chooses their
         // first password. A separate page from the reset above, because the
         // words on it are different: nothing is being reset.
-        'set_password' => env('FRONTEND_SET_PASSWORD_PATH', '/set-password'),
+        'set_password' => env('FRONTEND_SET_PASSWORD_PATH', '/set-password/'),
     ],
 
 ];

@@ -601,9 +601,8 @@ Designed 25 August 2026, built after payment and **before launch**. A code names
 4. **Confirmation of the shapes above**, or a counter-proposal
 5. **Confirmation that your player handles an expiring HLS URL**, renewing rather than holding one. Thirty minutes covers a single film comfortably and is not forever
 6. **Whether a card ever needs an address of its own.** Cards are identified by number today, on the assumption that the Library opens them in a pop-up. If any card is ever linkable, shareable or indexed on its own URL, adding a readable identifier is cheap now and awkward once you have built against ids
-7. **The paths of your two password pages**, which we need before any of that mail can go out. They are configuration on our side, so telling us costs a deploy and not a code change. We assume `/reset-password` and `/set-password` until you say otherwise:
-   - **Where somebody resets a forgotten password.** We link to it as `{your site}/reset-password?token=...&email=...`
-   - **Where somebody sets a password for the first time**, after buying something without an account. A separate page, because nothing is being reset and the words on it are different
+7. ~~**The paths of your two password pages**~~ **Answered 28 August 2026, and both pages exist.** They are `/reset-password/` and `/set-password/`, two pages with different words, and we link to them as `{your site}/set-password/?token=...&email=...`.
+   - **The trailing slash is part of the address.** The website is a static export built with `trailingSlash`, so the slashless form is a redirect, and a redirect on these two links is not merely untidy: they carry a single-use token that a scanner following the hop can spend before anybody reads the mail
    - Both pages read `token` and `email` from the query string and post them back to us unchanged, along with the new password
 8. **Whether you want an order history or an order lookup**, and whether your confirmation screen needs to re-read the order after placing it. Neither exists today
 9. **Confirmation you are not caching `/api/v1/me`**, in a service worker, a persisted store, or anything at the edge

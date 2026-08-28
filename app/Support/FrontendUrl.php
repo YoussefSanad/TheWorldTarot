@@ -46,8 +46,27 @@ class FrontendUrl
      */
     private static function to(string $path, array $query = []): string
     {
-        $url = rtrim((string) config('frontend.url'), '/').'/'.ltrim($path, '/');
+        $url = rtrim((string) config('frontend.url'), '/').'/'.self::page($path);
 
         return $query === [] ? $url : $url.'?'.http_build_query($query);
+    }
+
+    /**
+     * The page's path, always ending in a slash.
+     *
+     * The website is a static export built with `trailingSlash`, confirmed by
+     * the partner on 28 August 2026, so every address there ends in one and the
+     * slashless form is a redirect. The configuration is still the authority on
+     * **which** page we link to; this only settles the slash, because a value
+     * typed without one into an environment dashboard is not a decision anybody
+     * took and costs every mail we send a hop.
+     *
+     * A hop is not merely untidy on these two links. They carry a single-use
+     * token, and a scanner that follows the redirect on the way to the inbox
+     * spends it before the person reading ever clicks.
+     */
+    private static function page(string $path): string
+    {
+        return rtrim(ltrim($path, '/'), '/').'/';
     }
 }

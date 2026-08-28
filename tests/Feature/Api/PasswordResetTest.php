@@ -54,7 +54,9 @@ it('points the link at the website, never at this API', function () {
 
         // This API renders nothing a customer can use, per hard rule 1. A link
         // back here is a dead end, and it is what the framework does by default.
-        return str_contains($rendered, 'https://staging.theworldtarot.com/reset-password?')
+        // Slash included: the website is a static export and the slashless
+        // form redirects.
+        return str_contains($rendered, 'https://staging.theworldtarot.com/reset-password/?')
             && str_contains($rendered, 'token=')
             && ! str_contains($rendered, config('app.url').'/reset-password');
     });
