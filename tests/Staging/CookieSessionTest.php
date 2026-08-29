@@ -95,10 +95,14 @@ it('scopes the session cookie to the shared root domain', function (): void {
 
     // Only meaningful when the two really are siblings. Locally they are not,
     // and there is nothing to prove.
+    //
+    // **Skipped rather than asserted true.** `expect(true)->toBeTrue()` here
+    // reported green on the path this file takes by default, so the headline
+    // claim of the whole file looked proved by a local run that had not tested
+    // it. CLAUDE.md 0.5: a test that asserts nothing looks exactly like a test
+    // that works.
     if ($apiHost === $siteHost || ! str_contains($apiHost, '.')) {
-        expect(true)->toBeTrue();
-
-        return;
+        $this->markTestSkipped('hosts are not siblings here');
     }
 
     $root = implode('.', array_slice(explode('.', $apiHost), -2));
