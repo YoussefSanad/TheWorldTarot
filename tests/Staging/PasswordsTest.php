@@ -89,9 +89,20 @@ it('refuses to set a first password on an account that already has one', functio
 /**
  * The defect this walk found, written as the behaviour we want.
  *
- * It fails today. `.claude/testing.md` is explicit that a failing test means
+ * ~~It fails today. `.claude/testing.md` is explicit that a failing test means
  * the code is wrong until proven otherwise, so it stays failing rather than
- * being softened into a description of the bug.
+ * being softened into a description of the bug.~~
+ *
+ * **Fixed by `e03b71b` on 13 August 2026, struck through 29 August 2026.** Each
+ * inline throttle in `routes/api.php` now carries its own prefix, so the order
+ * endpoint no longer spends the reset endpoint's budget. This passes.
+ *
+ * It stays here rather than being deleted, because it asks a deployed
+ * environment the question and the unit pin cannot. `PasswordResetTest.php`
+ * pins the same rule against this application, which proves the routes are
+ * declared correctly. Only this one proves the environment serving them agrees,
+ * and a limiter is exactly the kind of thing a platform can be configured to
+ * decide for itself.
  */
 it('does not spend the password reset budget on unrelated routes', function (): void {
     $client = Target::client();
