@@ -72,12 +72,24 @@ class PayOrderController extends Controller
      * themselves interacting with an order that is not theirs, which is the
      * shape a leaked token plus an account would otherwise take.
      *
+     * **An order belonging to nobody is not somebody else's.** Orders have been
+     * allowed to wait for their customer since 29 August 2026, so a hosted
+     * checkout leaves `customer_id` null until the webhook learns who paid, and
+     * paying is precisely where that gap is. Comparing a key against null would
+     * answer 404 to somebody signing in mid-checkout and then paying for their
+     * own order, permanently, and the token is the whole authority here in any
+     * case.
+     *
      * The guard is named, as it is in OrderController and for the same reason:
      * this route carries no auth middleware, so a bare `user()` would ask the
      * session guard and silently see nobody when a bearer token arrived.
      */
     private function refuseAnybodyElse(PayOrderRequest $request, Order $order): void
     {
+        if ($order->customer_id === null) {
+            return;
+        }
+
         $signedIn = $request->user('sanctum');
 
         if ($signedIn instanceof Customer && $signedIn->getKey() !== $order->customer_id) {

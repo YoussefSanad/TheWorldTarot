@@ -147,6 +147,25 @@ it('refuses a signed in customer somebody else"s order', function () {
     expect(FakeCheckout::$started)->toBe([]);
 });
 
+/**
+ * **An order belonging to nobody is not somebody else's.** Checkout collects
+ * the buyer's email after the order exists, so `customer_id` stays null until
+ * the webhook learns who paid. Somebody who signs in or registers mid-checkout
+ * and then pays is in exactly that window, and refusing them would leave them
+ * unable to pay for the order they hold the token for.
+ */
+it('lets a signed in customer pay for an order that is waiting for its customer', function () {
+    $order = payableOrder();
+    $order->forceFill(['customer_id' => null])->save();
+
+    $this->actingAs(Customer::factory()->create(), 'sanctum')
+        ->postJson("/api/v1/orders/{$order->pay_token}/pay")
+        ->assertOk()
+        ->assertJsonPath('type', 'redirect');
+
+    expect(FakeCheckout::$started)->toBe([$order->id]);
+});
+
 it('lets the customer who placed it pay for it while signed in', function () {
     $customer = Customer::factory()->create();
     $order = payableOrder($customer);
