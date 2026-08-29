@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\NewsletterController;
 use App\Http\Controllers\Api\V1\OrderController;
+use App\Http\Controllers\Api\V1\OrderPaymentStatusController;
 use App\Http\Controllers\Api\V1\PayOrderController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\RegisterController;
@@ -134,6 +135,30 @@ Route::prefix('v1')->group(function () {
     Route::post('/orders/{payToken}/pay', PayOrderController::class)
         ->middleware('throttle:30,1,orders-pay')
         ->name('orders.pay');
+
+    /*
+    | Reading back what happened to the money for an order, which is what a
+    | confirmation screen has to ask. A hosted checkout returns the customer
+    | holding a Checkout Session id, and that id is opaque: it cannot be
+    | resolved with a publishable key, so the only party who can say what
+    | became of the payment is this one.
+    |
+    | **A POST with the token in the body, deliberately, and not
+    | `GET /orders/{pay_token}`.** The pay token is a credential, and a path
+    | segment is written to every access log between the browser and this
+    | application. The shape of this route is the whole of that decision.
+    |
+    | Not behind a language, for the same reason as the two above: money is not
+    | content.
+    |
+    | **Its own throttle key prefix**, per the note at the top of this file, and
+    | the loosest of the three because this one is polled. A confirmation screen
+    | asks repeatedly for a few seconds after the customer comes back, and a 429
+    | there is a paid customer looking at a screen that cannot tell them so.
+    */
+    Route::post('/orders/status', OrderPaymentStatusController::class)
+        ->middleware('throttle:60,1,orders-status')
+        ->name('orders.status');
 
     /*
     | Joining the mailing list. Open to anybody, and flat rather than behind a
