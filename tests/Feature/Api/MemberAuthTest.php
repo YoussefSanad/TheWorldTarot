@@ -34,6 +34,70 @@ function forgetResolvedUser(): void
     Auth::forgetGuards();
 }
 
+/**
+ * How long `/api/v1/login` takes to refuse an address, in milliseconds.
+ *
+ * **The stopwatch three tests below read.** Status and body are asserted
+ * identical elsewhere; this is the third channel, the one that stayed open
+ * while the other two were closed, because bcrypt was the only expensive thing
+ * on the route and a missing account skipped it.
+ *
+ * Written out three times before this, once per timing test, and a measurement
+ * shared by three assertions has to be the same measurement or the three are
+ * not comparable. Two of the three copies were already the same by hand.
+ *
+ * **Warm the route before the first measurement that counts.** The first
+ * request through a route pays to resolve it, and that cost lands on whichever
+ * sample happens to go first, which is the one thing a timing comparison cannot
+ * absorb. `warmTheRefusalPath()` below is that throwaway call.
+ *
+ * `test()` rather than `$this`, because a Pest helper is not bound to the case.
+ */
+function costOfRefusing(string $email): float
+{
+    $started = hrtime(true);
+
+    test()->postJson('/api/v1/login', [
+        'email' => $email,
+        'password' => 'not-the-password',
+    ])->assertStatus(422);
+
+    return (hrtime(true) - $started) / 1e6;
+}
+
+/**
+ * One refusal whose timing is thrown away, so the next one measures the route
+ * rather than the cost of resolving it.
+ */
+function warmTheRefusalPath(): void
+{
+    costOfRefusing('warming-up@example.com');
+}
+
+/**
+ * Two costs that a stopwatch cannot tell apart.
+ *
+ * **Deliberately loose, and bounded on both sides.** What these tests have to
+ * catch is one path costing nothing at all, which measured at roughly a
+ * fiftieth of a real check before the fix. A band tight enough to police
+ * scheduler noise on CI would fail for reasons that have nothing to do with the
+ * property being proved.
+ *
+ * Both sides because a stopwatch reads a gap whichever way it opens. The
+ * one-sided version this replaced stayed green through an unknown address
+ * costing twice what a known one costs, which is the same oracle pointing the
+ * other way.
+ *
+ * One definition rather than three, because three copies of a numeric bound is
+ * three chances to loosen one of them alone, and the loosened one still reports
+ * green.
+ */
+function expectIndistinguishableCost(float $measured, float $reference): void
+{
+    expect($measured)->toBeGreaterThan($reference * 0.5)
+        ->and($measured)->toBeLessThan($reference * 2);
+}
+
 /*
 | Member accounts, both ways in.
 |
@@ -223,46 +287,24 @@ it('takes as long to refuse an unknown email as it takes to refuse a wrong passw
     // comparison is between two equal amounts of real work.
     config(['hashing.bcrypt.rounds' => 10]);
 
-    $refuse = function (string $email): float {
-        $started = hrtime(true);
-
-        $this->postJson('/api/v1/login', [
-            'email' => $email,
-            'password' => 'not-the-password',
-        ])->assertStatus(422);
-
-        return (hrtime(true) - $started) / 1e6;
-    };
-
-    // Thrown away. The first request through a route pays for resolving it.
-    $refuse('warming-up@example.com');
+    warmTheRefusalPath();
 
     // **A fresh account per measurement.** LoginRequest limits per address and
     // email together, so repeating one email would spend its five attempts and
     // time a 429 instead of a hash.
     $median = fn (array $samples): float => collect($samples)->sort()->values()[1];
 
-    $known = $median(collect(range(1, 3))->map(function () use ($refuse): float {
+    $known = $median(collect(range(1, 3))->map(function (): float {
         $customer = Customer::factory()->create(['password' => 'a-long-enough-password']);
 
-        return $refuse($customer->email);
+        return costOfRefusing($customer->email);
     })->all());
 
     $unknown = $median(collect(range(1, 3))->map(
-        fn (int $n): float => $refuse("nobody-{$n}@example.com")
+        fn (int $n): float => costOfRefusing("nobody-{$n}@example.com")
     )->all());
 
-    // Deliberately loose. What this has to catch is a missing account costing
-    // nothing at all, which measured at roughly one fiftieth of a real check
-    // before the fix. A band tight enough to police scheduler noise on CI would
-    // fail for reasons that have nothing to do with the property being proved.
-    //
-    // **Bounded on both sides**, because a stopwatch reads a gap whichever way
-    // it opens. The one-sided version this replaced stayed green through an
-    // unknown address costing twice what a known one costs, which is the same
-    // oracle pointing the other way.
-    expect($unknown)->toBeGreaterThan($known * 0.5)
-        ->and($unknown)->toBeLessThan($known * 2);
+    expectIndistinguishableCost($unknown, $known);
 });
 
 it('takes as long to refuse an account that has never had a password', function () {
@@ -272,27 +314,15 @@ it('takes as long to refuse an account that has never had a password', function 
     // customer who had chosen a password.
     config(['hashing.bcrypt.rounds' => 10]);
 
-    $refuse = function (string $email): float {
-        $started = hrtime(true);
-
-        $this->postJson('/api/v1/login', [
-            'email' => $email,
-            'password' => 'not-the-password',
-        ])->assertStatus(422);
-
-        return (hrtime(true) - $started) / 1e6;
-    };
-
-    $refuse('warming-up@example.com');
+    warmTheRefusalPath();
 
     $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
     $unclaimed = Customer::factory()->create(['password' => null]);
 
-    $unclaimedCost = $refuse($unclaimed->email);
-    $claimedCost = $refuse($claimed->email);
+    $unclaimedCost = costOfRefusing($unclaimed->email);
+    $claimedCost = costOfRefusing($claimed->email);
 
-    expect($unclaimedCost)->toBeGreaterThan($claimedCost * 0.5)
-        ->and($unclaimedCost)->toBeLessThan($claimedCost * 2);
+    expectIndistinguishableCost($unclaimedCost, $claimedCost);
 });
 
 /**
@@ -332,27 +362,15 @@ it('still costs the same on both paths after the rounds are raised', function ()
 
     forgetResolvedUser();
 
-    $refuse = function (string $email): float {
-        $started = hrtime(true);
+    warmTheRefusalPath();
 
-        $this->postJson('/api/v1/login', [
-            'email' => $email,
-            'password' => 'not-the-password',
-        ])->assertStatus(422);
-
-        return (hrtime(true) - $started) / 1e6;
-    };
-
-    $refuse('warming-up@example.com');
-
-    $known = $refuse($customer->email);
-    $unknown = $refuse('nobody-at-all@example.com');
+    $known = costOfRefusing($customer->email);
+    $unknown = costOfRefusing('nobody-at-all@example.com');
 
     // The whole point of the rehash. Without it the known address is checked at
     // ten while the unknown one is hashed at twelve, and the difference is
     // roughly fourfold in the direction a stopwatch reads easily.
-    expect($unknown)->toBeGreaterThan($known * 0.5)
-        ->and($unknown)->toBeLessThan($known * 2);
+    expectIndistinguishableCost($unknown, $known);
 });
 
 it('locks out a slow guess at one account with a 429 and a Retry-After', function () {
