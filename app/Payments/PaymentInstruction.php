@@ -11,13 +11,22 @@ use App\Enums\PaymentInstructionType;
  * give genuinely different answers and a `?string` can only carry one of them
  * plus folklore about what null means.
  *
- * - `ManualSettlement` collects nothing and there is nowhere to send anybody
- * - `StripeCheckout` hands back a client secret, which is confirmed in the page
- * - `GiftCodeRedemption`, in the gifting milestone, will have settled the order
- *   already and answers the same as hand settlement
+ * - `NothingToPay` collects nothing and there is nowhere to send anybody
+ * - `ClientSecret` hands back a credential the page confirms the payment with
+ * - `Redirect` sends the customer somewhere else to pay
  *
- * - `StripeCheckout` sends the customer to a hosted Checkout Session, which is
- *   a redirect
+ * Three, because `PaymentInstructionType` declares three, and what each one is
+ * for is written there rather than restated here. ~~Until 29 August 2026 this
+ * list named `ManualSettlement`, `StripeCheckout` and `GiftCodeRedemption`~~,
+ * which are the gateways that produce an instruction rather than the kinds of
+ * instruction there are, and it gave `StripeCheckout` twice with two accounts
+ * that contradicted each other. None of the three was ever a case. Restating an
+ * account one file away is how it came to disagree with itself, and it is why
+ * `tests/Feature/CommentIntegrityTest.php` now fails a build over it.
+ *
+ * Hand settlement answers the first of these. Gift code redemption will answer
+ * it too, in the gifting milestone, since by the time the recipient hears
+ * anything the order is already paid.
  *
  * **The redirect case was removed on 26 August 2026 for having no caller, and
  * is back on 29 August because it has one.** The removal's reasoning held about
