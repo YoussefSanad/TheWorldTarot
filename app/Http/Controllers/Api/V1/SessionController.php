@@ -108,7 +108,7 @@ class SessionController extends Controller
      */
     private function credentialsMatch(?Customer $customer, string $password): bool
     {
-        if ($customer === null || $customer->password === null) {
+        if ($customer === null || $customer->isUnclaimed()) {
             Hash::make($password);
 
             return false;

@@ -152,7 +152,7 @@ class MarkOrderPaid
         // who knows your email can cause a set-a-password message to land in
         // your inbox. It hands them nothing, and it is still a phishing shaped
         // tool pointed at our own customers.
-        if ($customer->password === null) {
+        if ($customer->isUnclaimed()) {
             Mail::to($customer->email)->send(new SetPasswordLink(
                 $customer,
                 Password::broker('customers')->createToken($customer),

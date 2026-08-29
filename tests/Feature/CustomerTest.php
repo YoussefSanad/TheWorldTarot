@@ -17,3 +17,23 @@ it('persists a customer through the factory into the customers table', function 
 it('resolves the default auth provider to the Customer model', function () {
     expect(config('auth.providers.customers.model'))->toBe(Customer::class);
 });
+
+/*
+| The unclaimed account.
+|
+| The concept a purchase creates, a claim link is worth sending to, and a claim
+| link works exactly once against. Named here because three modules used to
+| spell it out as a comparison and agree only by hand.
+*/
+
+it('calls an account with no password unclaimed', function () {
+    $customer = Customer::factory()->create(['password' => null]);
+
+    expect($customer->isUnclaimed())->toBeTrue();
+});
+
+it('stops calling an account unclaimed once it has a password', function () {
+    $customer = Customer::factory()->create(['password' => 'a-long-enough-password']);
+
+    expect($customer->isUnclaimed())->toBeFalse();
+});
