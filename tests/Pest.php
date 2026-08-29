@@ -1,10 +1,12 @@
 <?php
 
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Payments\StripePayment;
 use App\Support\Locales;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Password;
 use Stripe\Collection;
 use Stripe\PaymentIntent;
 use Stripe\Service\Checkout\CheckoutServiceFactory;
@@ -41,6 +43,32 @@ pest()->extend(TestCase::class)
         Http::preventStrayRequests();
     })
     ->in('Feature');
+
+/**
+ * The broker's token for a customer, as they receive it.
+ *
+ * **Here rather than in one test file, and named after neither of the two
+ * things it becomes.** It was written twice, byte for byte, as `resetTokenFor`
+ * in `PasswordResetTest` and `claimToken` in `SetPasswordTest`, and the fact
+ * that those two bodies were identical is not a coincidence to tidy away. It is
+ * the finding.
+ *
+ * A claim and a reset are different acts and CONTEXT.md keeps them apart:
+ * claiming finishes an account that has never had a password, resetting
+ * replaces one. **The token is not different.** There is one broker and one
+ * `password_reset_tokens` row per customer, so whether a token is a claim link
+ * or a reset link is decided entirely by which mail carries it, and minting
+ * either one deletes the other. `33927f1` exists because of that.
+ *
+ * So calling it `claimToken` in one file taught the reader that a claim token
+ * is a kind of token, which is the belief that makes B2 surprising.
+ *
+ * The table stores a hash. This readable form exists only in the mail.
+ */
+function passwordTokenFor(Customer $customer): string
+{
+    return Password::broker('customers')->createToken($customer);
+}
 
 /**
  * The Stripe client, substituted for one that answers however a test says.
