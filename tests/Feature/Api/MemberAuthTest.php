@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
 
@@ -386,7 +385,12 @@ it('lets the right password through once the guessing stops', function () {
     $this->postJson('/api/v1/login', ['email' => 'jennifer@example.com', 'password' => 'wrong'])
         ->assertStatus(422);
 
-    RateLimiter::clear(Str::transliterate('jennifer@example.com|127.0.0.1'));
+    // Asked of the production key builder rather than restated as a literal.
+    // Restating it meant a change to the key's shape would clear nothing while
+    // this test went on passing, which is B5's failure mode one layer down.
+    RateLimiter::clear(
+        LoginRequest::create('/api/v1/login', 'POST', ['email' => 'jennifer@example.com'])->throttleKey()
+    );
 
     $this->postJson('/api/v1/login', [
         'email' => 'jennifer@example.com',
