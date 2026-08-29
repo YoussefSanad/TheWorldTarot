@@ -347,6 +347,8 @@ The same body as a reset, and a **different endpoint on purpose**: this is someb
 - **It works exactly once, on an account that has never had a password.** After that the link is worth nothing even inside its 60 minutes, and changing a password becomes an ordinary reset
 - **Build it as its own page with its own words.** Nothing is being reset, and telling somebody to "reset" a password they never had reads as a mistake on our side
 - A failure here says the link is no longer valid without saying which of the possible reasons applies, for the same reason the sign in failure is vague
+- **One live claim link per address at a time.** Somebody who buys twice inside the hour gets the claim link in the first receipt only, and the second receipt carries none. Minting a second link deletes the first, so sending both would mean two receipts of which one is already dead and neither says which. Nothing for you to render differently, and worth knowing when a customer says their link is missing from a receipt
+- **Asking for a reset link inside 60 seconds of a claim link being minted sends nothing at all**, because that is the broker's throttle. `/api/v1/forgot-password` still answers its usual 200 with its usual body, so this is invisible on the wire and is exactly the case its wording is written for. The claim link they already hold is untouched and still works
 
 ### Orders
 

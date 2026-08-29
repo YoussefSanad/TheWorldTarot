@@ -7,6 +7,7 @@ use App\Enums\OrderStatus;
 use App\Mail\OrderPaid;
 use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Payments\OrderBelongsToNobody;
 use Illuminate\Support\Facades\DB;
@@ -139,6 +140,36 @@ class MarkOrderPaid
     }
 
     /**
+     * Whether an unspent claim link is already sitting in this person's inbox.
+     *
+     * **Minting a second one kills the first**, and that is Laravel's
+     * behaviour rather than ours: `DatabaseTokenRepository::create()` calls
+     * `deleteExisting()` before it inserts. So a customer who bought twice
+     * held two receipts, one of them carrying a link that had been dead since
+     * the moment the other arrived, with nothing in either saying which.
+     *
+     * Asked by querying the broker's table rather than through the broker,
+     * which offers no way to ask this: `exists()` needs the plaintext token,
+     * which only ever existed inside the mail, and `recentlyCreatedToken()`
+     * answers about the 60 second throttle rather than the hour a link lives.
+     *
+     * The consequence, taken knowingly: the second receipt carries no claim
+     * link at all. The first one still works for the rest of its hour, and
+     * after that a further order mints a fresh link normally. Somebody who has
+     * lost both mails asks for a reset link, which sets a first password just
+     * as well.
+     */
+    private function holdsALiveClaimLink(Customer $customer): bool
+    {
+        $broker = config('auth.passwords.'.config('auth.defaults.passwords'));
+
+        return DB::table($broker['table'])
+            ->where('email', $customer->email)
+            ->where('created_at', '>', now()->subMinutes($broker['expire']))
+            ->exists();
+    }
+
+    /**
      * Everybody who needs to know, once the payment is definitely recorded.
      */
     private function tell(Order $order): void
@@ -152,7 +183,10 @@ class MarkOrderPaid
         // who knows your email can cause a set-a-password message to land in
         // your inbox. It hands them nothing, and it is still a phishing shaped
         // tool pointed at our own customers.
-        if ($customer->isUnclaimed()) {
+        //
+        // **And only when there is not already one in their inbox**, for the
+        // reason in `holdsALiveClaimLink`.
+        if ($customer->isUnclaimed() && ! $this->holdsALiveClaimLink($customer)) {
             Mail::to($customer->email)->send(new SetPasswordLink(
                 $customer,
                 Password::broker('customers')->createToken($customer),

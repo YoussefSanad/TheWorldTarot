@@ -1,9 +1,12 @@
 <?php
 
+use App\Actions\ClaimAccount;
 use App\Actions\MarkOrderPaid;
+use App\Enums\ClaimOutcome;
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
 use App\Mail\OrderPaid;
+use App\Mail\PasswordResetLink;
 use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
@@ -11,6 +14,7 @@ use App\Models\Order;
 use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
 
 uses(RefreshDatabase::class);
 
@@ -308,3 +312,124 @@ function anOrderHolding(string $state): Order
 
     return $order;
 }
+
+/*
+| Two receipts, one mailbox.
+|
+| Laravel's `DatabaseTokenRepository::create()` calls `deleteExisting()` first,
+| so minting a claim token invalidates every earlier one for that address. A
+| customer who bought twice held two receipts, one of which was already dead,
+| with nothing saying which.
+*/
+
+it('leaves the first claim link working when a second order is paid', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    $firstLink = Mail::queued(SetPasswordLink::class)->first();
+    $token = (fn (): string => $this->token)->call($firstLink);
+
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    // The second receipt still arrives. It is the claim mail that is not
+    // repeated, because repeating it is what killed the link in the first one.
+    Mail::assertQueued(OrderPaid::class, 2);
+    Mail::assertQueued(SetPasswordLink::class, 1);
+
+    expect(app(ClaimAccount::class)($unclaimed->email, $token, 'a-brand-new-password'))
+        ->toBe(ClaimOutcome::Claimed);
+});
+
+it('mints a fresh claim link once the outstanding one has expired', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    $this->travel(config('auth.passwords.customers.expire') + 1)->minutes();
+
+    // Suppressing the second mail is only right while the first link is worth
+    // something. An hour later it is not, and a customer buying again would
+    // otherwise be handed a receipt with no way into their account.
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    Mail::assertQueued(SetPasswordLink::class, 2);
+});
+
+it('still invites somebody whose only outstanding token belongs to another address', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+    Password::broker('customers')->createToken(
+        Customer::factory()->create(['email' => 'somebody-else@example.com', 'password' => null])
+    );
+
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    Mail::assertQueued(SetPasswordLink::class, 1);
+});
+
+/**
+ * A reset request and an outstanding claim token, in both of the windows.
+ *
+ * Claim and reset share one broker table, and what happens between them turns
+ * on the broker's own 60 second throttle rather than on anything we wrote.
+ * **Inside it, `sendResetLink` mints nothing and sends nothing**, so the claim
+ * link survives and the customer is holding the only link there is. Outside
+ * it, the reset token replaces the claim token.
+ *
+ * **Both are the accepted behaviour rather than unnoticed ones**, and this
+ * pins them so the next reader does not have to rediscover the throttle.
+ * `API_CONTRACT.md` section 2 and the website's sign in copy both already name
+ * a reset link as the way out of an unclaimed account, so somebody who asks
+ * for one gets a link that works. Nobody is stranded either way.
+ *
+ * The defect worth fixing was two receipts killing each other silently, where
+ * the customer asked for nothing and lost something. Above.
+ */
+it('sends nothing and spends nothing when a reset is asked for inside the broker throttle', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    $claimToken = (fn (): string => $this->token)->call(Mail::queued(SetPasswordLink::class)->first());
+
+    $this->withHeader('Origin', 'http://localhost')
+        ->postJson('/api/v1/forgot-password', ['email' => $unclaimed->email])
+        ->assertOk();
+
+    // Throttled, so no reset mail exists at all. The endpoint answers the same
+    // reassuring sentence whatever happened, which is its whole design.
+    Mail::assertNotQueued(PasswordResetLink::class);
+
+    // And the claim link they are actually holding is untouched.
+    expect(app(ClaimAccount::class)($unclaimed->email, $claimToken, 'a-brand-new-password'))
+        ->toBe(ClaimOutcome::Claimed);
+});
+
+it('replaces an outstanding claim token once the throttle has passed, and the reset link works', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    $claimToken = (fn (): string => $this->token)->call(Mail::queued(SetPasswordLink::class)->first());
+
+    $this->travel(config('auth.passwords.customers.throttle') + 1)->seconds();
+
+    $this->withHeader('Origin', 'http://localhost')
+        ->postJson('/api/v1/forgot-password', ['email' => $unclaimed->email])
+        ->assertOk();
+
+    expect(app(ClaimAccount::class)($unclaimed->email, $claimToken, 'a-brand-new-password'))
+        ->toBe(ClaimOutcome::LinkNotValid);
+
+    $resetToken = (fn (): string => $this->token)->call(Mail::queued(PasswordResetLink::class)->first());
+
+    // The way out is still open, which is the whole reason this is acceptable.
+    $this->withHeader('Origin', 'http://localhost')->postJson('/api/v1/reset-password', [
+        'token' => $resetToken,
+        'email' => $unclaimed->email,
+        'password' => 'a-brand-new-password',
+        'password_confirmation' => 'a-brand-new-password',
+    ])->assertOk();
+
+    expect($unclaimed->fresh()->isUnclaimed())->toBeFalse();
+});
