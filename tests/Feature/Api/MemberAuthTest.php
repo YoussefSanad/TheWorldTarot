@@ -228,7 +228,13 @@ it('takes as long to refuse an unknown email as it takes to refuse a wrong passw
     // nothing at all, which measured at roughly one fiftieth of a real check
     // before the fix. A band tight enough to police scheduler noise on CI would
     // fail for reasons that have nothing to do with the property being proved.
-    expect($unknown)->toBeGreaterThan($known * 0.5);
+    //
+    // **Bounded on both sides**, because a stopwatch reads a gap whichever way
+    // it opens. The one-sided version this replaced stayed green through an
+    // unknown address costing twice what a known one costs, which is the same
+    // oracle pointing the other way.
+    expect($unknown)->toBeGreaterThan($known * 0.5)
+        ->and($unknown)->toBeLessThan($known * 2);
 });
 
 it('takes as long to refuse an account that has never had a password', function () {
@@ -254,7 +260,71 @@ it('takes as long to refuse an account that has never had a password', function 
     $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
     $unclaimed = Customer::factory()->create(['password' => null]);
 
-    expect($refuse($unclaimed->email))->toBeGreaterThan($refuse($claimed->email) * 0.5);
+    $unclaimedCost = $refuse($unclaimed->email);
+    $claimedCost = $refuse($claimed->email);
+
+    expect($unclaimedCost)->toBeGreaterThan($claimedCost * 0.5)
+        ->and($unclaimedCost)->toBeLessThan($claimedCost * 2);
+});
+
+/**
+ * The equal cost survives a change to `BCRYPT_ROUNDS`.
+ *
+ * **The claim was only ever true while the configured cost never moved.**
+ * `Hash::make` on the refusal path runs at config rounds; `Hash::check` runs at
+ * whatever cost is baked into the stored hash. Production runs twelve against a
+ * measured ten, so raising it reopened the gap for every hash written before
+ * the change, and the two tests above could not catch it because both set the
+ * rounds before creating their customers.
+ *
+ * `SessionController` now rehashes on a successful sign in, which is what
+ * closes it: the customer's stored cost catches up the first time they come
+ * back, and the two paths agree again.
+ */
+it('still costs the same on both paths after the rounds are raised', function () {
+    config(['hashing.bcrypt.rounds' => 10]);
+
+    $customer = Customer::factory()->create(['password' => 'a-long-enough-password']);
+
+    expect(password_get_info($customer->password)['options']['cost'])->toBe(10);
+
+    // **A resolved hasher holds the cost it was built with**, so the config
+    // change alone would not reach it. This is a fact about the harness rather
+    // than about the application, which meets a fresh container on every
+    // deploy. Same shape as `forgetResolvedUser` above.
+    config(['hashing.bcrypt.rounds' => 12]);
+    Hash::forgetDrivers();
+
+    $this->postJson('/api/v1/login', [
+        'email' => $customer->email,
+        'password' => 'a-long-enough-password',
+    ])->assertOk();
+
+    expect(password_get_info($customer->fresh()->password)['options']['cost'])->toBe(12);
+
+    forgetResolvedUser();
+
+    $refuse = function (string $email): float {
+        $started = hrtime(true);
+
+        $this->postJson('/api/v1/login', [
+            'email' => $email,
+            'password' => 'not-the-password',
+        ])->assertStatus(422);
+
+        return (hrtime(true) - $started) / 1e6;
+    };
+
+    $refuse('warming-up@example.com');
+
+    $known = $refuse($customer->email);
+    $unknown = $refuse('nobody-at-all@example.com');
+
+    // The whole point of the rehash. Without it the known address is checked at
+    // ten while the unknown one is hashed at twelve, and the difference is
+    // roughly fourfold in the direction a stopwatch reads easily.
+    expect($unknown)->toBeGreaterThan($known * 0.5)
+        ->and($unknown)->toBeLessThan($known * 2);
 });
 
 it('locks out a slow guess at one account with a 429 and a Retry-After', function () {

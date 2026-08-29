@@ -44,6 +44,8 @@ class SessionController extends Controller
 
         RateLimiter::clear($request->throttleKey());
 
+        $this->keepTheStoredCostCurrent($customer, (string) $request->input('password'));
+
         return $this->issueCredentials($request, $customer);
     }
 
@@ -71,6 +73,39 @@ class SessionController extends Controller
         }
 
         return response()->noContent();
+    }
+
+    /**
+     * Bring an old hash up to the configured cost, now that we hold the
+     * password in the clear for the only moment we ever will.
+     *
+     * **Without this the equal cost claim below holds only while
+     * `BCRYPT_ROUNDS` never changes.** `Hash::make` on the refusal path runs at
+     * config rounds. `Hash::check` runs at whatever cost is baked into the
+     * stored hash, and nothing rewrote it. Raise the rounds, which production
+     * has done once already, twelve against a measured ten, and every hash
+     * written before the change is checked more cheaply than a stranger's
+     * address is refused. That difference is exactly the timing signal the
+     * equal cost work set out to remove, arriving back through the config.
+     *
+     * A successful sign in therefore writes, which it did not before. That is
+     * the cost, and it is one row on the request that already went furthest.
+     * A wrong password writes nothing, so this can never be driven by somebody
+     * who does not hold the password.
+     *
+     * It closes the gap one customer at a time, on their next sign in.
+     * Somebody who never comes back keeps their old cost and stays
+     * distinguishable, so **raising the rounds is still a decision with a tail
+     * on it** rather than something this makes free.
+     */
+    private function keepTheStoredCostCurrent(Customer $customer, #[\SensitiveParameter] string $password): void
+    {
+        if (! Hash::needsRehash($customer->password)) {
+            return;
+        }
+
+        // The `hashed` cast does the hashing on assignment, at config rounds.
+        $customer->forceFill(['password' => $password])->save();
     }
 
     /**
