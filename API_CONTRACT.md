@@ -264,6 +264,7 @@ All of them work under both authentication styles. Section 6 explains how to cho
 - **`password_confirmation` is required and checked here.** Your own confirm field is not enough
 - **Email is lowercased before it is stored and before it is checked for duplicates**, so `Jane@` and `jane@` are the same account and cannot both be registered
 - **422 on a duplicate email**, keyed to `email`. This one does reveal that an address is taken, which registration cannot avoid without leaving people unable to find out why they were refused. The sign in and forgotten password endpoints do avoid it
+- **That message names the claim path, and deliberately does not say whether the address is claimed.** It reads: "We cannot make an account for that address. If you have bought a reading with it, ask for a link on the sign in page and choose a password there." Somebody who bought a reading already has an account with no password on it, and this rule is often exactly that person. Telling an unclaimed account apart from a claimed one here would answer the question the other three endpoints refuse, so the way out is offered on a condition only the reader can evaluate. **Render the message as it is**, and do not write copy that says the address is registered
 - Password strength is enforced here and the message comes back on the `password` field. Match your Zod rules to ours or people will pass yours and fail ours
 - **There is no email verification**, deliberately. Nobody is asked to confirm an address before they can use the site
 - Rate limited to 10 a minute per address

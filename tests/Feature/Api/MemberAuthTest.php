@@ -102,6 +102,35 @@ it('refuses an email somebody already has', function () {
         ->assertJsonValidationErrors('email');
 });
 
+/**
+ * The customer who bought a reading and then tried to register.
+ *
+ * They hit `unique:customers,email` and were told the address was already
+ * taken, with no mention of the claim link that is the only way into the
+ * account they already have. `API_CONTRACT.md` section 2 calls set-password
+ * "how they get out of that state", and this is the exact person who needs it.
+ *
+ * **One message covers both cases and names neither.** Any wording that
+ * distinguished "you have an unclaimed account" from "that address is taken"
+ * would be an account enumeration oracle, which is the thing the rest of this
+ * auth work deliberately refuses to be. So the sentence points at the claim
+ * path conditionally, and reads correctly for somebody who has never bought
+ * anything.
+ */
+it('answers a claimed address and an unclaimed one identically, and names the way out', function () {
+    Customer::factory()->create(['email' => 'claimed@example.com', 'password' => 'a-long-enough-password']);
+    Customer::factory()->create(['email' => 'unclaimed@example.com', 'password' => null]);
+
+    $claimed = $this->postJson('/api/v1/register', registrationPayload(['email' => 'claimed@example.com']));
+    $unclaimed = $this->postJson('/api/v1/register', registrationPayload(['email' => 'unclaimed@example.com']));
+
+    expect($claimed->status())->toBe($unclaimed->status())
+        ->and($claimed->json('errors.email'))->toBe($unclaimed->json('errors.email'));
+
+    // And it says something the person can act on, rather than only refusing.
+    expect($claimed->json('errors.email.0'))->toContain('sign in page');
+});
+
 it('treats an email as the same address whatever case it arrives in', function () {
     Customer::factory()->create(['email' => 'jennifer@example.com']);
 
