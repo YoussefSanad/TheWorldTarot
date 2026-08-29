@@ -34,6 +34,14 @@ use App\Enums\PaymentInstructionType;
  * out around a control whose height depends on the visitor's wallet. See
  * docs/adr/0002-the-redirect-case-comes-back.md.
  *
+ * **The client secret case is un-withdrawn a second time, later the same day.**
+ * It was removed on 26 August as a case with no caller, restored in shape on 29
+ * August, and has a caller again in `StripeWallet`, which mints a PaymentIntent
+ * for the express checkout element. So the tagged union has absorbed a
+ * published case being withdrawn and returned twice inside five days with no
+ * breaking change, which is the whole argument for it not being a nullable
+ * string. See docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md.
+ *
  * **The frontend reads `type` and then reads the field that names it**, rather
  * than inferring from the shape of what came back. That is the whole reason
  * this is a tagged value and not a bag of optional keys.
@@ -55,7 +63,8 @@ class PaymentInstruction
     }
 
     /**
-     * Confirm the payment in the page, with this.
+     * Confirm the payment in the page, with this: a PaymentIntent's secret,
+     * minted by StripeWallet for the express checkout element.
      *
      * **A client secret is a credential with the order's money attached**, so
      * it belongs in a response that is never cached and never logged.

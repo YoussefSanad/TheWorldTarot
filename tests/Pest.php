@@ -1,8 +1,12 @@
 <?php
 
+use App\Models\Order;
+use App\Models\Product;
+use App\Payments\StripePayment;
 use App\Support\Locales;
 use Illuminate\Support\Facades\Http;
 use Stripe\Collection;
+use Stripe\PaymentIntent;
 use Stripe\Service\Checkout\CheckoutServiceFactory;
 use Stripe\Service\Checkout\SessionService;
 use Stripe\Service\PaymentIntentService;
@@ -103,4 +107,114 @@ function stripeSessions(array $sessions, ?array &$asked = null): SessionService
     );
 
     return $service;
+}
+
+/**
+ * Stripe answering with the charge behind the intent that paid.
+ *
+ * **The wallet's road to an identity.** An express checkout PaymentIntent has
+ * no Checkout Session, so the email the wallet collected arrives on the
+ * intent's own charge. `null` for `$billing` is an intent that has no charge,
+ * which is what one nobody ever confirmed looks like.
+ *
+ * `$asked` is filled with the id and the parameters of every retrieve, because
+ * the expansion is the whole call: an unexpanded `latest_charge` is a string
+ * and carries no billing details at all.
+ *
+ * **It proves nothing about Stripe**, exactly as `stripeSessions` above proves
+ * nothing. Whether a wallet actually populates `billing_details.email` is
+ * issue #44's, against a real device. See .claude/external-services.md.
+ *
+ * @param  array{email: ?string, name: ?string}|null  $billing
+ * @param  array<int, array{id: string, params: ?array<string, mixed>}>|null  $asked
+ */
+function stripeCharge(?array $billing, ?array &$asked = null): PaymentIntentService
+{
+    $service = Mockery::mock(PaymentIntentService::class);
+
+    $service->shouldReceive('retrieve')->andReturnUsing(
+        function (string $id, ?array $params = null) use ($billing, &$asked): PaymentIntent {
+            $asked[] = ['id' => $id, 'params' => $params];
+
+            return PaymentIntent::constructFrom([
+                'id' => $id,
+                'object' => 'payment_intent',
+                'latest_charge' => $billing === null ? null : [
+                    'object' => 'charge',
+                    'billing_details' => [
+                        'email' => $billing['email'],
+                        'name' => $billing['name'],
+                    ],
+                ],
+            ]);
+        },
+    );
+
+    return $service;
+}
+
+/**
+ * An order for one product, priced the same in every currency.
+ *
+ * **Here rather than in one test file**, since both Stripe gateways are handed
+ * the same kind of order and the assertions that matter are about what each one
+ * does with it. It was written in `StripeCheckoutTest` first.
+ */
+function orderWorth(int $amount, string $currency = 'USD'): Order
+{
+    return Order::factory()
+        ->in($currency)
+        ->forProduct(Product::factory()->create([
+            'price_usd' => $amount,
+            'price_eur' => $amount,
+            'price_gbp' => $amount,
+        ]))
+        ->create();
+}
+
+/**
+ * An order nobody owns yet, holding the intent that is paying for it.
+ *
+ * **Here rather than in one test file**, because both roads produce exactly
+ * this: the hosted page collects the buyer's email after the order exists, and
+ * a wallet payment has no Session to collect it from at all. Settlement is
+ * where either one acquires an identity, so the fixture the two suites need is
+ * the same fixture. It was written twice, in `SettleAnUnownedOrderTest` and
+ * `SettleAWalletPaymentTest`, and the copies differed only in this default.
+ *
+ * **Name the intent when the road matters.** It has to match what
+ * `paymentFor()` is handed, since that is the id settlement looks the order up
+ * against.
+ */
+function unownedOrderWorth(int $amount, string $intentId = 'pi_hosted'): Order
+{
+    return Order::factory()
+        ->forProduct(Product::factory()->create([
+            'price_usd' => $amount,
+            'price_eur' => $amount,
+            'price_gbp' => $amount,
+        ]))
+        ->create([
+            'customer_id' => null,
+            'stripe_payment_intent_id' => $intentId,
+        ]);
+}
+
+/**
+ * A payment Stripe says succeeded, for an order, as settlement receives one.
+ *
+ * The webhook and the sweep both hand `RecordStripePayment` this shape, so a
+ * test that wants to settle an order starts here whichever road minted it. It
+ * was written in `SettleAnUnownedOrderTest` first, and the wallet road settles
+ * through exactly the same value.
+ */
+function paymentFor(Order $order, string $intentId = 'pi_hosted'): StripePayment
+{
+    return new StripePayment(
+        id: $intentId,
+        orderId: $order->id,
+        amount: $order->total_amount,
+        currency: $order->currency,
+        status: 'succeeded',
+    );
 }

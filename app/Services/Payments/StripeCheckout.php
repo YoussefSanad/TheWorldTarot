@@ -5,10 +5,9 @@ namespace App\Services\Payments;
 use App\Contracts\PaymentGateway;
 use App\Enums\ProductKey;
 use App\Models\Order;
-use App\Payments\OrderCannotBeCharged;
 use App\Payments\PaymentInstruction;
+use App\Payments\RefuseAnythingButAPendingOrder;
 use App\Support\FrontendUrl;
-use Illuminate\Support\Facades\Log;
 use Stripe\StripeClient;
 
 /**
@@ -24,7 +23,15 @@ use Stripe\StripeClient;
  * order's total, built as `price_data` and never a Stripe Price. Settlement is
  * still `payment_intent.succeeded` keyed by `metadata.order_id`, now carried
  * through `payment_intent_data`, and `checkout.session.completed` is still not
- * subscribed to. The pending-order guard below is untouched.
+ * subscribed to.
+ *
+ * **This is the card button, and it is no longer the only road.** `StripeWallet`
+ * beside it mints a PaymentIntent for the express checkout element on the
+ * frontend's own page, and the two are separate methods in
+ * `config/payments.php` because they are a hosted Session and a PaymentIntent.
+ * The guard they share moved out of this class and into
+ * `App\Payments\RefuseAnythingButAPendingOrder` when the second one arrived.
+ * See docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md.
  *
  * **Nothing here proves Stripe accepts what it sends.** A test against a
  * substituted StripeClient agrees with this class whatever this class does. The
@@ -33,11 +40,14 @@ use Stripe\StripeClient;
  */
 class StripeCheckout implements PaymentGateway
 {
-    public function __construct(private readonly StripeClient $stripe) {}
+    public function __construct(
+        private readonly StripeClient $stripe,
+        private readonly RefuseAnythingButAPendingOrder $refuseAnythingButAPendingOrder,
+    ) {}
 
     public function begin(Order $order, ?ProductKey $returnTo = null): PaymentInstruction
     {
-        $this->refuseAnythingButAPendingOrder($order);
+        ($this->refuseAnythingButAPendingOrder)($order);
 
         $session = $this->stripe->checkout->sessions->create([
             'mode' => 'payment',
@@ -108,42 +118,5 @@ class StripeCheckout implements PaymentGateway
         $line = $order->lines->first();
 
         return $line?->product?->name ?? $line?->product_key?->defaultName() ?? 'Your order';
-    }
-
-    /**
-     * **No idempotency key across calls**, and that is on purpose.
-     *
-     * A second call is meant to mint a fresh intent, because a declined card is
-     * a retry rather than a dead end. A duplicated intent from a network retry
-     * inside one call is harmless: both carry the same order id, only one can
-     * succeed, and MarkOrderPaid refuses the second transition.
-     */
-    private function refuseAnythingButAPendingOrder(Order $order): void
-    {
-        if (! $order->isPending()) {
-            throw OrderCannotBeCharged::itIsNotPending($order);
-        }
-
-        // The stored total is the authority on what was charged, and the lines
-        // are what it was arrived at from. If they disagree, something wrote
-        // one without the other and there is no honest number here.
-        //
-        // **Beyond what section 3 of the spec asked for, kept deliberately, and
-        // made loud on 26 August 2026.** Prices are tax inclusive by decision,
-        // so charged_amount equals total_amount and there is no rounding that
-        // could produce this. A mismatch is therefore a defect upstream in
-        // whatever wrote the order, not a condition to be handled, and refusing
-        // quietly would protect the customer while hiding the bug that reached
-        // them. Refusing and shouting does both jobs.
-        if ($order->totalOfLines() !== $order->total_amount) {
-            Log::error('An order was refused because its total disagrees with its lines.', [
-                'order_id' => $order->id,
-                'total_amount' => $order->total_amount,
-                'total_of_lines' => $order->totalOfLines(),
-                'currency' => $order->currency,
-            ]);
-
-            throw OrderCannotBeCharged::totalDisagreesWithItsLines($order);
-        }
     }
 }

@@ -46,18 +46,6 @@ function stripeAccepting(array &$sent, string $intentId = 'pi_3Abc', string $url
     substitutedStripe(Mockery::mock(PaymentIntentService::class), $sessions);
 }
 
-function orderWorth(int $amount, string $currency = 'USD'): Order
-{
-    return Order::factory()
-        ->in($currency)
-        ->forProduct(Product::factory()->create([
-            'price_usd' => $amount,
-            'price_eur' => $amount,
-            'price_gbp' => $amount,
-        ]))
-        ->create();
-}
-
 /**
  * **Built as `price_data` from the stored order, and never a Stripe Price.**
  * Jennifer edits prices; a price held at Stripe is a second place they can be

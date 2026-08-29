@@ -3,6 +3,7 @@
 namespace App\Services\Payments;
 
 use App\Contracts\PaymentGateway;
+use App\Enums\PaymentMethod;
 use Illuminate\Contracts\Container\Container;
 
 /**
@@ -37,11 +38,45 @@ class PaymentMethods
      * `offers()` is the same answer for one name, and both are used by
      * PaymentMethodsTest to pin that the registry is what config says it is.
      *
+     * **The endpoint that reads this exists from 29 August 2026**, and it reads
+     * `offeredToCustomers()` below rather than this. `GET /api/v1/payment-methods`
+     * answers what a customer may press, and this is still the whole list.
+     *
      * @return array<int, string>
      */
     public function offered(): array
     {
         return array_keys($this->registry());
+    }
+
+    /**
+     * The subset a customer may press, which is everything but hand settlement.
+     *
+     * **`manual` is genuinely offered and is genuinely not a button.** Support
+     * needs it after launch, in the panel, everywhere and permanently, so
+     * `offered()` is right to list it. What a reading page draws is the
+     * narrower question, and a wallet or a card is the whole of the answer
+     * until gifting adds `gift_code`.
+     *
+     * **The exclusion lives here rather than in the controller**, so the
+     * comment explaining why hand settlement is offered everywhere and drawn
+     * nowhere sits with the list it applies to, and PaymentMethodsTest can pin
+     * it. It names `PaymentMethod::Manual` rather than the string, because the
+     * registry it filters is keyed by that enum's values.
+     *
+     * **`PayOrderRequest` still validates against the whole registry**, and
+     * narrowing a published validation rule is not this method's business. A
+     * caller naming `manual` gets `nothing_to_pay` on an order that stays
+     * pending, which grants nothing and settles nothing.
+     *
+     * @return array<int, string>
+     */
+    public function offeredToCustomers(): array
+    {
+        return array_values(array_filter(
+            $this->offered(),
+            fn (string $method): bool => $method !== PaymentMethod::Manual->value,
+        ));
     }
 
     public function offers(string $method): bool

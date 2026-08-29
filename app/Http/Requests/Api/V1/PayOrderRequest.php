@@ -22,11 +22,18 @@ class PayOrderRequest extends FormRequest
     {
         return [
             /*
-            | Optional, because there is one way to pay for a reading today and
-            | naming it would be ceremony. It exists now rather than with
-            | gifting because the shape is the contract, and adding a field to a
-            | published endpoint later is a conversation with the frontend
-            | partner that this avoids.
+            | ~~Optional, because there is one way to pay for a reading today
+            | and naming it would be ceremony.~~ **Two ways from 29 August
+            | 2026**, `stripe` and `stripe_wallet`, so the field now carries a
+            | real choice: the card button and the wallet button ask this
+            | endpoint for different things and it cannot tell them apart
+            | otherwise. It stays optional, because the shape is published and
+            | narrowing it is a conversation with the frontend partner, and
+            | leaving it out gets `payments.default` rather than a guess.
+            |
+            | **`GET /api/v1/payment-methods` is what tells a caller which
+            | names exist here**, which is the list this rule validates against
+            | one line below.
             |
             | **Validated against what this environment actually offers**, so a
             | typo is a 422 naming the field rather than an exception. The

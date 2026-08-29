@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\NewsletterController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrderPaymentStatusController;
+use App\Http\Controllers\Api\V1\PaymentMethodController;
 use App\Http\Controllers\Api\V1\PayOrderController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\RegisterController;
@@ -46,6 +47,19 @@ Route::prefix('v1')->group(function () {
     // languages there are.
     Route::get('/languages', LanguageController::class);
     Route::get('/currencies', CurrencyController::class);
+
+    // Which buttons the reading page draws. Not content either, and flat for
+    // the same reason: it carries no copy at all, only the names `/pay` accepts
+    // as `method`.
+    //
+    // **Here because the frontend cannot infer it.** Whether the wallet button
+    // exists depends on whether this environment configured Stripe, which is
+    // config/payments.php's decision and invisible from outside.
+    //
+    // Unthrottled, like the two above. It is read once as a page loads, it
+    // reaches no third party, and it answers from config with no query behind
+    // it, so there is nothing here for a limit to protect.
+    Route::get('/payment-methods', PaymentMethodController::class)->name('payment-methods');
 
     /*
     | Member accounts. Flat, with no language segment, because auth is not

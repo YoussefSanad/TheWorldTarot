@@ -46,6 +46,50 @@ it('lists what this environment offers, in the order config declares it', functi
 });
 
 /**
+ * **What a customer may press, which is `offered()` less `manual`.**
+ *
+ * `offered()` is correct as it stands: hand settlement **is** offered, to a
+ * person in the panel, everywhere and permanently. The narrower question is
+ * what a button on the reading page may name, and the exclusion lives here
+ * rather than in the controller so the comment explaining why `manual` is
+ * offered everywhere and drawn nowhere sits with the list it applies to.
+ *
+ * **`PayOrderRequest` keeps validating against the whole registry.** A caller
+ * naming `manual` gets `nothing_to_pay` on an order that stays pending, which
+ * grants nothing and settles nothing.
+ */
+it('lists what a customer may press, which is everything but hand settlement', function () {
+    $methods = offering([
+        'manual' => ManualSettlement::class,
+        'invoice' => FakeInvoicing::class,
+    ]);
+
+    expect($methods->offeredToCustomers())->toBe(['invoice'])
+        // The wider list is unchanged, and still has it.
+        ->and($methods->offered())->toBe(['manual', 'invoice']);
+});
+
+it('answers an empty list where hand settlement is all there is', function () {
+    $methods = offering(['manual' => ManualSettlement::class]);
+
+    expect($methods->offeredToCustomers())->toBe([]);
+});
+
+/**
+ * Keyed by position, not by the keys config happened to use, so the endpoint
+ * that renders this answers a JSON array rather than an object.
+ */
+it('answers a list rather than a map, whatever config was keyed by', function () {
+    $methods = offering([
+        'manual' => ManualSettlement::class,
+        'stripe' => FakeInvoicing::class,
+        'stripe_wallet' => FakeInvoicing::class,
+    ]);
+
+    expect(array_keys($methods->offeredToCustomers()))->toBe([0, 1]);
+});
+
+/**
  * **The assertion this file exists for.**
  *
  * config/newsletter.php falls through to Mailchimp for an unrecognised driver,

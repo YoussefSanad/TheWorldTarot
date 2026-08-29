@@ -38,6 +38,7 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 | `STAGING_EMAIL_DOMAIN` | The blunter older form: a whole domain you can receive at. `STAGING_EMAIL` wins if both are set |
 | `STAGING_INTERACTIVE=1` | Runs the purchase walk, which waits for you to mark an order paid in the panel |
 | `STAGING_CARD=1` | Runs the **card walk**, which takes real Stripe test payments against the environment. Needs the key below |
+| `STAGING_WALLET=1` | Runs the **wallet walk**, `tests/Staging/WalletPaymentWalkTest.php`, which confirms a real test-mode PaymentIntent minted by `stripe_wallet`. Needs the same key. **It proves nothing about identity**: no headless client opens a wallet sheet, so the order it places is signed in and settlement never has to ask who paid. Whether a real wallet fills `latest_charge.billing_details.email` is issue #44, and it needs a device |
 | `STAGING_STRIPE_PUBLISHABLE` | The **test mode** publishable key for the Stripe account this environment is configured with. A `pk_live_` key is refused outright |
 | `STAGING_THROTTLE_TESTS=1` | Runs the forgotten-password rate limit test, which locks your address out for a minute |
 | `STAGING_LOCALE`, `STAGING_CURRENCY`, `STAGING_READING_KEY`, `STAGING_PASS_KEY` | Defaults are `en`, `GBP`, `one-card`, `viewing-room-pass` |
@@ -47,7 +48,7 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 - **Products need prices.** They seed at zero in every currency and an order refuses a line priced at zero. The order tests skip with an explanation rather than failing, so a skip here means the catalogue is not ready to sell, not that anything is broken
 - **A card needs a finished film**, or the Viewing Room tests have nothing to walk
 - **An admin account**, since settling an order is done in the panel. `php artisan app:create-admin` on the environment console
-- **For the card walk**: **both** `STRIPE_SECRET` and `STRIPE_WEBHOOK_SECRET` set on the environment, or the `stripe` method is not even offered and the pay endpoint refuses it. Both, since 26 August 2026: a secret without a webhook secret would take money it could never confirm, so the registry refuses to offer the method at all. A webhook endpoint registered at Stripe pointing at `/api/v1/webhooks/stripe` on that environment supplies the `whsec_`, and it is issued per endpoint rather than per account
+- **For the card walk and the wallet walk alike**: **both** `STRIPE_SECRET` and `STRIPE_WEBHOOK_SECRET` set on the environment, or neither `stripe` nor `stripe_wallet` is offered at all and the pay endpoint refuses both. They stand or fall together, on one test, because both roads reach the same Stripe account through the same secret. Both, since 26 August 2026: a secret without a webhook secret would take money it could never confirm, so the registry refuses to offer the method at all. A webhook endpoint registered at Stripe pointing at `/api/v1/webhooks/stripe` on that environment supplies the `whsec_`, and it is issued per endpoint rather than per account
 
 ## What it proves
 

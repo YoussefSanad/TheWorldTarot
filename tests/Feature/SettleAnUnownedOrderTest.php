@@ -9,7 +9,6 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Payments\OrderBelongsToNobody;
-use App\Payments\StripePayment;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -34,34 +33,22 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function unownedOrderWorth(int $amount, string $intentId = 'pi_hosted'): Order
+/**
+ * Stripe answering with the Checkout Sessions this test says, and with a
+ * PaymentIntent service that has no expectations at all.
+ *
+ * **So reaching for the charge fails the test rather than quietly finding
+ * nobody.** Identity has had a second source since 29 August 2026, the intent's
+ * own charge, for the wallet road that has no Session. This file is the hosted
+ * road, where the Session is what answers, and the tests here that expect
+ * nobody hand `$charge` a service explicitly so that the fall-through is
+ * something they say rather than something they get.
+ *
+ * @param  array<int, array{email: ?string, name: ?string}>  $sessions
+ */
+function stripeAnswering(array $sessions, ?array &$asked = null, ?PaymentIntentService $charge = null): void
 {
-    return Order::factory()
-        ->forProduct(Product::factory()->create([
-            'price_usd' => $amount,
-            'price_eur' => $amount,
-            'price_gbp' => $amount,
-        ]))
-        ->create([
-            'customer_id' => null,
-            'stripe_payment_intent_id' => $intentId,
-        ]);
-}
-
-function paymentFor(Order $order, string $intentId = 'pi_hosted'): StripePayment
-{
-    return new StripePayment(
-        id: $intentId,
-        orderId: $order->id,
-        amount: $order->total_amount,
-        currency: $order->currency,
-        status: 'succeeded',
-    );
-}
-
-function stripeAnswering(array $sessions, ?array &$asked = null): void
-{
-    substitutedStripe(Mockery::mock(PaymentIntentService::class), stripeSessions($sessions, $asked));
+    substitutedStripe($charge ?? Mockery::mock(PaymentIntentService::class), stripeSessions($sessions, $asked));
 }
 
 it('attaches the buyer Stripe collected and settles the order', function () {
@@ -161,7 +148,10 @@ it('leaves the order pending and shouts when Stripe names nobody', function () {
     Log::spy();
 
     $order = unownedOrderWorth(2500);
-    stripeAnswering([]);
+
+    // No Session, and a charge that names nobody either. Both sources
+    // exhausted, which is the only shape that leaves an order pending.
+    stripeAnswering([], charge: stripeCharge(null));
 
     expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeFalse();
 
@@ -177,6 +167,9 @@ it('leaves the order pending and shouts when Stripe names nobody', function () {
 
     Mail::assertNothingSent();
     Mail::assertNothingQueued();
+
+    // Once, for the order left pending. The charge answered, it simply named
+    // nobody, so nothing shouted about reaching Stripe.
     Log::shouldHaveReceived('error')->once();
 });
 
@@ -184,7 +177,7 @@ it('leaves the order pending when the session collected no address', function ()
     Log::spy();
 
     $order = unownedOrderWorth(2500);
-    stripeAnswering([['email' => null, 'name' => 'Jennifer']]);
+    stripeAnswering([['email' => null, 'name' => 'Jennifer']], charge: stripeCharge(null));
 
     expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeFalse()
         ->and($order->refresh()->status)->toBe(OrderStatus::Pending);
@@ -196,7 +189,7 @@ it('leaves the order pending when the session collected no address', function ()
 
 it('settles on a later attempt once Stripe can say who paid', function () {
     $order = unownedOrderWorth(2500);
-    stripeAnswering([]);
+    stripeAnswering([], charge: stripeCharge(null));
 
     expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeFalse();
 

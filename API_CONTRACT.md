@@ -70,6 +70,23 @@ This endpoint has no language segment, since it is what tells you which language
 - `available` is the full list the site sells in. Stable and safe to cache
 - `detected` is what this particular request resolved to. It varies by visitor
 
+### GET /api/v1/payment-methods
+
+**Which ways of paying this environment offers, and therefore which buttons to draw.** Added 29 August 2026, with `stripe_wallet`. Flat, with no language segment, because it carries no copy.
+
+```json
+{ "methods": ["stripe", "stripe_wallet"] }
+```
+
+- **`stripe` is the card button.** It answers `redirect` from `/pay`, a Stripe hosted Checkout Session
+- **`stripe_wallet` is the wallet button**, Apple Pay and Google Pay in the Express Checkout Element on your own page. It answers `client_secret` from `/pay`
+- **These are the exact values you send as `method`** on `POST /api/v1/orders/{pay_token}/pay`. They are not labels and carry no copy. What a button says is yours
+- **Draw a button only for a method in this list.** Whether Stripe is offered at all depends on whether that environment is configured, and a local one legitimately offers nothing. **An empty list is a valid answer**, and it means there is nothing a customer can press here. It is not a fault to retry
+- **The list can grow.** `gift_code` joins it with gifting. Ignore a name you have no button for rather than treating it as an error
+- **Hand settlement is deliberately never in this list.** It exists, it is how support settles an order that went wrong, and it is a person in the admin panel rather than anything a customer presses
+- **The order is ours and is stable**, so you may render in it if you like
+- Safe to cache briefly. It varies by what the environment configured and by nothing about the visitor
+
 ### GET /api/v1/{locale}/products
 
 Everything on sale, in the order the client arranged them.
@@ -410,12 +427,13 @@ The body is optional and has two fields:
 - **Read `type` and then read the field it names.** Do not infer from the shape of what came back. Handle an unknown `type` by not crashing, since a new payment method can add one
 - **`redirect` means send the browser to `redirect_url`**, and it is a Stripe hosted Checkout Session. **Back on 29 August 2026**, at your request and on your reasoning: a panel cannot be laid out around a control whose height depends on whether the visitor's device has a card in its wallet. It was published here, withdrawn on 26 August as a case with no caller, and now has one. Both ADRs carry the argument, `docs/adr/0002-checkout-happens-on-stripes-page.md` in your repo and `docs/adr/0002-the-redirect-case-comes-back.md` in ours
 - **Do not store the URL and do not treat it as the order's address.** A Session expires after 24 hours and an order never does, so a customer coming back calls `/pay` again and is handed a fresh one
-- **`client_secret` is what you confirm with Stripe** in the Express Checkout Element or the Payment Element, on your own page. It remains the shape for a payment method confirmed in the page
+- **`client_secret` is what you confirm with Stripe** in the Express Checkout Element, on your own page, and **it has a caller again from 29 August 2026**: `stripe_wallet` answers it. It is a PaymentIntent's secret, so `stripe.confirmPayment` is what takes it, and **`return_url` for that call is your own page and you build it**. That is not the open redirect this document guards against elsewhere: nothing caller-supplied reaches us on this road, and the only redirect in play is 3D Secure returning to where it started
 - **`nothing_to_pay` means there is nothing to collect** and you should go straight to your confirmation. It is what an order already settled answers, what a hand settled order answers, and what a gift code redemption will answer
 - **`success_url` and `cancel_url` are built here, from a frontend origin configured on this side, and you never send them.** A caller-supplied return address is an open redirect available to anybody holding a pay token, and allowlisting the origin to fix it leaves us building the address anyway
-- **`return_to` is optional, and it is a product key** — one of `one-card`, `three-card`, `month-ahead`, `in-depth` — **not a path and not a URL.** It says which reading page the checkout started from, so a cancelled one lands back on it. The keys are already your reading-page slugs, so nothing you send is ever concatenated into an address: **anything outside that set is a 422 on `return_to`**, never a fallback. Send nothing and a cancelled checkout lands on the readings index
+- **`return_to` is optional, and it is a product key**, one of `one-card`, `three-card`, `month-ahead` or `in-depth`. **Not a path and not a URL.** It says which reading page the checkout started from, so a cancelled one lands back on it. The keys are already your reading-page slugs, so nothing you send is ever concatenated into an address: **anything outside that set is a 422 on `return_to`**, never a fallback. Send nothing and a cancelled checkout lands on the readings index
 - **Where a paid customer comes back to is ours as well**, `/checkout/complete/` carrying the Checkout Session id. **Corrected 29 August 2026: that id is not what you hand to `POST /api/v1/orders/status`, and an earlier line here said it was.** A `cs_...` id is opaque, it cannot be resolved with a publishable key, and there is nothing on this side that maps one back to an order. **Keep the pay token yourself across the redirect**, in the customer's own browser storage, and hand that to the status endpoint. The session id in the query string is Stripe's, and you can ignore it
-- **`method` is optional and you can leave it out.** Everything a card processor handles, Apple Pay and Google Pay included, is one method. It exists now so that gifting can add `gift_code` without changing the shape of this call. **A method this environment does not offer is a 422 on `method`**, never a fallback to one that does
+- **`method` names which button was pressed, and from 29 August 2026 there are two.** ~~Everything a card processor handles, Apple Pay and Google Pay included, is one method~~: they are now `stripe`, the hosted page, and `stripe_wallet`, the wallet element on your own page. They are two because they are a hosted Session and a PaymentIntent, and no Stripe parameter reconciles those. **`GET /api/v1/payment-methods` is what says which exist here**, and gifting adds `gift_code` to the same list
+- **It is still optional and you can still leave it out**, and leaving it out gets whichever method this environment defaults to, which is not a promise about which. Send one. **A method this environment does not offer is a 422 on `method`**, never a fallback to one that does
 - **Calling this twice on a pending order is safe** and gives you a fresh answer, a new secret or a new Session, which is what a declined card and an abandoned checkout should both do. It creates no second order
 - **Orders never expire.** A customer who closes the tab mid-payment still has theirs days later
 - **An order already paid answers `nothing_to_pay` and creates nothing**, so a customer cannot be charged twice for one thing
@@ -580,6 +598,7 @@ On 422, `errors` is keyed by field name with an array of messages per field, and
 - **`/api/v1/{locale}/cards/{id}/video` must never be cached or stored either**, for the same reason: the answer is a signed credential rather than content
 - **Both of those mean a service worker and a persisted store too.** Either one turns half an hour of exposure into however long it keeps the URL, which is the single easiest way to undo the paywall from your side
 - `/api/v1/currencies` contains `detected`, which is per-visitor. It must not be cached at a shared edge on URL alone, or one visitor's currency gets served to the next. The CDN cache key accounts for this
+- **`/api/v1/payment-methods` is identical for every visitor and fully cacheable, and cache it briefly** for the reason `/languages` gets the same advice. It is what tells you a way of paying has stopped being offered, so a long cache delays a change you are relying on. Nothing about the visitor varies it
 - **Nothing on the member account or order endpoints is cacheable by anything, ever.** They all answer `Cache-Control: no-store`, and `/api/v1/me` is the dangerous one: it is personal, it looks harmless, and a shared cache holding it hands one customer's name and address to the next visitor
 
 The country header only exists once traffic flows through the CDN. Before DNS cutover, and in local development, detection falls back to USD. That is expected, not a bug.
@@ -588,15 +607,18 @@ The country header only exists once traffic flows through the CDN. Before DNS cu
 
 Nothing here has a shape yet, and we would rather agree them with you before writing them than after.
 
-### Paying, designed 25 August 2026, built, and redirected on 29 August 2026
+### Paying, designed 25 August 2026, built, redirected on 29 August 2026, and given a second road the same day
 
 **The endpoints are documented in section 2** and this stays as the design and the reasoning behind them. **The last two items in section 10 are still yours and still take real-world time.**
 
-**Checkout happens on a Stripe hosted page, since 29 August 2026.** This section said the opposite from 25 August, and the reversal is yours to own and ours to implement: a panel cannot be laid out around a control whose height depends on whether the visitor's device has a card in its wallet, so one button of a known size beat a wallet sheet that saves a tap. The ADRs are `docs/adr/0002-checkout-happens-on-stripes-page.md` in your repo and `docs/adr/0002-the-redirect-case-comes-back.md` in ours.
+**There are two roads from 29 August 2026, and the customer picks between them by pressing a button.** The card button sends the browser to a Stripe hosted page, which is the reversal below and stands. The wallet button draws Apple Pay and Google Pay in the Express Checkout Element on your own reading page, confirming a client secret we mint. **They are two payment methods rather than one with a flag**, because a hosted Session is an address you send a browser to and an element is an iframe you mount, and no Stripe parameter reconciles them. Ours is `docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md`, which amends the ADR below rather than reversing it.
+
+**Checkout happens on a Stripe hosted page for the card, since 29 August 2026.** This section said the opposite from 25 August, and the reversal is yours to own and ours to implement: a panel cannot be laid out around a control whose height depends on whether the visitor's device has a card in its wallet, so one button of a known size beat a wallet sheet that saves a tap. The ADRs are `docs/adr/0002-checkout-happens-on-stripes-page.md` in your repo and `docs/adr/0002-the-redirect-case-comes-back.md` in ours.
 
 **What was true about Stripe when this section argued the other way is still true**: no parameter pre-selects a wallet on a hosted page. What changed is which cost the design would rather pay.
 
-- **Cards and wallets**: whatever the hosted Checkout Session offers, which is Stripe's problem now rather than an element you mount
+- **Card**: `stripe`, whatever the hosted Checkout Session offers, which is Stripe's problem rather than an element you mount
+- **Wallets**: `stripe_wallet`, Apple Pay and Google Pay in the Express Checkout Element on your page, confirming a client secret. **Added 29 August 2026**, at the client's request, and it is the reason `emailRequired: true` is a requirement again
 - **Redeem a code**: a payment method, arriving with gifting, and it answers `nothing_to_pay` rather than a redirect
 
 **The sequence, and the order of it matters.** Nothing exists on our side until the customer commits to buying:
@@ -604,7 +626,7 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 1. Customer presses your buy button. **No order and no payment exist yet**
 2. You call `POST /api/v1/orders`. **This endpoint does not change**, and since 29 August you may call it **with no name and no email**, because Stripe's page collects the email and collects it after the order exists
 3. You call `POST /api/v1/orders/{pay_token}/pay` and get back what to do next. **The token comes back from step 2**, and it is the token rather than the id because ids here are sequential integers
-4. On `redirect`, you send the browser to `redirect_url`. On `nothing_to_pay`, you go straight to your confirmation
+4. On `redirect`, you send the browser to `redirect_url`. On `client_secret`, you confirm it in the element on your own page. On `nothing_to_pay`, you go straight to your confirmation
 5. Stripe returns the customer to an address **we built**, never one you sent. You may send a return path fragment so a cancelled checkout lands where it started
 6. Your confirmation screen calls `POST /api/v1/orders/status` with the pay token, and polls it, because the webhook that settles the order may not have arrived yet
 
@@ -624,9 +646,13 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 
 **One requirement, not a suggestion:**
 
-- **Register `theworldtarot.com` as a Stripe payment method domain**, in test and live. Apple Pay does not render on an unregistered domain, hosted page or not, and it fails by not appearing rather than by erroring
+- **Register `theworldtarot.com` as a Stripe payment method domain**, in test and live. Apple Pay does not render on an unregistered domain, hosted page or not, and it fails by not appearing rather than by erroring. **With the element mounted on your own origin this stopped being belt and braces and became mandatory**, because a domain nobody registered and a device with no wallet are indistinguishable from the page
 
-**`emailRequired: true` on the Express Checkout Element was a requirement here and is gone with the element.** Stripe's page collects the email itself, and we take it from the Session at settlement.
+~~**`emailRequired: true` on the Express Checkout Element was a requirement here and is gone with the element.**~~ **Wrong from 29 August 2026, and this is the sentence the buyer's identity depends on.** The element is back for the wallet button, alongside the hosted page for the card, and **`emailRequired: true` is a requirement again.**
+
+A wallet PaymentIntent has no Checkout Session, so there is no `customer_details` for us to read. What we read instead is the intent's own charge, `latest_charge.billing_details`, which carries the email and the name **the wallet collected because that flag was set**. Without it a wallet payment arrives here belonging to nobody, and an order that cannot be attached to a buyer is left pending on a customer who has already been charged. The card path is unaffected: it is still the hosted page, and Stripe's page still collects the email itself.
+
+`docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md` on our side is the record.
 
 **And two things that are gone:** the **24 hour rush** was dropped by the client on 25 August, so remove it from the reading page if you have built it. **There are no refunds.**
 
@@ -655,11 +681,11 @@ Designed 25 August 2026, built after payment and **before launch**. A code names
 
 **Added 25 August 2026, for checkout. The first two have lead time and nothing on our side unblocks them:**
 
-10. **Register `theworldtarot.com` as a Stripe payment method domain**, in both test and live mode. Apple Pay will not render until you do, and it fails by simply not appearing rather than by erroring
-11. ~~**Confirm you will pass `emailRequired: true`** to the Express Checkout Element~~ **Moot from 29 August 2026.** There is no element, and Stripe's page collects the email
-12. ~~**An email field on the card path**~~ **Moot from 29 August 2026**, and for the same reason
+10. **Register `theworldtarot.com` as a Stripe payment method domain**, in both test and live mode. Apple Pay will not render until you do, and it fails by simply not appearing rather than by erroring. **Mandatory rather than belt and braces from 29 August 2026**, because the element is now mounted on our own origin: an unregistered domain and a device with no wallet look identical from the page, which means this failing looks exactly like it working
+11. **Confirm you will pass `emailRequired: true`** to the Express Checkout Element. **Un-struck 29 August 2026, later the same day it was struck.** It was moot for the hours in which there was no element; `stripe_wallet` brings one back for the wallet button, and this flag is now the only thing that puts a buyer's email on the charge we read at settlement. Without it a wallet payment settles nobody
+12. ~~**An email field on the card path**~~ **Still moot from 29 August 2026.** The card path is the hosted page and Stripe's own page collects the email, so this one does not come back with item 11
 13. **Confirmation you have the design without the 24 hour rush.** The version we have shows it as a radio under the price and as a bullet in the feature list, and it was dropped on 25 August
-14. ~~**Whether you want the Payment Element or a hosted redirect for the card path**~~ **Answered 29 August 2026: the hosted page, for every path rather than only the card.** Recorded in both ADRs
+14. ~~**Whether you want the Payment Element or a hosted redirect for the card path**~~ **Answered 29 August 2026: the hosted page.** ~~For every path rather than only the card.~~ **That half was corrected later the same day**, when you asked for the wallet buttons back: the hosted page is the card path and nothing else, and the wallet path is the Express Checkout Element on your own page. Both roads are live and the customer picks between them, which is what item 11 above came back for. Recorded in `docs/adr/0002-the-redirect-case-comes-back.md` and `docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md`
 
 **Added 29 August 2026, with the redirect:**
 

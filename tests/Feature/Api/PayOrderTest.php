@@ -2,6 +2,7 @@
 
 use App\Contracts\PaymentGateway;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentMethod;
 use App\Enums\ProductKey;
 use App\Http\Resources\Api\V1\PaymentInstructionResource;
 use App\Models\Customer;
@@ -45,6 +46,24 @@ class FakeCheckout implements PaymentGateway
     }
 }
 
+/**
+ * The other kind of answer, which `FakeCheckout` above cannot give.
+ *
+ * **Here so that the endpoint's `client_secret` road is walked by something**,
+ * rather than proved only by `PaymentInstructionTest` on the value object and
+ * by a staging walk that is skipped unless somebody sets `STAGING_WALLET=1`.
+ * What is being tested is this endpoint: that it serialises the second kind of
+ * instruction, and that it withholds it from caches exactly as it does an
+ * address. The gateway behind it is `StripeWalletTest`'s business.
+ */
+class FakeWallet implements PaymentGateway
+{
+    public function begin(Order $order, ?ProductKey $returnTo = null): PaymentInstruction
+    {
+        return PaymentInstruction::clientSecret('pi_fake_'.$order->id.'_secret_wpvxs2');
+    }
+}
+
 beforeEach(function () {
     FakeCheckout::$started = [];
     FakeCheckout::$returnTo = [];
@@ -52,6 +71,7 @@ beforeEach(function () {
     config()->set('payments.methods', [
         'manual' => ManualSettlement::class,
         'card' => FakeCheckout::class,
+        PaymentMethod::StripeWallet->value => FakeWallet::class,
     ]);
     config()->set('payments.default', 'card');
 });
@@ -250,6 +270,30 @@ it('refuses to be cached, because the address is a credential', function () {
     $this->postJson("/api/v1/orders/{$order->pay_token}/pay")
         ->assertOk()
         ->assertHeader('Cache-Control', 'no-store, private');
+});
+
+/**
+ * **A client secret is a credential with this order's money attached**, which
+ * is the same reason the address above is one, so the wallet road is held to
+ * the header as well rather than inheriting it by assumption.
+ *
+ * The body is pinned to exactly two keys for the reason the guesser test pins
+ * the other shape: an answer that leaked the order's price or its buyer would
+ * hand a pay token holder something the token does not entitle them to.
+ */
+it('answers a client secret for the wallet, and refuses to cache that either', function () {
+    $order = payableOrder();
+
+    $response = $this->postJson("/api/v1/orders/{$order->pay_token}/pay", [
+        'method' => PaymentMethod::StripeWallet->value,
+    ]);
+
+    $response->assertOk()
+        ->assertJsonPath('type', 'client_secret')
+        ->assertJsonPath('client_secret', 'pi_fake_'.$order->id.'_secret_wpvxs2')
+        ->assertHeader('Cache-Control', 'no-store, private');
+
+    expect(array_keys($response->json()))->toBe(['type', 'client_secret']);
 });
 
 it('carries no locale segment, since paying is not content', function () {

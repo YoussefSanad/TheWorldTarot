@@ -55,9 +55,13 @@ class BuyerFromCheckoutSession
         $session = $sessions->data[0] ?? null;
 
         if ($session === null) {
-            // **Normal for a payment that never had a Session**, which is
-            // every payment made before the hosted page and every one a gift
-            // code will settle. The caller knows whether it needed one.
+            // **Normal for a payment that never had a Session**, which from
+            // 29 August 2026 is most of all: every wallet payment, since
+            // `stripe_wallet` mints a bare PaymentIntent and nothing lists a
+            // Session against it, plus every payment made before the hosted
+            // page and every one a gift code will settle. The caller knows
+            // whether it needed one, and for the wallet
+            // `BuyerFromLatestCharge` is what answers after this.
             return null;
         }
 

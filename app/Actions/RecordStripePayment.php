@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Payments\BuyerIdentity;
 use App\Payments\StripePayment;
 use App\Services\Payments\BuyerFromCheckoutSession;
+use App\Services\Payments\BuyerFromLatestCharge;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -28,7 +29,8 @@ class RecordStripePayment
 {
     public function __construct(
         private readonly MarkOrderPaid $markPaid,
-        private readonly BuyerFromCheckoutSession $buyers,
+        private readonly BuyerFromCheckoutSession $buyerFromSession,
+        private readonly BuyerFromLatestCharge $buyerFromCharge,
     ) {}
 
     /**
@@ -89,9 +91,9 @@ class RecordStripePayment
             'stripe_payment_intent_id' => $payment->id,
         ])->save();
 
-        // **Whose order this is, if it did not already know.** An order placed
-        // through Stripe's hosted page carries no identity, because that page
-        // collects the email after the order exists. Everything downstream of
+        // **Whose order this is, if it did not already know.** An order paid
+        // for through Stripe carries no identity of its own, because both roads
+        // collect the email after the order exists. Everything downstream of
         // the transition addresses a customer, so this has to be settled
         // before it and not inside it.
         if (! $this->identify($order)) {
@@ -112,6 +114,28 @@ class RecordStripePayment
      * address typed into a form is the address the account was made from.
      * Stripe's copy is what fills a gap, not what wins an argument.
      *
+     * **Two sources, tried in that order, because there are two roads in.** The
+     * hosted page collects the email on a Checkout Session. A wallet payment
+     * has no Session at all, and the email it collected sits on the intent's
+     * own charge. Trying the Session first costs the wallet road one empty list
+     * on a job that already holds six hours of retries. See
+     * docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md.
+     *
+     * **The fall through is `??`, so it fires whenever the Session answered
+     * nobody, not only when there was no Session.** ~~Trying the Session first
+     * leaves the hosted road bit for bit as it was.~~ **Corrected 29 August
+     * 2026**, because that sentence was not true of the code beneath it: a
+     * Session that collected no email, and a Stripe that could not be reached
+     * at all, both answer null and both now reach the charge. That is wanted
+     * rather than tolerated. Every one of those cases ends with a customer who
+     * has been charged and an order nobody can settle, and a second read that
+     * might name them is worth one API call against that. What it costs the
+     * hosted road is that call, on the only path that was already failing.
+     *
+     * The three hosted-road cases in `SettleAnUnownedOrderTest` name a charge
+     * explicitly for this reason, and a bare mock there fails loudly rather
+     * than quietly answering nobody.
+     *
      * `firstOrCreate` is safe against two settlements arriving together: the
      * framework catches the unique violation on `email` inside a savepoint and
      * re-reads, exactly as it does when two first orders arrive together.
@@ -126,7 +150,8 @@ class RecordStripePayment
 
         $intentId = (string) $order->stripe_payment_intent_id;
 
-        $buyer = $this->buyers->forPaymentIntent($intentId);
+        $buyer = $this->buyerFromSession->forPaymentIntent($intentId)
+            ?? $this->buyerFromCharge->forPaymentIntent($intentId);
 
         if (! $buyer instanceof BuyerIdentity) {
             // **Refused rather than settled, and loud.** Everything settlement
@@ -138,12 +163,27 @@ class RecordStripePayment
             //
             // **The money is not lost and neither is this order.** It stays
             // pending holding the intent that paid for it, so `orders:reconcile`
-            // comes back to it, and a later attempt that can read the Session
+            // comes back to it, and a later attempt that can read one of the two
             // settles it properly. Somebody is served late rather than never.
-            Log::error('A paid order could not be attached to a buyer and was left pending.', [
-                'order_id' => $order->id,
-                'payment_intent' => $intentId,
-            ]);
+            //
+            // **It names both sources it exhausted.** This is the line that
+            // fires if the wallet's `emailRequired` turns out not to reach the
+            // charge, so it has to say which two places were looked in rather
+            // than send the reader to one of two resolvers at random.
+            //
+            // **It does not claim both were read.** This branch is also where
+            // an unreachable Stripe arrives, and both resolvers log their own
+            // failure before answering null, so the reason is already in the
+            // log above this line rather than guessed at in it.
+            Log::error(
+                'A paid order could not be attached to a buyer and was left pending. '
+                .'Neither a Checkout Session nor the payment\'s own charge billing details could be '
+                .'read, or either was read and named nobody.',
+                [
+                    'order_id' => $order->id,
+                    'payment_intent' => $intentId,
+                ],
+            );
 
             return false;
         }
