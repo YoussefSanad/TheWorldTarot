@@ -1,6 +1,8 @@
 <?php
 
+use GuzzleHttp\Client;
 use GuzzleHttp\Cookie\CookieJar;
+use Psr\Http\Message\ResponseInterface;
 use Tests\Staging\Target;
 
 /**
@@ -70,21 +72,61 @@ function asWebsite(CookieJar $jar): array
     return $headers;
 }
 
-it('issues a csrf cookie to the website', function (): void {
+/**
+ * A browser that has been to the site once, holding what that visit gave it.
+ *
+ * The three lines this replaces stood six times in this file: a fresh jar, a
+ * client bound to it, and the `sanctum/csrf-cookie` call. **None of the five
+ * tests after the first can do anything at all without that call**, because a
+ * write carrying no `X-XSRF-TOKEN` is refused with 419, which is itself the
+ * assertion one of them makes. Six copies of a precondition is six places for
+ * one to quietly lose it and start proving the wrong refusal.
+ *
+ * The csrf response comes back too, because the test that the cookie is issued
+ * at all is a test of this preamble, and it should be asking the same code
+ * every other test here depends on.
+ *
+ * @return array{0: Client, 1: CookieJar, 2: ResponseInterface}
+ */
+function aBrowser(): array
+{
     $jar = new CookieJar;
-    $response = Target::client($jar)->get('sanctum/csrf-cookie', [
+    $client = Target::client($jar);
+
+    $response = $client->get('sanctum/csrf-cookie', [
         'headers' => ['Origin' => Target::origin()],
     ]);
+
+    return [$client, $jar, $response];
+}
+
+/**
+ * The shared account, signed in through the cookie path.
+ *
+ * Shared rather than freshly registered, because registering costs a slot in a
+ * ten a minute limit, and the two tests that call this are about what happens
+ * after a sign in rather than about the sign in.
+ */
+function signInTheSharedAccount(Client $client, CookieJar $jar): void
+{
+    $client->post('api/v1/login', [
+        'headers' => asWebsite($jar),
+        'json' => [
+            'email' => Target::sharedAccount()['email'],
+            'password' => Target::password(),
+        ],
+    ]);
+}
+
+it('issues a csrf cookie to the website', function (): void {
+    [, $jar, $response] = aBrowser();
 
     expect($response->getStatusCode())->toBeLessThan(300)
         ->and($jar->getCookieByName('XSRF-TOKEN'))->not->toBeNull();
 });
 
 it('scopes the session cookie to the shared root domain', function (): void {
-    $jar = new CookieJar;
-    Target::client($jar)->get('sanctum/csrf-cookie', [
-        'headers' => ['Origin' => Target::origin()],
-    ]);
+    [, $jar] = aBrowser();
 
     $session = Target::sessionCookie($jar);
 
@@ -115,10 +157,7 @@ it('scopes the session cookie to the shared root domain', function (): void {
 });
 
 it('protects the session cookie the way a credential should be protected', function (): void {
-    $jar = new CookieJar;
-    Target::client($jar)->get('sanctum/csrf-cookie', [
-        'headers' => ['Origin' => Target::origin()],
-    ]);
+    [, $jar] = aBrowser();
 
     $session = Target::sessionCookie($jar);
 
@@ -131,10 +170,7 @@ it('protects the session cookie the way a credential should be protected', funct
 });
 
 it('signs somebody in with a cookie and no token at all', function (): void {
-    $jar = new CookieJar;
-    $client = Target::client($jar);
-
-    $client->get('sanctum/csrf-cookie', ['headers' => ['Origin' => Target::origin()]]);
+    [$client, $jar] = aBrowser();
 
     $email = Target::freshEmail('cookie');
 
@@ -173,21 +209,9 @@ it('signs somebody in with a cookie and no token at all', function (): void {
 });
 
 it('refuses a write that arrives without the csrf header', function (): void {
-    $jar = new CookieJar;
-    $client = Target::client($jar);
+    [$client, $jar] = aBrowser();
 
-    $client->get('sanctum/csrf-cookie', ['headers' => ['Origin' => Target::origin()]]);
-
-    // Signed in with the shared account rather than a new one, because
-    // registering costs a slot in a ten a minute limit and this test is about
-    // what happens next.
-    $client->post('api/v1/login', [
-        'headers' => asWebsite($jar),
-        'json' => [
-            'email' => Target::sharedAccount()['email'],
-            'password' => Target::password(),
-        ],
-    ]);
+    signInTheSharedAccount($client, $jar);
 
     // Everything a browser sends except the one header that proves the request
     // came from a page rather than from somebody else's page.
@@ -202,18 +226,9 @@ it('refuses a write that arrives without the csrf header', function (): void {
 });
 
 it('ends the session on the way out', function (): void {
-    $jar = new CookieJar;
-    $client = Target::client($jar);
+    [$client, $jar] = aBrowser();
 
-    $client->get('sanctum/csrf-cookie', ['headers' => ['Origin' => Target::origin()]]);
-
-    $client->post('api/v1/login', [
-        'headers' => asWebsite($jar),
-        'json' => [
-            'email' => Target::sharedAccount()['email'],
-            'password' => Target::password(),
-        ],
-    ]);
+    signInTheSharedAccount($client, $jar);
 
     $logout = $client->post('api/v1/logout', ['headers' => asWebsite($jar)]);
 
