@@ -86,6 +86,24 @@ class StripeWallet implements PaymentGateway
             // ADR 0003's `return_url` paragraph literally true rather than
             // approximately true, since with card alone the only redirect in
             // play is 3D Secure returning to where it started.
+            //
+            // **The frontend states this same list, and the two are one
+            // setting split across a network.** Noted 29 August 2026, after
+            // the pair disagreed on a real device: its Elements group omitted
+            // `paymentMethodTypes`, which *means* automatic payment methods,
+            // and Stripe refused every confirmation against an intent that
+            // named types explicitly — "Payment details were collected through
+            // Stripe Elements using automatic payment methods and cannot be
+            // confirmed through the API configured with payment_method_types
+            // or allowed_payment_method_types." The sheet opened, the customer
+            // authorised, and the confirm returned 400.
+            //
+            // So this line cannot move alone. Changing it to
+            // `automatic_payment_methods` means deleting `paymentMethodTypes`
+            // from the frontend's `ExpressCheckout.tsx` in the same breath,
+            // and vice versa. Nothing on this side can detect the disagreement
+            // — the intent is created successfully either way, and it fails one
+            // round trip later in somebody's browser.
             'payment_method_types' => ['card'],
 
             // **No receipt_email, deliberately.** OrderPaid is the receipt.
