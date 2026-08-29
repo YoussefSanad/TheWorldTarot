@@ -1,6 +1,7 @@
 <?php
 
 use App\Contracts\PaymentGateway;
+use App\Enums\ProductKey;
 use App\Models\Order;
 use App\Payments\PaymentInstruction;
 use App\Services\Payments\ManualSettlement;
@@ -127,7 +128,7 @@ it('offers hand settlement everywhere, because support needs it after launch', f
  */
 class FakeInvoicing implements PaymentGateway
 {
-    public function begin(Order $order): PaymentInstruction
+    public function begin(Order $order, ?ProductKey $returnTo = null): PaymentInstruction
     {
         return PaymentInstruction::nothingToPay();
     }

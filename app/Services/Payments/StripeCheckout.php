@@ -3,20 +3,28 @@
 namespace App\Services\Payments;
 
 use App\Contracts\PaymentGateway;
+use App\Enums\ProductKey;
 use App\Models\Order;
 use App\Payments\OrderCannotBeCharged;
 use App\Payments\PaymentInstruction;
+use App\Support\FrontendUrl;
 use Illuminate\Support\Facades\Log;
 use Stripe\StripeClient;
 
 /**
- * Taking a card, a wallet or whatever else Stripe accepts, in our own page.
+ * Taking a card, a wallet or whatever else Stripe accepts, on Stripe's page.
  *
- * **There is no redirect anywhere.** A PaymentIntent is created here, its client
- * secret goes back to the frontend, and the Express Checkout Element and the
- * Payment Element confirm it on the reading page. Stripe has no parameter that
- * pre-selects a wallet on its hosted page, so a redirect could not deliver the
- * design Jennifer paid for.
+ * **A Checkout Session is created here and the customer is sent to it**, since
+ * 29 August 2026. This class made a PaymentIntent and handed its client secret
+ * to elements mounted on the reading page until then; the frontend chose one
+ * button of a known size over a wallet sheet whose height it cannot lay a panel
+ * out around. See docs/adr/0002-the-redirect-case-comes-back.md.
+ *
+ * **What did not move is the more important half.** The amount is the stored
+ * order's total, built as `price_data` and never a Stripe Price. Settlement is
+ * still `payment_intent.succeeded` keyed by `metadata.order_id`, now carried
+ * through `payment_intent_data`, and `checkout.session.completed` is still not
+ * subscribed to. The pending-order guard below is untouched.
  *
  * **Nothing here proves Stripe accepts what it sends.** A test against a
  * substituted StripeClient agrees with this class whatever this class does. The
@@ -27,45 +35,79 @@ class StripeCheckout implements PaymentGateway
 {
     public function __construct(private readonly StripeClient $stripe) {}
 
-    public function begin(Order $order): PaymentInstruction
+    public function begin(Order $order, ?ProductKey $returnTo = null): PaymentInstruction
     {
         $this->refuseAnythingButAPendingOrder($order);
 
-        $intent = $this->stripe->paymentIntents->create([
-            // **What the customer was shown, captured when they ordered.**
-            // Never the catalogue, and never a price held at Stripe. Jennifer
-            // edits prices, and an amount read from anywhere else is an amount
-            // that can move between the order and the payment.
-            'amount' => $order->total_amount,
+        $session = $this->stripe->checkout->sessions->create([
+            'mode' => 'payment',
 
-            // The currency they were browsing in, so nothing converts between
-            // the page and their bank. Stripe wants it lowercase.
-            'currency' => strtolower($order->currency),
+            // **One line, priced at the order's stored total.** The lines are
+            // what the total was arrived at from and the total is the authority
+            // on what is charged, and the guard above has just agreed the two.
+            //
+            // **`price_data`, never a Stripe Price.** Jennifer edits prices; a
+            // price held at Stripe is a second place they can be edited and a
+            // second number the payment can be made against.
+            'line_items' => [[
+                'quantity' => 1,
+                'price_data' => [
+                    'unit_amount' => $order->total_amount,
+                    'currency' => strtolower($order->currency),
+                    'product_data' => ['name' => $this->whatTheyAreBuying($order)],
+                ],
+            ]],
 
-            // How the webhook and the sweep find their way back to this order.
-            // A string, because Stripe metadata values are strings.
-            'metadata' => ['order_id' => (string) $order->id],
+            // **Never let Stripe convert.** A converted amount is one the
+            // customer is charged that is not the order total, and then
+            // ReconcileOrders and the total-vs-lines guard are comparing
+            // numbers in two currencies. Set explicitly so it cannot be
+            // switched on from a Dashboard nobody is watching.
+            'adaptive_pricing' => ['enabled' => false],
 
-            // Wallets and cards without naming them one by one, which is what
-            // lets the Express Checkout Element and the Payment Element decide
-            // between them in the page.
-            'automatic_payment_methods' => ['enabled' => true],
+            // The reading is written in English, so the hosted page is too
+            // rather than picking a language from the buyer's browser.
+            'locale' => 'en',
 
-            // **No receipt_email, deliberately.** OrderPaid is the receipt.
-            // Setting this would have Stripe send a second one, and two
-            // receipts for one payment is a support conversation.
+            // **How the webhook and the sweep find their way back to this
+            // order, and it has to be here rather than on the Session.**
+            // Settlement is `payment_intent.succeeded` keyed by
+            // `metadata.order_id`; we do not subscribe to
+            // `checkout.session.completed`, so metadata the Session keeps to
+            // itself settles nothing. A string, because Stripe metadata values
+            // are strings.
+            'payment_intent_data' => [
+                'metadata' => ['order_id' => (string) $order->id],
+            ],
+
+            'success_url' => FrontendUrl::checkoutComplete(),
+            // **Built here from a configured origin, never from anything the
+            // caller sent.** A caller-supplied URL is an open redirect
+            // available to anybody holding a pay token. All the caller may say
+            // is which reading page it came from, and it says that as an enum.
+            'cancel_url' => FrontendUrl::readings($returnTo),
         ]);
 
-        // **Written back before the secret goes out**, so a payment Stripe
+        // **Written back before the instruction goes out**, so a payment Stripe
         // accepts is reconcilable even if no notification ever arrives. By the
         // time one is lost there is nothing left to write this from.
-        //
-        // A retry overwrites it with the newest intent, which is intended: an
-        // older intent that somehow succeeded is found through the
-        // notification's metadata instead, and both paths reach MarkOrderPaid.
-        $order->forceFill(['stripe_payment_intent_id' => $intent->id])->save();
+        $order->forceFill(['stripe_payment_intent_id' => $session->payment_intent])->save();
 
-        return PaymentInstruction::clientSecret($intent->client_secret);
+        // **The Session's address is never persisted.** It expires after 24
+        // hours and an order never does, so it is only ever the answer to the
+        // call that minted it.
+        return PaymentInstruction::redirect($session->url);
+    }
+
+    /**
+     * What the hosted page calls this, which is the only thing on it a customer
+     * reads.
+     */
+    private function whatTheyAreBuying(Order $order): string
+    {
+        $line = $order->lines->first();
+
+        return $line?->product?->name ?? $line?->product_key?->defaultName() ?? 'Your order';
     }
 
     /**

@@ -44,6 +44,16 @@ return [
         // first password. A separate page from the reset above, because the
         // words on it are different: nothing is being reset.
         'set_password' => env('FRONTEND_SET_PASSWORD_PATH', '/set-password/'),
+
+        // Where Stripe returns somebody who paid. It arrives holding a Checkout
+        // Session id and asks this API what the payment did, because the id is
+        // opaque and a publishable key cannot resolve it.
+        'checkout_complete' => env('FRONTEND_CHECKOUT_COMPLETE_PATH', '/checkout/complete/'),
+
+        // The reading index, and the root of every reading page. Where a
+        // cancelled checkout lands, on the page it started from when the caller
+        // said which one that was.
+        'readings' => env('FRONTEND_READINGS_PATH', '/readings/'),
     ],
 
 ];

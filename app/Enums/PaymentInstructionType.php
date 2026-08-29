@@ -30,4 +30,15 @@ enum PaymentInstructionType: string
      * response that is never cached and never logged.
      */
     case ClientSecret = 'client_secret';
+
+    /**
+     * Send the browser here. Stripe's hosted Checkout Session, since
+     * 29 August 2026.
+     *
+     * **Published, withdrawn on 26 August 2026 as a case with no caller, and
+     * back five days later** because the frontend chose one button of a known
+     * size over a wallet sheet whose height it cannot lay out around. See
+     * docs/adr/0002-the-redirect-case-comes-back.md.
+     */
+    case Redirect = 'redirect';
 }

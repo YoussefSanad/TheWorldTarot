@@ -393,10 +393,10 @@ No language segment: an order is the same order whatever language it was placed 
 
 **Starting a payment for an order you have already placed.** Built 25 August 2026. Open to anybody, because the token is the authority. No language segment.
 
-The body is optional and has one field:
+The body is optional and has two fields:
 
 ```json
-{ "method": "stripe" }
+{ "method": "stripe", "return_to": "month-ahead" }
 ```
 
 **200**, and it names which of three shapes it is:
@@ -412,7 +412,9 @@ The body is optional and has one field:
 - **Do not store the URL and do not treat it as the order's address.** A Session expires after 24 hours and an order never does, so a customer coming back calls `/pay` again and is handed a fresh one
 - **`client_secret` is what you confirm with Stripe** in the Express Checkout Element or the Payment Element, on your own page. It remains the shape for a payment method confirmed in the page
 - **`nothing_to_pay` means there is nothing to collect** and you should go straight to your confirmation. It is what an order already settled answers, what a hand settled order answers, and what a gift code redemption will answer
-- **`success_url` and `cancel_url` are built here, from a frontend origin configured on this side, and you never send them.** A caller-supplied return address is an open redirect available to anybody holding a pay token, and allowlisting the origin to fix it leaves us building the address anyway. **You may send a return path fragment**, a product key or a path, so a cancelled checkout lands on the reading page it started from. It is validated here and never concatenated raw
+- **`success_url` and `cancel_url` are built here, from a frontend origin configured on this side, and you never send them.** A caller-supplied return address is an open redirect available to anybody holding a pay token, and allowlisting the origin to fix it leaves us building the address anyway
+- **`return_to` is optional, and it is a product key** — one of `one-card`, `three-card`, `month-ahead`, `in-depth` — **not a path and not a URL.** It says which reading page the checkout started from, so a cancelled one lands back on it. The keys are already your reading-page slugs, so nothing you send is ever concatenated into an address: **anything outside that set is a 422 on `return_to`**, never a fallback. Send nothing and a cancelled checkout lands on the readings index
+- **Where a paid customer comes back to is ours as well**, `/checkout/complete/` carrying the Checkout Session id, which is the id you hand to `POST /api/v1/orders/status`
 - **`method` is optional and you can leave it out.** Everything a card processor handles, Apple Pay and Google Pay included, is one method. It exists now so that gifting can add `gift_code` without changing the shape of this call. **A method this environment does not offer is a 422 on `method`**, never a fallback to one that does
 - **Calling this twice on a pending order is safe** and gives you a fresh answer, a new secret or a new Session, which is what a declined card and an abandoned checkout should both do. It creates no second order
 - **Orders never expire.** A customer who closes the tab mid-payment still has theirs days later

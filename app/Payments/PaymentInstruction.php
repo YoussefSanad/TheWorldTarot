@@ -16,12 +16,14 @@ use App\Enums\PaymentInstructionType;
  * - `GiftCodeRedemption`, in the gifting milestone, will have settled the order
  *   already and answers the same as hand settlement
  *
- * **A redirect case was here and is gone**, removed 26 August 2026 as finding 10
- * of the phase B review. It had no caller and could not acquire one: checkout
- * happens in our own page precisely because no Stripe parameter can hand a
- * wallet choice to a hosted page, so sending the customer away is the design
- * this one was chosen over. A payment method that redirects can add the case
- * back, along with the caller that needs it.
+ * - `StripeCheckout` sends the customer to a hosted Checkout Session, which is
+ *   a redirect
+ *
+ * **The redirect case was removed on 26 August 2026 for having no caller, and
+ * is back on 29 August because it has one.** The removal's reasoning held about
+ * Stripe and stopped holding about the design: the frontend cannot lay a panel
+ * out around a control whose height depends on the visitor's wallet. See
+ * docs/adr/0002-the-redirect-case-comes-back.md.
  *
  * **The frontend reads `type` and then reads the field that names it**, rather
  * than inferring from the shape of what came back. That is the whole reason
@@ -32,6 +34,7 @@ class PaymentInstruction
     private function __construct(
         public readonly PaymentInstructionType $type,
         public readonly ?string $clientSecret = null,
+        public readonly ?string $redirectUrl = null,
     ) {}
 
     /**
@@ -54,6 +57,17 @@ class PaymentInstruction
     }
 
     /**
+     * Send the customer here to pay: a Stripe hosted Checkout Session.
+     *
+     * **Never persisted.** A Session expires after 24 hours and an order never
+     * does, so the address is only ever the answer to the call that minted it.
+     */
+    public static function redirect(string $url): self
+    {
+        return new self(PaymentInstructionType::Redirect, redirectUrl: $url);
+    }
+
+    /**
      * The answer as the frontend reads it, per section 9 of API_CONTRACT.md.
      *
      * @return array<string, string>
@@ -64,6 +78,10 @@ class PaymentInstruction
             PaymentInstructionType::ClientSecret => [
                 'type' => $this->type->value,
                 'client_secret' => (string) $this->clientSecret,
+            ],
+            PaymentInstructionType::Redirect => [
+                'type' => $this->type->value,
+                'redirect_url' => (string) $this->redirectUrl,
             ],
             PaymentInstructionType::NothingToPay => ['type' => $this->type->value],
         };

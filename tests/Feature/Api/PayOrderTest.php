@@ -2,6 +2,7 @@
 
 use App\Contracts\PaymentGateway;
 use App\Enums\OrderStatus;
+use App\Enums\ProductKey;
 use App\Http\Resources\Api\V1\PaymentInstructionResource;
 use App\Models\Customer;
 use App\Models\Order;
@@ -30,16 +31,23 @@ class FakeCheckout implements PaymentGateway
     /** @var array<int, int> Every order a payment was started for, in order. */
     public static array $started = [];
 
-    public function begin(Order $order): PaymentInstruction
+    /** @var array<int, ?ProductKey> Where each of those was told to return to. */
+    public static array $returnTo = [];
+
+    public function begin(Order $order, ?ProductKey $returnTo = null): PaymentInstruction
     {
         self::$started[] = $order->id;
+        self::$returnTo[] = $returnTo;
 
-        return PaymentInstruction::clientSecret('pi_fake_'.$order->id.'_secret_'.count(self::$started));
+        return PaymentInstruction::redirect(
+            'https://checkout.stripe.com/c/pay/cs_fake_'.$order->id.'_'.count(self::$started),
+        );
     }
 }
 
 beforeEach(function () {
     FakeCheckout::$started = [];
+    FakeCheckout::$returnTo = [];
 
     config()->set('payments.methods', [
         'manual' => ManualSettlement::class,
@@ -61,8 +69,8 @@ it('mints a payment for a pending order and says which kind of answer it is', fu
 
     $this->postJson("/api/v1/orders/{$order->pay_token}/pay")
         ->assertOk()
-        ->assertJsonPath('type', 'client_secret')
-        ->assertJsonPath('client_secret', fn (?string $secret): bool => str_starts_with((string) $secret, 'pi_fake_'));
+        ->assertJsonPath('type', 'redirect')
+        ->assertJsonPath('redirect_url', fn (?string $url): bool => str_starts_with((string) $url, 'https://checkout.stripe.com/'));
 
     expect(FakeCheckout::$started)->toBe([$order->id]);
 });
@@ -95,12 +103,16 @@ it('mints a fresh payment on a second call, so a decline is a retry', function (
     $second = $this->postJson("/api/v1/orders/{$order->pay_token}/pay")->assertOk();
 
     expect(FakeCheckout::$started)->toBe([$order->id, $order->id])
-        ->and($second->json('client_secret'))->not->toBe($first->json('client_secret'));
+        ->and($second->json('redirect_url'))->not->toBe($first->json('redirect_url'));
 
     // And no second order was built to carry it.
     expect(Order::count())->toBe(1);
 });
 
+/**
+ * A Checkout Session expires after 24 hours and an order never does, which is
+ * why calling again is how an abandoned checkout resumes.
+ */
 it('says the order is still there tomorrow', function () {
     $order = payableOrder();
 
@@ -108,7 +120,7 @@ it('says the order is still there tomorrow', function () {
 
     $this->postJson("/api/v1/orders/{$order->pay_token}/pay")
         ->assertOk()
-        ->assertJsonPath('type', 'client_secret');
+        ->assertJsonPath('type', 'redirect');
 });
 
 /*
@@ -142,7 +154,7 @@ it('lets the customer who placed it pay for it while signed in', function () {
     $this->actingAs($customer, 'sanctum')
         ->postJson("/api/v1/orders/{$order->pay_token}/pay")
         ->assertOk()
-        ->assertJsonPath('type', 'client_secret');
+        ->assertJsonPath('type', 'redirect');
 });
 
 it('lets a guest holding the token pay, because that is the normal case', function () {
@@ -157,7 +169,7 @@ it('tells a guesser nothing about the order behind a token', function () {
     $body = $this->postJson("/api/v1/orders/{$order->pay_token}/pay")->assertOk()->json();
 
     // Not the amount, not the email, not the id. Only what to do next.
-    expect(array_keys($body))->toBe(['type', 'client_secret']);
+    expect(array_keys($body))->toBe(['type', 'redirect_url']);
 });
 
 /*
@@ -204,12 +216,16 @@ it('answers through a resource without changing what the frontend receives', fun
 
     expect($response->json())
         ->toBe(PaymentInstructionResource::make(
-            PaymentInstruction::clientSecret($response->json('client_secret'))
+            PaymentInstruction::redirect($response->json('redirect_url'))
         )->toArray(request()))
         ->and($response->json())->not->toHaveKey('data');
 });
 
-it('refuses to be cached, because a client secret is a credential', function () {
+/**
+ * The address of a Checkout Session is a credential with this order's money
+ * attached, exactly as the client secret it replaced was.
+ */
+it('refuses to be cached, because the address is a credential', function () {
     $order = payableOrder();
 
     $this->postJson("/api/v1/orders/{$order->pay_token}/pay")
@@ -239,3 +255,45 @@ it('counts its own requests rather than sharing a bucket', function () {
     expect(explode(',', $arguments))->toHaveCount(3)
         ->and(explode(',', $arguments)[2])->toBe('orders-pay');
 });
+
+/*
+| Where a cancelled checkout comes back to, named and never composed.
+*/
+
+/**
+ * **`return_to` is a product key, not a path and not a URL.** `ProductKey`'s
+ * values are already the frontend's reading-page slugs, so an allowlisted enum
+ * means no string from the caller reaches an address at all.
+ */
+it('passes the reading the checkout started from to the gateway', function () {
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['return_to' => 'month-ahead'])
+        ->assertOk();
+
+    expect(FakeCheckout::$returnTo)->toBe([ProductKey::MonthAhead]);
+});
+
+it('starts a payment that named no reading, because it is optional', function () {
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay")->assertOk();
+
+    expect(FakeCheckout::$returnTo)->toBe([null]);
+});
+
+it('refuses anything that is not a reading, and never falls back to one', function (string $returnTo) {
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['return_to' => $returnTo])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('return_to');
+
+    expect(FakeCheckout::$started)->toBe([]);
+})->with([
+    'a URL somebody else owns' => 'https://evil.example.com/',
+    'a path' => '/readings/month-ahead/',
+    'a traversal' => '../../admin',
+    'a reading that does not exist' => 'two-card',
+    'nothing at all' => '',
+]);

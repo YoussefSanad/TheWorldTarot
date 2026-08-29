@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Enums\ProductKey;
+
 /**
  * Links into the website.
  *
@@ -39,6 +41,35 @@ class FrontendUrl
             'token' => $token,
             'email' => $email,
         ]);
+    }
+
+    /**
+     * Where Stripe returns a customer who paid.
+     *
+     * **`{CHECKOUT_SESSION_ID}` is Stripe's own placeholder**, substituted into
+     * the address when it sends the browser here, so it is appended after the
+     * query is built and never encoded. The page hands the id straight back to
+     * `POST /orders/status`, because a publishable key cannot resolve it.
+     */
+    public static function checkoutComplete(): string
+    {
+        return self::to(config('frontend.paths.checkout_complete'))
+            .'?session_id={CHECKOUT_SESSION_ID}';
+    }
+
+    /**
+     * A reading's page, or the index of them when no reading is named.
+     *
+     * Where a cancelled checkout lands. **The page is named by a `ProductKey`
+     * and never by a string**, which is the whole reason `return_to` is
+     * validated as an enum: the enum's values are already the frontend's slugs,
+     * so nothing a caller typed is ever concatenated into an address.
+     */
+    public static function readings(?ProductKey $reading = null): string
+    {
+        $index = self::to(config('frontend.paths.readings'));
+
+        return $reading instanceof ProductKey ? $index.$reading->value.'/' : $index;
     }
 
     /**

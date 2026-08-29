@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\ProductKey;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\PayOrderRequest;
 use App\Http\Resources\Api\V1\PaymentInstructionResource;
@@ -32,8 +33,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * **Hard rule 14, a departure from .claude/api.md stated rather than built
  * around.** That file says a slow downstream is queued and never called inside
  * a request. This endpoint calls Stripe synchronously, and it has to: the
- * client secret it returns is what lets the page take the payment, so there is
- * nobody to hand it to later. A job would finish after the response that needed
+ * address it returns is the Checkout Session the browser is about to be sent
+ * to, so there is nobody to hand it to later. A job would finish after the response that needed
  * its result.
  *
  * What the rule is actually protecting against is a worker held open by
@@ -98,7 +99,15 @@ class PayOrderController extends Controller
             return PaymentInstruction::nothingToPay();
         }
 
-        return $methods->resolve($request->validated('method'))->begin($order);
+        // Validated to a `ProductKey` or to nothing. The gateway is handed the
+        // enum rather than a string, so nothing a caller typed can reach an
+        // address even by accident.
+        $returnTo = $request->validated('return_to');
+
+        return $methods->resolve($request->validated('method'))->begin(
+            $order,
+            $returnTo === null ? null : ProductKey::from($returnTo),
+        );
     }
 
     private function answer(PaymentInstruction $instruction, Request $request): JsonResponse

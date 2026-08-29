@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Enums\ProductKey;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -33,6 +34,22 @@ class PayOrderRequest extends FormRequest
             | that catches a caller inside this application.
             */
             'method' => ['sometimes', 'string', Rule::in(array_keys(config('payments.methods', [])))],
+
+            /*
+            | Which reading page the checkout started from, so a cancelled one
+            | lands back on it.
+            |
+            | **A product key. Not a path, and never a URL.** A caller-supplied
+            | address is an open redirect available to anybody holding a pay
+            | token, and allowlisting an origin to fix that leaves us building
+            | the address anyway. `ProductKey`'s values are already the
+            | frontend's reading-page slugs, so an allowlisted enum means no
+            | string from the caller reaches an address at all.
+            |
+            | Anything outside the enum is a 422 naming this field, never a
+            | quiet fall back to the index.
+            */
+            'return_to' => ['sometimes', Rule::enum(ProductKey::class)],
         ];
     }
 
@@ -43,6 +60,7 @@ class PayOrderRequest extends FormRequest
     {
         return [
             'method.in' => 'That is not a way to pay here.',
+            'return_to' => 'That is not a reading you can return to.',
         ];
     }
 }
