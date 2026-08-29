@@ -2,8 +2,11 @@
 
 namespace App\Actions;
 
+use App\Models\Customer;
 use App\Models\Order;
+use App\Payments\BuyerIdentity;
 use App\Payments\StripePayment;
+use App\Services\Payments\BuyerFromCheckoutSession;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -23,7 +26,10 @@ use Illuminate\Support\Facades\Log;
  */
 class RecordStripePayment
 {
-    public function __construct(private readonly MarkOrderPaid $markPaid) {}
+    public function __construct(
+        private readonly MarkOrderPaid $markPaid,
+        private readonly BuyerFromCheckoutSession $buyers,
+    ) {}
 
     /**
      * @return bool Whether this call is the one that changed anything. False
@@ -83,9 +89,73 @@ class RecordStripePayment
             'stripe_payment_intent_id' => $payment->id,
         ])->save();
 
+        // **Whose order this is, if it did not already know.** An order placed
+        // through Stripe's hosted page carries no identity, because that page
+        // collects the email after the order exists. Everything downstream of
+        // the transition addresses a customer, so this has to be settled
+        // before it and not inside it.
+        if (! $this->identify($order)) {
+            return false;
+        }
+
         // **The one transition.** It locks the row, moves only from pending,
         // grants access inside the transaction and queues mail after commit, so
         // a redelivery finds the work done and does nothing.
         return ($this->markPaid)($order);
+    }
+
+    /**
+     * Attaching the buyer Stripe collected to the order they paid for.
+     *
+     * **An identity the order already carries is never overwritten.** Somebody
+     * signed in owns their order from the moment they placed it, and an
+     * address typed into a form is the address the account was made from.
+     * Stripe's copy is what fills a gap, not what wins an argument.
+     *
+     * `firstOrCreate` is safe against two settlements arriving together: the
+     * framework catches the unique violation on `email` inside a savepoint and
+     * re-reads, exactly as it does when two first orders arrive together.
+     *
+     * @return bool Whether this order can now be settled.
+     */
+    private function identify(Order $order): bool
+    {
+        if ($order->customer_id !== null) {
+            return true;
+        }
+
+        $intentId = (string) $order->stripe_payment_intent_id;
+
+        $buyer = $this->buyers->forPaymentIntent($intentId);
+
+        if (! $buyer instanceof BuyerIdentity) {
+            // **Refused rather than settled, and loud.** Everything settlement
+            // does is addressed to somebody: a pass is granted to a customer,
+            // a receipt is sent to an address, a claim link invites a person
+            // to set a password. There is nobody here to do any of it for, and
+            // marking the order paid would spend the one transition that
+            // delivers all of it.
+            //
+            // **The money is not lost and neither is this order.** It stays
+            // pending holding the intent that paid for it, so `orders:reconcile`
+            // comes back to it, and a later attempt that can read the Session
+            // settles it properly. Somebody is served late rather than never.
+            Log::error('A paid order could not be attached to a buyer and was left pending.', [
+                'order_id' => $order->id,
+                'payment_intent' => $intentId,
+            ]);
+
+            return false;
+        }
+
+        $customer = Customer::firstOrCreate(
+            ['email' => $buyer->email],
+            ['name' => $buyer->name, 'password' => null],
+        );
+
+        $order->forceFill(['customer_id' => $customer->getKey()])->save();
+        $order->setRelation('customer', $customer);
+
+        return true;
     }
 }

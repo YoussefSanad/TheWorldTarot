@@ -2,6 +2,9 @@
 
 use App\Support\Locales;
 use Illuminate\Support\Facades\Http;
+use Stripe\Collection;
+use Stripe\Service\Checkout\CheckoutServiceFactory;
+use Stripe\Service\Checkout\SessionService;
 use Stripe\Service\PaymentIntentService;
 use Stripe\StripeClient;
 use Tests\TestCase;
@@ -51,12 +54,53 @@ pest()->extend(TestCase::class)
  * the captured signature vector and the walk in tests/Staging. See
  * .claude/external-services.md.
  */
-function substitutedStripe(PaymentIntentService $paymentIntents): StripeClient
+function substitutedStripe(PaymentIntentService $paymentIntents, ?SessionService $checkoutSessions = null): StripeClient
 {
     $client = Mockery::mock(StripeClient::class);
     $client->paymentIntents = $paymentIntents;
 
+    // **Only when a test asks for it.** Settlement reads the Checkout Session
+    // to learn who paid, and a test that has not said what Stripe answers
+    // should fail by reaching for something that is not there rather than by
+    // quietly finding an empty list and calling it a buyer nobody named.
+    if ($checkoutSessions instanceof SessionService) {
+        $checkout = Mockery::mock(CheckoutServiceFactory::class);
+        $checkout->sessions = $checkoutSessions;
+
+        $client->checkout = $checkout;
+    }
+
     app()->instance(StripeClient::class, $client);
 
     return $client;
+}
+
+/**
+ * Stripe answering with the Checkout Session that paid for an order.
+ *
+ * `null` for `$email` is a Session that collected nothing, which is what a
+ * cancelled or expired one looks like. No session at all is the empty list.
+ *
+ * @param  array<int, array{email: ?string, name: ?string}>  $sessions
+ */
+function stripeSessions(array $sessions, ?array &$asked = null): SessionService
+{
+    $service = Mockery::mock(SessionService::class);
+
+    $service->shouldReceive('all')->andReturnUsing(
+        function (array $params) use ($sessions, &$asked): Collection {
+            $asked[] = $params;
+
+            return Collection::constructFrom([
+                'data' => array_map(fn (array $session): array => [
+                    'customer_details' => [
+                        'email' => $session['email'],
+                        'name' => $session['name'],
+                    ],
+                ], $sessions),
+            ]);
+        },
+    );
+
+    return $service;
 }

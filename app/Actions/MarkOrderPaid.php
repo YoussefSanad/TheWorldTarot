@@ -8,6 +8,7 @@ use App\Mail\OrderPaid;
 use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
 use App\Models\Order;
+use App\Payments\OrderBelongsToNobody;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
@@ -54,6 +55,19 @@ class MarkOrderPaid
 
             if ($locked === null || $locked->status !== OrderStatus::Pending) {
                 return false;
+            }
+
+            // **An order with no customer cannot be settled here**, and this
+            // is a fault in the caller rather than a case to handle. Since
+            // 29 August 2026 an order can be placed holding no identity,
+            // because Stripe's hosted page collects the buyer's email after
+            // the order exists. `RecordStripePayment` attaches the buyer
+            // before it reaches this action, precisely so that everything
+            // below has somebody to grant a pass to and somebody to write to.
+            // Arriving here without one would spend the one transition that
+            // delivers all of it on nobody.
+            if ($locked->customer_id === null) {
+                throw OrderBelongsToNobody::soItCannotBeSettled($locked);
             }
 
             $locked->forceFill([
