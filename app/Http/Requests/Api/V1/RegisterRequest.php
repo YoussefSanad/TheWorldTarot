@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Http\Requests\Api\V1\Concerns\NormalisesEmail;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Password;
 
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rules\Password;
  */
 class RegisterRequest extends FormRequest
 {
+    use NormalisesEmail;
+
     /**
      * @return array<string, array<int, mixed>>
      */
@@ -68,12 +71,5 @@ class RegisterRequest extends FormRequest
              */
             'email.unique' => 'We cannot make an account for that address. If you have bought a reading with it, ask for a link on the sign in page and choose a password there.',
         ];
-    }
-
-    protected function prepareForValidation(): void
-    {
-        if (is_string($this->input('email'))) {
-            $this->merge(['email' => mb_strtolower(trim($this->input('email')))]);
-        }
     }
 }
