@@ -172,6 +172,11 @@ it('confirms the order to the customer', function () {
 
 it('invites an unclaimed account to choose a password', function () {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');
+    config()->set('mail.senders', [
+        'support' => 'support@example.test',
+        'noreply' => 'noreply@example.test',
+        'fulfillment' => 'fulfillment@example.test',
+    ]);
 
     $unclaimed = Customer::factory()->create(['password' => null]);
 
@@ -199,7 +204,13 @@ it('invites an unclaimed account to choose a password', function () {
         //
         // `MailBodyTest` is the authority on this, off the transport rather
         // than off `render()`. This is the near assertion, kept honest.
-        return str_contains($rendered, 'https://staging.theworldtarot.com/set-password/?')
+        // From support@, which is where account and access mail comes from.
+        // Asserted here rather than left to the enum, because #47 moved one
+        // message to a different sender and nothing would have failed if it had
+        // moved this one too. The literal is pinned rather than read back
+        // through the key the implementation reads.
+        return $mail->hasFrom('support@example.test')
+            && str_contains($rendered, 'https://staging.theworldtarot.com/set-password/?')
             && str_contains($rendered, 'token=')
             && str_contains($rendered, '&email=');
     });
@@ -319,6 +330,15 @@ it('never sends a claim link to a claimed account that has just bought a pass', 
 });
 
 it('tells Jennifer a reading is waiting, with the question', function () {
+    // The three senders are set apart so the from-address below fails when this
+    // message changes sender, rather than passing because two keys happen to
+    // hold the same address. Same reasoning as the two notify keys below.
+    config()->set('mail.senders', [
+        'support' => 'support@example.test',
+        'noreply' => 'noreply@example.test',
+        'fulfillment' => 'fulfillment@example.test',
+    ]);
+
     $order = Order::factory()
         ->forProduct(Product::factory()->create(), 1, 'Will the move be right for me?')
         ->create();
@@ -326,8 +346,73 @@ it('tells Jennifer a reading is waiting, with the question', function () {
     settle($order);
 
     Mail::assertQueued(ReadingToWrite::class, function (ReadingToWrite $mail): bool {
-        return $mail->hasTo(config('mail.notify.fulfillment'))
+        // From fulfillment@, to orders@: two addresses doing two different
+        // jobs, and #47 moved only the second of them. The literal is pinned
+        // rather than read back through `config('mail.senders.fulfillment')`,
+        // which is the key the implementation reads and would agree with it
+        // whatever it held.
+        return $mail->hasTo(config('mail.notify.orders'))
+            && $mail->hasFrom('fulfillment@example.test')
             && str_contains($mail->render(), 'Will the move be right for me?');
+    });
+});
+
+/*
+| The new order notification has its own key, and it is not the dispute's.
+|
+| Both internal messages read `mail.notify.fulfillment` until 30 August 2026,
+| when Jennifer asked for new order notifications at orders@. Pointing that one
+| key at orders@ was the smaller change and the wrong one: `PaymentDisputed`
+| rides it too, a chargeback is not a new order, and it is the message with a
+| bank deadline on it. So the keys were split and the dispute stayed.
+|
+| **The two addresses are set apart here on purpose.** They default to different
+| mailboxes but nothing stops an environment configuring both the same, and this
+| assertion has to fail when the split is undone rather than pass on a
+| coincidence. Its other half is in StripeWebhookTest.
+*/
+it('sends the new order notification to orders and leaves the dispute mailbox alone', function () {
+    config()->set('mail.notify.orders', 'orders@example.test');
+    config()->set('mail.notify.fulfillment', 'fulfillment@example.test');
+
+    settle(orderFor(Product::factory()->create()));
+
+    Mail::assertQueued(ReadingToWrite::class, function (ReadingToWrite $mail): bool {
+        return $mail->hasTo('orders@example.test')
+            && ! $mail->hasTo('fulfillment@example.test');
+    });
+});
+
+/*
+| The confirmation says nothing about replying.
+|
+| Jennifer, 30 August 2026: it must not invite a reply. The line that did said
+| "Anything to ask, simply reply to this message", and it is gone with nothing
+| put in its place. **That was decided rather than overlooked.** The obvious
+| replacement was the site's contact page, and `/contact` is in the footer nav
+| pointing at a route that does not exist, so the confirmation would have sent a
+| paying customer to a 404. Naming support@ instead is a route we cannot receive
+| at either, per CLAUDE.md section 8.
+|
+| So this asserts the absence and not a replacement. When there is somewhere
+| real to send them, this test is what has to change to let the copy say so.
+*/
+it('does not ask the customer to reply to a mailbox that reads nothing', function () {
+    settle(orderFor(Product::factory()->create()));
+
+    Mail::assertQueued(OrderPaid::class, function (OrderPaid $mail): bool {
+        // Word boundaries, because this message now leaves from **noreply@**
+        // and a plain substring search finds 'reply' inside it. Naming the
+        // sending address in a footer is a reasonable thing to do and it would
+        // have failed this test for a reason that has nothing to do with what
+        // the test is about. Checked on 30 August 2026 by adding that footer:
+        // the substring form went red, this form stays green.
+        //
+        // The inflections are spelled out rather than left to a `\brepl`
+        // prefix, which would also match 'replace' and 'replenish'. 'respond'
+        // is here because the invitation does not have to use the word 'reply'
+        // to be an invitation, and `\b` keeps it from firing on 'correspond'.
+        return preg_match('/\b(repl(y|ies|ying)|respond(ing)?)\b/i', $mail->render()) === 0;
     });
 });
 

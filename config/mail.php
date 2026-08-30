@@ -136,6 +136,13 @@ return [
     | mailbox. A reply to any of these goes nowhere until an MX record routes it
     | somewhere real, and nobody is told. See CLAUDE.md section 8.
     |
+    | **`orders` left this list on 30 August 2026 and `noreply` took its place.**
+    | The customer's confirmation used to come from orders@; Jennifer asked that
+    | it come from noreply@ and that orders@ receive the new order notification
+    | instead, so orders@ moved down to `notify` below. noreply@ sits on
+    | `theworldtarot.com`, which is already verified, so this needed no new
+    | domain verification and no wait on DNS before it could send.
+    |
     | **Every address below falls back with `?:` and not with `env()`'s second
     | argument.** That argument applies only when a key is absent. A key that is
     | present and blank, which is what `.env.example` ships for the recipient
@@ -147,7 +154,7 @@ return [
 
     'senders' => [
         'support' => env('MAIL_SUPPORT_ADDRESS') ?: 'support@theworldtarot.com',
-        'orders' => env('MAIL_ORDERS_ADDRESS') ?: 'orders@theworldtarot.com',
+        'noreply' => env('MAIL_NOREPLY_ADDRESS') ?: 'noreply@theworldtarot.com',
         'fulfillment' => env('MAIL_FULFILLMENT_ADDRESS') ?: 'fulfillment@theworldtarot.com',
     ],
 
@@ -159,15 +166,31 @@ return [
     | Not senders, recipients. Where a message goes when it is for us rather
     | than for a customer.
     |
-    | `fulfillment` is where "somebody is waiting for a reading" lands, so it
-    | has to reach Jennifer. It defaults to the address it is sent from, which
-    | works only if that mailbox exists and she reads it. **Sending is not
-    | receiving**, and a notification nobody sees is worse than none, because
-    | the system reports success while a customer waits.
+    | `orders` is where "somebody is waiting for a reading" lands, asked for on
+    | 30 August 2026. `fulfillment` is where a chargeback lands, and it is where
+    | both of them used to go.
     |
-    | **This is the one that was actually broken**, on 13 August 2026. It read
-    | `env('MAIL_FULFILLMENT_RECIPIENT', env(...))`, `.env.example` ships that
-    | key blank, and `composer setup` copies `.env.example` into place. So the
+    | **They are two keys rather than one on purpose.** Pointing the single old
+    | key at orders@ was the smaller change and the wrong one: it would have
+    | left the key named for a mailbox it no longer reached, and it would have
+    | quietly moved `PaymentDisputed` with it. A chargeback is not a new order
+    | and it is the message with a bank deadline attached, so it stayed where it
+    | already was, confirmed 30 August 2026.
+    |
+    | Both have to reach Jennifer, and neither can check that it did. **Sending
+    | is not receiving**, and a notification nobody sees is worse than none,
+    | because the system reports success while a customer waits.
+    |
+    | **orders@ is the half of this that is not code.** Sending from noreply@
+    | needs nothing new, since the domain is verified. Receiving at orders@
+    | needs a mailbox behind an MX record and somebody reading it. Point this at
+    | orders@ before that exists and every new order notification is accepted by
+    | Resend, delivered nowhere, and reported as a success. That is the 13 August
+    | shape again, with a different address in it.
+    |
+    | **`fulfillment` is the one that was actually broken**, on 13 August 2026.
+    | It read `env('MAIL_FULFILLMENT_RECIPIENT', env(...))`, `.env.example` ships
+    | that key blank, and `composer setup` copies it into place. So the
     | documented default never applied anywhere the template had been used, the
     | address resolved to an empty string, and the only message telling Jennifer
     | there is work waiting was addressed to nobody. It reported success.
@@ -175,6 +198,8 @@ return [
     */
 
     'notify' => [
+        'orders' => env('MAIL_ORDERS_RECIPIENT') ?: 'orders@theworldtarot.com',
+
         'fulfillment' => env('MAIL_FULFILLMENT_RECIPIENT')
             ?: env('MAIL_FULFILLMENT_ADDRESS')
             ?: 'fulfillment@theworldtarot.com',

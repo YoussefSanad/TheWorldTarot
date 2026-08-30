@@ -12,6 +12,13 @@ use Illuminate\Mail\Mailables\Content;
  * Goes to everybody who buys, claimed account or not. The invitation to set a
  * password is a separate message, because a confirmation can be resent by
  * support at any time and a credential must not be.
+ *
+ * **From noreply@ since 30 August 2026, and it carries no Reply-To.** It came
+ * from orders@ until then, which is now the mailbox the internal new order
+ * notification arrives in. Adding a Reply-To pointing at support@ would make
+ * this replyable again through a different door, which is the thing Jennifer
+ * asked to close, so nothing here sets one and `MailTransportTest` reads the
+ * sent headers to say so.
  */
 class OrderPaid extends QueuedMail
 {
@@ -19,7 +26,7 @@ class OrderPaid extends QueuedMail
 
     protected function sender(): Sender
     {
-        return Sender::Orders;
+        return Sender::NoReply;
     }
 
     protected function subjectLine(): string

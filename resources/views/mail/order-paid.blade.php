@@ -13,4 +13,4 @@ Thank you, your payment has gone through.
 Total: {!! $currency !!} {!! \App\Support\Money::toMajor($total) !!}
 
 Readings are written by hand and sent to you as a PDF, so please allow a
-little time. Anything to ask, simply reply to this message.
+little time.

@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\Mail;
 | that way.** Only Resend can answer that, and the answer comes from `mail:check`
 | sending a real one. See .claude/testing.md, and the five days in M4 that were
 | lost to a suite asserting our own implementation back to itself.
+|
+| Nothing here touches the database. The one test that did now lives in
+| `MailHeadersTest`, which is why that file exists.
 */
 
 it('queues a message rather than sending it inline', function () {
@@ -74,15 +77,34 @@ it('warns when the mailer would send nothing, rather than reporting a silent suc
 it('resolves every sender to its configured address', function () {
     config()->set('mail.senders', [
         'support' => 'support@example.test',
-        'orders' => 'orders@example.test',
+        'noreply' => 'noreply@example.test',
         'fulfillment' => 'fulfillment@example.test',
     ]);
     config()->set('mail.from.name', 'The World Tarot');
 
     expect(Sender::Support->address()->address)->toBe('support@example.test')
-        ->and(Sender::Orders->address()->address)->toBe('orders@example.test')
+        ->and(Sender::NoReply->address()->address)->toBe('noreply@example.test')
         ->and(Sender::Fulfillment->address()->address)->toBe('fulfillment@example.test')
         ->and(Sender::Support->address()->name)->toBe('The World Tarot');
+});
+
+/*
+| orders@ is somewhere we receive now, and only that.
+|
+| It sent the customer's confirmation until 30 August 2026. That message leaves
+| from noreply@ since, and orders@ is where "somebody is waiting for a reading"
+| lands instead, per Jennifer on that date.
+|
+| So it is gone from the enum rather than kept as a case nothing uses. The enum
+| is documented as which address a message leaves from, and the test below walks
+| `Sender::cases()` and demands a configured address for every one of them. A
+| case for an address nothing sends from would keep collecting both of those on
+| behalf of no message at all.
+*/
+it('keeps no sender for orders, which is a mailbox we write to and never from', function () {
+    expect(array_column(Sender::cases(), 'value'))->not->toContain('orders')
+        ->and(config('mail.senders.orders'))->toBeNull()
+        ->and(config('mail.notify.orders'))->toBeString()->not->toBeEmpty();
 });
 
 it('has an address configured for every sender, so none falls back to nothing', function () {
@@ -142,7 +164,7 @@ it('queues every message this application can send', function () {
  * runs that has already happened.
  */
 it('falls back to a real address when a mail variable is present but blank', function () {
-    $blanked = ['MAIL_FROM_ADDRESS', 'MAIL_SUPPORT_ADDRESS', 'MAIL_ORDERS_ADDRESS', 'MAIL_FULFILLMENT_ADDRESS', 'MAIL_FULFILLMENT_RECIPIENT'];
+    $blanked = ['MAIL_FROM_ADDRESS', 'MAIL_SUPPORT_ADDRESS', 'MAIL_NOREPLY_ADDRESS', 'MAIL_FULFILLMENT_ADDRESS', 'MAIL_ORDERS_RECIPIENT', 'MAIL_FULFILLMENT_RECIPIENT'];
     $before = [];
 
     foreach ($blanked as $key) {
@@ -156,15 +178,20 @@ it('falls back to a real address when a mail variable is present but blank', fun
         expect(filter_var($mail['from']['address'], FILTER_VALIDATE_EMAIL))
             ->not->toBeFalse("The global from address resolved to '{$mail['from']['address']}'");
 
-        foreach (['support', 'orders', 'fulfillment'] as $sender) {
+        foreach (['support', 'noreply', 'fulfillment'] as $sender) {
             expect(filter_var($mail['senders'][$sender], FILTER_VALIDATE_EMAIL))
                 ->not->toBeFalse("The {$sender} sender resolved to '{$mail['senders'][$sender]}'");
         }
 
-        // The one that was actually broken, and the one that costs a customer
-        // a reading nobody knows to write.
-        expect(filter_var($mail['notify']['fulfillment'], FILTER_VALIDATE_EMAIL))
-            ->not->toBeFalse("The fulfillment recipient resolved to '{$mail['notify']['fulfillment']}'");
+        // Both recipients, because both of these are a message about work that
+        // is waiting. `fulfillment` is the one that was actually broken.
+        // `orders` is the one that carries it now, added 30 August 2026 with
+        // the same `?:` and for the same reason: a customer waits, and nothing
+        // anywhere looks wrong.
+        foreach (['orders', 'fulfillment'] as $recipient) {
+            expect(filter_var($mail['notify'][$recipient], FILTER_VALIDATE_EMAIL))
+                ->not->toBeFalse("The {$recipient} recipient resolved to '{$mail['notify'][$recipient]}'");
+        }
     } finally {
         foreach ($blanked as $key) {
             $before[$key] === false ? putenv($key) : putenv("{$key}={$before[$key]}");

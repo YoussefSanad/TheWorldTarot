@@ -403,10 +403,13 @@ Run this section from a browser on the real frontend origin as well as from `cur
 
 | Check | Expected |
 |---|---|
-| The customer's inbox | An order confirmation from `orders@theworldtarot.com` |
+| The customer's inbox | ~~An order confirmation from `orders@theworldtarot.com`~~ **Changed 30 August 2026, issue #47.** An order confirmation from `noreply@theworldtarot.com`, carrying no Reply-To and inviting no reply |
 | A buyer who had **no account** | Also a set-a-password invitation from `support@theworldtarot.com` |
 | A buyer who **already had an account** | **The confirmation only.** No claim link, ever, or a stranger who knows an address can cause a password mail to land in it |
 | Jennifer's inbox, for an order with a reading | One notification from `fulfillment@theworldtarot.com` carrying the question |
+| **Which inbox that notification arrives in** | **`orders@theworldtarot.com`.** Added 30 August 2026, issue #47; it landed at fulfillment@ until then. **Open the mailbox and read it there.** This row is the one check that catches the failure this issue exists to prevent, and config cannot stand in for it: sending from an address is not receiving at one, and on 13 August 2026 this same notification was addressed to an empty string, delivered nowhere, and reported as a success |
+| A disputed payment, by contrast | Still `fulfillment@theworldtarot.com`, both from and to. It kept the old key on purpose: a chargeback is not a new order and it carries a bank deadline |
+| Reply to the confirmation from a real mail client | Per Jennifer's decision, it **bounces** or is **silently discarded**. **Not yet decided and not yet configured, so this row cannot be signed off.** It needs an MX record and the choice made, and until then a reply to noreply@ goes nowhere and nobody is told. #47 |
 | Jennifer's inbox, for an order with only the pass | **Nothing.** There is no work to do |
 | An order with two readings | **One message**, not two |
 

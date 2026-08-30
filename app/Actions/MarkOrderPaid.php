@@ -229,8 +229,12 @@ class MarkOrderPaid
         // One message for the whole order rather than one per line, so Jennifer
         // gets a single thing to work from instead of three that arrive
         // together and have to be reassembled.
+        //
+        // To orders@ since 30 August 2026, its own key rather than the one the
+        // dispute mail reads. It still leaves from fulfillment@: what changed
+        // is where it lands.
         if ($this->needsAPerson($order)) {
-            Mail::to(config('mail.notify.fulfillment'))->send(new ReadingToWrite($order));
+            Mail::to(config('mail.notify.orders'))->send(new ReadingToWrite($order));
         }
     }
 }

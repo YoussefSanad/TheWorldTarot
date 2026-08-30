@@ -457,6 +457,14 @@ it('answers an event type nobody subscribed to', function () {
 */
 
 it('tells Jennifer when a customer disputes a payment', function () {
+    // Set apart so the from-address below cannot pass on two keys resolving to
+    // the same mailbox, the same way the notify keys are set apart further down.
+    config()->set('mail.senders', [
+        'support' => 'support@example.test',
+        'noreply' => 'noreply@example.test',
+        'fulfillment' => 'fulfillment@example.test',
+    ]);
+
     $order = orderCosting(7500);
     $order->forceFill(['stripe_payment_intent_id' => 'pi_disputed'])->save();
 
@@ -471,9 +479,16 @@ it('tells Jennifer when a customer disputes a payment', function () {
     ]))->assertOk();
 
     Mail::assertQueued(PaymentDisputed::class, function (PaymentDisputed $mail) use ($order): bool {
+        // From fulfillment@ as well as to it. #47 moved the new order
+        // notification to a different sender and a different mailbox, and this
+        // message was deliberately left on both. Asserted so that "deliberately
+        // left" is a thing the suite knows rather than a thing somebody
+        // remembers. The literal is pinned rather than read back through the
+        // key the implementation reads.
         return $mail->disputeId === 'dp_1'
             && $mail->amount === 7500
             && $mail->order?->id === $order->id
+            && $mail->hasFrom('fulfillment@example.test')
             && $mail->hasTo(config('mail.notify.fulfillment'));
     });
 });
@@ -504,6 +519,36 @@ it('changes nothing about a disputed order, because nothing is revoked', functio
     // recorded rather than hidden.
     expect($order->fresh()->status)->toBe(OrderStatus::Paid)
         ->and($customer->fresh()->hasViewingRoomAccess())->toBeTrue();
+});
+
+/*
+| The other half of the split, and the reason it exists.
+|
+| `mail.notify.orders` was separated out of `mail.notify.fulfillment` on
+| 30 August 2026, when new order notifications moved to orders@. A chargeback is
+| not a new order and it has a bank deadline on it, so it stayed where it was.
+|
+| The two are configured apart here so this cannot pass by both keys happening
+| to resolve to the same mailbox.
+*/
+it('sends a dispute to the fulfillment address, not to the new order mailbox', function () {
+    config()->set('mail.notify.fulfillment', 'fulfillment@example.test');
+    config()->set('mail.notify.orders', 'orders@example.test');
+
+    postToStripeWebhook(stripeEvent('charge.dispute.created', [
+        'id' => 'dp_4',
+        'object' => 'dispute',
+        'amount' => 7500,
+        'currency' => 'usd',
+        'reason' => 'fraudulent',
+        'payment_intent' => 'pi_split',
+        'status' => 'warning_needs_response',
+    ]))->assertOk();
+
+    Mail::assertQueued(PaymentDisputed::class, function (PaymentDisputed $mail): bool {
+        return $mail->hasTo('fulfillment@example.test')
+            && ! $mail->hasTo('orders@example.test');
+    });
 });
 
 it('still tells her about a dispute it cannot match to an order', function () {

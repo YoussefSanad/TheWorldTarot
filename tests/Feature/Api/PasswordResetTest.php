@@ -22,14 +22,29 @@ function customerWhoForgot(): Customer
 }
 
 it('sends a reset link to somebody who has an account', function () {
+    // The three set apart, so the from-address below fails when this message
+    // changes sender rather than passing because two keys hold one address.
+    config()->set('mail.senders', [
+        'support' => 'support@example.test',
+        'noreply' => 'noreply@example.test',
+        'fulfillment' => 'fulfillment@example.test',
+    ]);
+
     $customer = customerWhoForgot();
 
     $this->postJson('/api/v1/forgot-password', ['email' => 'jennifer@example.com'])
         ->assertOk();
 
+    // From support@, because a reset is account and access mail. Asserted from
+    // #47, which moved the confirmation to noreply@ and would have gone green
+    // just the same had it moved this one, where a customer who cannot get in
+    // has a real reason to write back and somebody needs to read it.
+    // The literal is pinned rather than read back through the key the
+    // implementation reads.
     Mail::assertQueued(
         PasswordResetLink::class,
-        fn (PasswordResetLink $mail): bool => $mail->hasTo($customer->email),
+        fn (PasswordResetLink $mail): bool => $mail->hasTo($customer->email)
+            && $mail->hasFrom('support@example.test'),
     );
 });
 
