@@ -1,13 +1,14 @@
+{{-- Text, not HTML. Escaping here corrupts, so every value is echoed raw. #45 --}}
 A customer has disputed a payment with their bank.
 
-Amount: {{ strtoupper($currency) }} {{ \App\Support\Money::toMajor($amount) }}
-Reason given: {{ $reason }}
-Stripe reference: {{ $disputeId }}
+Amount: {!! strtoupper($currency) !!} {!! \App\Support\Money::toMajor($amount) !!}
+Reason given: {!! $reason !!}
+Stripe reference: {!! $disputeId !!}
 
 @if ($order)
-Order #{{ $order->id }}, placed {{ $order->created_at?->toDayDateTimeString() }}.
+Order #{!! $order->id !!}, placed {!! $order->created_at?->toDayDateTimeString() !!}.
 @foreach ($order->lines as $line)
-- {{ $line->product?->name ?? $line->product_key->value }}{{ $line->quantity > 1 ? ' x'.$line->quantity : '' }}
+- {!! $line->product?->name ?? $line->product_key->value !!}{!! $line->quantity > 1 ? ' x'.$line->quantity : '' !!}
 @endforeach
 @else
 We could not match this to an order on this site.

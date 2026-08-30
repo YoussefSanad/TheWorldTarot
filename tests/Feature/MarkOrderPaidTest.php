@@ -186,8 +186,19 @@ it('invites an unclaimed account to choose a password', function () {
         // The trailing slash is asserted rather than tolerated. The website is
         // a static export, so the slashless address is a redirect, and a
         // receipt is the one mail we most want landing in one hop.
+        //
+        // **The `&` is asserted, not just `email=`.** This test used to check
+        // `token=` alone and could not see #45, where the view HTML-escaped the
+        // separator and the link arrived carrying a parameter named `amp;email`
+        // that the website read as no address at all. Checking `email=` would
+        // not have caught it either, because `&amp;email=` contains `email=`.
+        // What is broken is the character in front of it.
+        //
+        // `MailBodyTest` is the authority on this, off the transport rather
+        // than off `render()`. This is the near assertion, kept honest.
         return str_contains($rendered, 'https://staging.theworldtarot.com/set-password/?')
-            && str_contains($rendered, 'token=');
+            && str_contains($rendered, 'token=')
+            && str_contains($rendered, '&email=');
     });
 });
 

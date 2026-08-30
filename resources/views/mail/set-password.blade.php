@@ -1,12 +1,13 @@
-Hello {{ $name }},
+{{-- Text, not HTML. Escaping here corrupts, so every value is echoed raw. #45 --}}
+Hello {!! $name !!},
 
 Your order is confirmed, and an account has been started for you so you can
 come back to it.
 
 Choose a password here:
-{{ $url }}
+{!! $url !!}
 
-This link works for {{ $minutes }} minutes, and only once.
+This link works for {!! $minutes !!} minutes, and only once.
 
 If it expires before you get to it, you can ask for a new one from the sign in
 page at any time.
