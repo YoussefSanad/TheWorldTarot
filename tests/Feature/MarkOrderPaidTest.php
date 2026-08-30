@@ -175,7 +175,10 @@ it('invites an unclaimed account to choose a password', function () {
 
     $unclaimed = Customer::factory()->create(['password' => null]);
 
-    settle(orderFor(Product::factory()->create(), $unclaimed));
+    // A pass, since #51. This settled a reading until then, which is no longer
+    // an order that sends anything. What it is about is the link's shape, and
+    // that is unchanged by which order carries it.
+    settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
     Mail::assertQueued(SetPasswordLink::class, function (SetPasswordLink $mail): bool {
         $rendered = $mail->render();
@@ -210,6 +213,107 @@ it('never sends a claim link to an address that already has an account', functio
     // Otherwise a stranger who knows your email can cause a set-a-password
     // message to land in your inbox. It hands them nothing, and it is still a
     // phishing shaped tool pointed at our own customers.
+    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(OrderPaid::class);
+});
+
+/*
+| Option B: the claim link follows the Viewing Room, not the money.
+|
+| Decided 30 August 2026 in #46 and built as #51. Until then every unclaimed
+| buyer was invited to choose a password whatever they had bought, so the claim
+| mail was the only reason somebody who wanted a reading ever heard the word
+| "account". Jennifer read it as a signup, which is what it looks like.
+|
+| **The password exists for the films.** So the invitation moves to the purchase
+| it is actually for, and a reading buyer hears nothing about an account at all.
+| Nothing is removed: the unclaimed row is still written at settlement, because
+| it is what identity is written into and what the panel lists orders against.
+| It just stops announcing itself.
+|
+| The way in for a reading buyer who wants one is `POST /api/v1/forgot-password`,
+| which sets a first password just as well. Same journey, different name, and it
+| is what makes this safe rather than a door quietly closed. Proved further down
+| this file, in both of the broker's windows.
+*/
+
+it('says nothing about an account to somebody who only bought a reading', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    // The receipt still arrives. It is the invitation that does not, because
+    // there is nothing a password would yet let them do.
+    Mail::assertQueued(OrderPaid::class);
+    Mail::assertNotQueued(SetPasswordLink::class);
+});
+
+it('invites the buyer of a pass exactly once', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
+
+    // **Green before this change as well as after, and here on purpose.** It is
+    // the half of the rule the new condition could break by reaching too far,
+    // and a gate written against the wrong fulfillment silences this too.
+    Mail::assertQueued(SetPasswordLink::class, 1);
+});
+
+it('invites the buyer of an order holding a reading and a pass', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+    $order = Order::factory()->for($unclaimed)->create();
+
+    foreach ([Product::factory()->pass()->create(), Product::factory()->create()] as $product) {
+        $order->lines()->create([
+            'product_id' => $product->id,
+            'product_key' => $product->key,
+            'unit_amount' => $product->price_usd,
+            'quantity' => 1,
+        ]);
+    }
+
+    settle($order);
+
+    // It contains a pass, and the pass is what the password is for. The reading
+    // sitting beside it does not withdraw the invitation.
+    Mail::assertQueued(SetPasswordLink::class, 1);
+});
+
+/*
+| The journey the decision was built around.
+|
+| Somebody buys a reading and hears nothing about an account. Weeks later they
+| buy the pass, and are asked for a password at the one moment the reason for it
+| is self-evident.
+|
+| **Its own test rather than an inference from the three above**, because what
+| it proves is that two settlements compose: the silence on the first does not
+| spend the invitation the second owes. Nothing in the three cases taken
+| separately would fail if it did.
+*/
+it('invites a reading buyer the day they come back for the pass, and not before', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    settle(orderFor(Product::factory()->create(), $unclaimed));
+
+    Mail::assertNotQueued(SetPasswordLink::class);
+
+    $this->travel(3)->weeks();
+
+    settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
+
+    Mail::assertQueued(SetPasswordLink::class, 1);
+});
+
+it('never sends a claim link to a claimed account that has just bought a pass', function () {
+    $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
+
+    settle(orderFor(Product::factory()->pass()->create(), $claimed));
+
+    // **The phishing rule outranks the new one.** A pass is now the only order
+    // shape that reaches the send at all, so it is the shape the rule is worth
+    // proving on. The case above it, on a reading, no longer reaches far enough
+    // to be that proof on its own.
     Mail::assertNotQueued(SetPasswordLink::class);
     Mail::assertQueued(OrderPaid::class);
 });
@@ -336,12 +440,19 @@ function anOrderHolding(string $state): Order
 it('leaves the first claim link working when a second order is paid', function () {
     $unclaimed = Customer::factory()->create(['password' => null]);
 
-    settle(orderFor(Product::factory()->create(), $unclaimed));
+    // **One pass, bought on two orders.** There is one Viewing Room row in the
+    // catalogue, and `products.key` is unique, so both orders name the same
+    // one. Reachable rather than contrived: buying the pass while holding it is
+    // refused at placement, and somebody who places two orders before either
+    // settles holds nothing yet, so both go through and both reach here.
+    $pass = Product::factory()->pass()->create();
+
+    settle(orderFor($pass, $unclaimed));
 
     $firstLink = Mail::queued(SetPasswordLink::class)->first();
     $token = (fn (): string => $this->token)->call($firstLink);
 
-    settle(orderFor(Product::factory()->create(), $unclaimed));
+    settle(orderFor($pass, $unclaimed));
 
     // The second receipt still arrives. It is the claim mail that is not
     // repeated, because repeating it is what killed the link in the first one.
@@ -354,15 +465,16 @@ it('leaves the first claim link working when a second order is paid', function (
 
 it('mints a fresh claim link once the outstanding one has expired', function () {
     $unclaimed = Customer::factory()->create(['password' => null]);
+    $pass = Product::factory()->pass()->create();
 
-    settle(orderFor(Product::factory()->create(), $unclaimed));
+    settle(orderFor($pass, $unclaimed));
 
     $this->travel(config('auth.passwords.customers.expire') + 1)->minutes();
 
     // Suppressing the second mail is only right while the first link is worth
     // something. An hour later it is not, and a customer buying again would
     // otherwise be handed a receipt with no way into their account.
-    settle(orderFor(Product::factory()->create(), $unclaimed));
+    settle(orderFor($pass, $unclaimed));
 
     Mail::assertQueued(SetPasswordLink::class, 2);
 });
@@ -373,7 +485,7 @@ it('still invites somebody whose only outstanding token belongs to another addre
         Customer::factory()->create(['email' => 'somebody-else@example.com', 'password' => null])
     );
 
-    settle(orderFor(Product::factory()->create(), $unclaimed));
+    settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
     Mail::assertQueued(SetPasswordLink::class, 1);
 });
@@ -399,7 +511,7 @@ it('still invites somebody whose only outstanding token belongs to another addre
 it('sends nothing and spends nothing when a reset is asked for inside the broker throttle', function () {
     $unclaimed = Customer::factory()->create(['password' => null]);
 
-    settle(orderFor(Product::factory()->create(), $unclaimed));
+    settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
     $claimToken = (fn (): string => $this->token)->call(Mail::queued(SetPasswordLink::class)->first());
 
@@ -419,7 +531,7 @@ it('sends nothing and spends nothing when a reset is asked for inside the broker
 it('replaces an outstanding claim token once the throttle has passed, and the reset link works', function () {
     $unclaimed = Customer::factory()->create(['password' => null]);
 
-    settle(orderFor(Product::factory()->create(), $unclaimed));
+    settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
     $claimToken = (fn (): string => $this->token)->call(Mail::queued(SetPasswordLink::class)->first());
 

@@ -6,6 +6,7 @@ use App\Mail\OrderPaid;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -144,18 +145,24 @@ it('falls back to the address for a name the wallet did not collect', function (
 });
 
 it('everything downstream of settlement works for a wallet identity', function () {
-    $order = unownedOrderWorth(2500, 'pi_wallet');
+    // A pass, because the claim link follows the Viewing Room rather than the
+    // payment. What this test is about is that the wallet road reaches the same
+    // downstream as the hosted one, not which product was bought.
+    $order = unownedOrderWorth(2500, 'pi_wallet', Product::factory()->pass());
     stripeWithNoSessionAndACharge(['email' => 'jennifer@example.com', 'name' => 'Jennifer']);
 
     app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet'));
 
-    // The receipt, and the invitation to claim the account that was just made.
+    // The receipt, and the invitation to choose a password for the pass that
+    // was just granted.
     Mail::assertQueued(OrderPaid::class);
     Mail::assertQueued(SetPasswordLink::class);
 });
 
 it('settles a wallet payment exactly once however many times it is redelivered', function () {
-    $order = unownedOrderWorth(2500, 'pi_wallet');
+    // A pass, so that the claim link is in play at all and the redelivery has
+    // two messages to be counted against rather than one.
+    $order = unownedOrderWorth(2500, 'pi_wallet', Product::factory()->pass());
     stripeWithNoSessionAndACharge(['email' => 'jennifer@example.com', 'name' => 'Jennifer']);
 
     expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeTrue()

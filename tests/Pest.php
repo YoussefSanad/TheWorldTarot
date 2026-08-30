@@ -5,6 +5,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Payments\StripePayment;
 use App\Support\Locales;
+use Database\Factories\ProductFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Password;
 use Stripe\Collection;
@@ -213,11 +214,18 @@ function orderWorth(int $amount, string $currency = 'USD'): Order
  * **Name the intent when the road matters.** It has to match what
  * `paymentFor()` is handed, since that is the id settlement looks the order up
  * against.
+ *
+ * **Name the product when what was bought matters.** A reading by default,
+ * because the amount is what most of these tests are about and a reading is the
+ * ordinary order. Hand it `Product::factory()->pass()` where the question is
+ * what settlement says to somebody who has just bought their way in, since a
+ * claim link now follows the Viewing Room rather than the payment. The amount
+ * is stamped onto whatever it is given, so the two stay independent.
  */
-function unownedOrderWorth(int $amount, string $intentId = 'pi_hosted'): Order
+function unownedOrderWorth(int $amount, string $intentId = 'pi_hosted', ?ProductFactory $product = null): Order
 {
     return Order::factory()
-        ->forProduct(Product::factory()->create([
+        ->forProduct(($product ?? Product::factory())->create([
             'price_usd' => $amount,
             'price_eur' => $amount,
             'price_gbp' => $amount,

@@ -98,12 +98,10 @@ class MarkOrderPaid
     {
         $order->load('lines.product', 'customer');
 
-        foreach ($order->lines as $line) {
-            if ($line->product?->fulfillment === Fulfillment::AccessGrant) {
-                // Granting twice keeps the first date on purpose, so a
-                // duplicate settlement cannot rewrite when somebody got in.
-                $order->customer->grantViewingRoomAccess();
-            }
+        if ($this->grantsAccess($order)) {
+            // Granting twice keeps the first date on purpose, so a duplicate
+            // settlement cannot rewrite when somebody got in.
+            $order->customer->grantViewingRoomAccess();
         }
 
         // **An order nobody has to do anything about is already fulfilled.**
@@ -136,6 +134,31 @@ class MarkOrderPaid
     {
         return $order->lines->contains(
             fn ($line): bool => $line->product?->fulfillment === Fulfillment::ManualPdf,
+        );
+    }
+
+    /**
+     * Whether anything on this order lets somebody into the Viewing Room.
+     *
+     * Asked twice by two callers and answered once, for the same reason as
+     * `needsAPerson` above: two answers that must agree, derived a few lines
+     * apart, and nothing failing if they came apart. An order that sends an
+     * invitation to a password nobody has any use for, and one that grants a
+     * pass while staying silent about the key to it, are the two shapes of that
+     * disagreement.
+     *
+     * **A pass is what the password is for**, which is why `tell()` asks this
+     * at all. Decided 30 August 2026 as option B of #46, built as #51: until
+     * then every unclaimed buyer was invited to choose one, so the claim mail
+     * was the only reason a reading buyer ever heard the word "account".
+     *
+     * Driven by `fulfillment` rather than by the product's type, so an add-on
+     * that grants access is covered without being named here.
+     */
+    private function grantsAccess(Order $order): bool
+    {
+        return $order->lines->contains(
+            fn ($line): bool => $line->product?->fulfillment === Fulfillment::AccessGrant,
         );
     }
 
@@ -178,6 +201,16 @@ class MarkOrderPaid
 
         Mail::to($customer->email)->send(new OrderPaid($order));
 
+        // **The claim link follows the Viewing Room, not the money.** A password
+        // is what gets somebody back to the films, so it is asked for on the
+        // order that grants them and on no other. A reading is written by hand
+        // and arrives as a PDF, and needs no account to read, so a reading
+        // buyer never hears the word. An order holding both does send it: it
+        // contains a pass, and the pass is what the password is for.
+        //
+        // Somebody who wants to sign in without ever having bought a pass asks
+        // for a reset link, which sets a first password just as well.
+        //
         // **A claim link goes only to an account nobody has claimed.** Sending
         // one to an address that already has an account would mean a stranger
         // who knows your email can cause a set-a-password message to land in
@@ -186,7 +219,7 @@ class MarkOrderPaid
         //
         // **And only when there is not already one in their inbox**, for the
         // reason in `holdsALiveClaimLink`.
-        if ($customer->isUnclaimed() && ! $this->holdsALiveClaimLink($customer)) {
+        if ($this->grantsAccess($order) && $customer->isUnclaimed() && ! $this->holdsALiveClaimLink($customer)) {
             Mail::to($customer->email)->send(new SetPasswordLink(
                 $customer,
                 Password::broker('customers')->createToken($customer),

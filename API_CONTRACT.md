@@ -341,14 +341,14 @@ Who you are talking to. Requires authentication. **401** when not signed in, whi
 
 #### POST /api/v1/set-password
 
-The same body as a reset, and a **different endpoint on purpose**: this is somebody claiming the account that was created for them when they bought something, following the link in the mail that arrives once their order is paid.
+The same body as a reset, and a **different endpoint on purpose**: this is somebody claiming the account that was created for them when they bought something, following the link in the mail that arrives once their order is paid. **Since 30 August 2026 that mail is sent only for an order that grants Viewing Room access**, so in practice this is a pass buyer choosing their first password. A reading buyer is never sent one and reaches the same place through `/api/v1/forgot-password`, which sets a first password just as well.
 
 **200** on success. **422** on a used or expired token, and equally on an account that already has a password.
 
 - **It works exactly once, on an account that has never had a password.** After that the link is worth nothing even inside its 60 minutes, and changing a password becomes an ordinary reset
 - **Build it as its own page with its own words.** Nothing is being reset, and telling somebody to "reset" a password they never had reads as a mistake on our side
 - A failure here says the link is no longer valid without saying which of the possible reasons applies, for the same reason the sign in failure is vague
-- **One live claim link per address at a time.** Somebody who buys twice inside the hour gets the claim link in the first receipt only, and the second receipt carries none. Minting a second link deletes the first, so sending both would mean two receipts of which one is already dead and neither says which. Nothing for you to render differently, and worth knowing when a customer says their link is missing from a receipt
+- **One live claim link per address at a time.** Somebody whose orders reach the send twice inside the hour gets the claim link in the first receipt only, and the second receipt carries none. Since the mail follows the pass rather than the payment, that now takes two pass orders settling together, which is possible because buying the pass while holding it is refused at placement but two orders placed before either settles both go through. Minting a second link deletes the first, so sending both would mean two receipts of which one is already dead and neither says which. Nothing for you to render differently, and worth knowing when a customer says their link is missing from a receipt
 - **Asking for a reset link inside 60 seconds of a claim link being minted sends nothing at all**, because that is the broker's throttle. `/api/v1/forgot-password` still answers its usual 200 with its usual body, so this is invisible on the wire and is exactly the case its wording is written for. The claim link they already hold is untouched and still works
 
 ### Orders
@@ -389,7 +389,7 @@ No language segment: an order is the same order whatever language it was placed 
 
 - **`name` and `email` are optional for a guest, since 29 August 2026, and ignored for a signed-in customer**, who always gets their own account. Nobody can attach an order to somebody else while authenticated as themselves. **This relaxes a requirement rather than removing a capability**: an order that arrives with a name and an email behaves exactly as it always has, and if you already collect them, keep sending them
 - **A guest order that arrives with no identity gets one at settlement**, filled from the Checkout Session's `customer_details`, which is where Stripe's page collects the buyer's email. An identity the order already carried is never overwritten. An order that is abandoned therefore stays `pending` holding nobody, which is safe, because placing an order sends no mail. Reasoning in `docs/adr/0002-the-redirect-case-comes-back.md`
-- **An email with no account gets one made for it**, with no password. It cannot be signed in to until they follow the claim link, which arrives when the order is paid and never when it is placed
+- **An email with no account gets one made for it**, with no password. It cannot be signed in to until a password is set. **A claim link arrives only when the paid order grants Viewing Room access**, and never when an order is placed. A reading buyer is sent nothing about an account at all and sets a first password through `/api/v1/forgot-password` if they ever want to sign in
 - **`currency` is required and is taken exactly as sent.** No detection happens here. It is one currency for the whole order, because a basket priced in two has no total. An unsupported one is a 422 rather than a fallback
 - **`quantity` defaults to 1**, maximum 10 per line. At most 10 lines
 - **`question` is refused with a 422 on any product whose `allows_question` is false**, and is never required on one where it is true

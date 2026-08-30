@@ -81,12 +81,16 @@ it('asks Stripe for the session belonging to the intent that paid', function () 
 });
 
 it('everything downstream of settlement works for an identity that arrived late', function () {
-    $order = unownedOrderWorth(2500);
+    // A pass, because the claim link follows the Viewing Room rather than the
+    // payment. On a reading this settles exactly as well and sends one message
+    // fewer, which is issue #51 and not what this test is watching.
+    $order = unownedOrderWorth(2500, product: Product::factory()->pass());
     stripeAnswering([['email' => 'jennifer@example.com', 'name' => 'Jennifer']]);
 
     app(RecordStripePayment::class)(paymentFor($order));
 
-    // The receipt, and the invitation to claim the account that was just made.
+    // The receipt, and the invitation to choose a password for the pass that
+    // was just granted.
     Mail::assertQueued(OrderPaid::class);
     Mail::assertQueued(SetPasswordLink::class);
 });
@@ -200,7 +204,9 @@ it('settles on a later attempt once Stripe can say who paid', function () {
 });
 
 it('settles an unowned order exactly once however many times it is redelivered', function () {
-    $order = unownedOrderWorth(2500);
+    // A pass, so that the claim link is in play at all and the redelivery has
+    // two messages to be counted against rather than one.
+    $order = unownedOrderWorth(2500, product: Product::factory()->pass());
     stripeAnswering([['email' => 'jennifer@example.com', 'name' => 'Jennifer']]);
 
     expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeTrue()
@@ -209,8 +215,8 @@ it('settles an unowned order exactly once however many times it is redelivered',
         ->and(app(RecordStripePayment::class)(paymentFor($order)))->toBeFalse()
         ->and(Customer::count())->toBe(1);
 
-    // One receipt and one claim link, plus the one telling Jennifer there is a
-    // reading to write. Not two of any of them.
+    // One receipt and one claim link. Not two of either. Nothing goes to
+    // Jennifer here, because a pass has no reading to write.
     Mail::assertQueued(OrderPaid::class, 1);
     Mail::assertQueued(SetPasswordLink::class, 1);
 });

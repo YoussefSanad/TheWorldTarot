@@ -1,10 +1,9 @@
 {{-- Text, not HTML. Escaping here corrupts, so every value is echoed raw. #45 --}}
 Hello {!! $name !!},
 
-Your order is confirmed, and an account has been started for you so you can
-come back to it.
+Your Viewing Room pass is ready. Choose a password here and the films are yours
+to come back to whenever you like, on any device:
 
-Choose a password here:
 {!! $url !!}
 
 This link works for {!! $minutes !!} minutes, and only once.
