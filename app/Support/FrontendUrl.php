@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Enums\ProductKey;
+
 /**
  * Links into the website.
  *
@@ -42,12 +44,60 @@ class FrontendUrl
     }
 
     /**
+     * Where Stripe returns a customer who paid.
+     *
+     * **`{CHECKOUT_SESSION_ID}` is Stripe's own placeholder**, substituted into
+     * the address when it sends the browser here, so it is appended after the
+     * query is built and never encoded. The page hands the id straight back to
+     * `POST /orders/status`, because a publishable key cannot resolve it.
+     */
+    public static function checkoutComplete(): string
+    {
+        return self::to(config('frontend.paths.checkout_complete'))
+            .'?session_id={CHECKOUT_SESSION_ID}';
+    }
+
+    /**
+     * A reading's page, or the index of them when no reading is named.
+     *
+     * Where a cancelled checkout lands. **The page is named by a `ProductKey`
+     * and never by a string**, which is the whole reason `return_to` is
+     * validated as an enum: the enum's values are already the frontend's slugs,
+     * so nothing a caller typed is ever concatenated into an address.
+     */
+    public static function readings(?ProductKey $reading = null): string
+    {
+        $index = self::to(config('frontend.paths.readings'));
+
+        return $reading instanceof ProductKey ? $index.$reading->value.'/' : $index;
+    }
+
+    /**
      * @param  array<string, string>  $query
      */
     private static function to(string $path, array $query = []): string
     {
-        $url = rtrim((string) config('frontend.url'), '/').'/'.ltrim($path, '/');
+        $url = rtrim((string) config('frontend.url'), '/').'/'.self::page($path);
 
         return $query === [] ? $url : $url.'?'.http_build_query($query);
+    }
+
+    /**
+     * The page's path, always ending in a slash.
+     *
+     * The website is a static export built with `trailingSlash`, confirmed by
+     * the partner on 28 August 2026, so every address there ends in one and the
+     * slashless form is a redirect. The configuration is still the authority on
+     * **which** page we link to; this only settles the slash, because a value
+     * typed without one into an environment dashboard is not a decision anybody
+     * took and costs every mail we send a hop.
+     *
+     * A hop is not merely untidy on these two links. They carry a single-use
+     * token, and a scanner that follows the redirect on the way to the inbox
+     * spends it before the person reading ever clicks.
+     */
+    private static function page(string $path): string
+    {
+        return rtrim(ltrim($path, '/'), '/').'/';
     }
 }

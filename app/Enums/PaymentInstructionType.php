@@ -24,10 +24,28 @@ enum PaymentInstructionType: string
     case NothingToPay = 'nothing_to_pay';
 
     /**
-     * Confirm the payment in the page, with this.
+     * Confirm the payment in the page, with this. A PaymentIntent's secret,
+     * which the express checkout element confirms against, since
+     * 29 August 2026.
+     *
+     * **Published, withdrawn on 26 August 2026 as a case with no caller, and
+     * back three days later** because the client asked for the wallet buttons
+     * on our own reading page alongside the hosted page for the card. See
+     * docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md.
      *
      * **A credential with the order's money attached**, so it belongs in a
      * response that is never cached and never logged.
      */
     case ClientSecret = 'client_secret';
+
+    /**
+     * Send the browser here. Stripe's hosted Checkout Session, since
+     * 29 August 2026, and the card button rather than every button.
+     *
+     * **Published, withdrawn on 26 August 2026 as a case with no caller, and
+     * back five days later** because the frontend chose one button of a known
+     * size over a wallet sheet whose height it cannot lay out around. See
+     * docs/adr/0002-the-redirect-case-comes-back.md.
+     */
+    case Redirect = 'redirect';
 }

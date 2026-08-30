@@ -58,6 +58,29 @@ class Customer extends Authenticatable
     }
 
     /**
+     * Whether nobody has ever claimed this account.
+     *
+     * **An account with no password is a real thing in this domain**, not a
+     * half-written row. It is what a purchase creates for somebody who has
+     * never signed up, it is the only kind of account a claim link is worth
+     * sending to, and it is what makes that link work exactly once.
+     *
+     * Three modules ask this, for three questions that sound different and are
+     * the same fact: whether a claim link should go out, whether one is still
+     * worth anything, and whether there is a hash to check a sign in against.
+     * They used to spell the comparison out separately and agree only because
+     * all three happened to write it the same way.
+     *
+     * **A null column is the whole answer, for now.** The day claiming means
+     * anything more, an `invited_at`, a claim that expires, a second product
+     * that creates accounts, this is the one place that has to learn it.
+     */
+    public function isUnclaimed(): bool
+    {
+        return $this->password === null;
+    }
+
+    /**
      * Whether this customer may watch the Living Tarot videos.
      *
      * The pass is bought once and never expires, so the presence of the stamp is

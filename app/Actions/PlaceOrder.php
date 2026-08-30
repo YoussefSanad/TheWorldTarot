@@ -22,9 +22,17 @@ class PlaceOrder
     /**
      * @param  array<int, array{product: string, quantity?: int, question?: string|null}>  $lines
      */
-    public function __invoke(Customer $customer, string $currency, array $lines): Order
+    public function __invoke(?Customer $customer, string $currency, array $lines): Order
     {
-        $basket = Basket::forCustomer($customer, $currency, $lines);
+        // **Null is a buyer nobody knows anything about yet**, which is what
+        // Stripe's hosted page leaves us with until it settles: it collects
+        // the email after the order exists. The basket is then a basket with
+        // no owner, and the rules that need one say so themselves rather than
+        // being skipped here. See
+        // `docs/adr/0002-the-redirect-case-comes-back.md`.
+        $basket = $customer instanceof Customer
+            ? Basket::forCustomer($customer, $currency, $lines)
+            : Basket::forGuest(null, $currency, $lines);
 
         // **The guard is here as well as in the form request, and that is not
         // belt and braces.** StoreOrderRequest is the right place for the rule,
@@ -70,7 +78,7 @@ class PlaceOrder
         // nothing and lines without their order are unreachable.
         return DB::transaction(function () use ($customer, $currency, $total, $priced): Order {
             $order = Order::create([
-                'customer_id' => $customer->id,
+                'customer_id' => $customer?->id,
                 'status' => OrderStatus::Pending,
                 'currency' => $currency,
                 'total_amount' => $total,

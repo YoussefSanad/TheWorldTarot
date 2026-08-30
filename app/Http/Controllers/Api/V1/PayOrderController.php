@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\ProductKey;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\PayOrderRequest;
 use App\Http\Resources\Api\V1\PaymentInstructionResource;
@@ -32,8 +33,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * **Hard rule 14, a departure from .claude/api.md stated rather than built
  * around.** That file says a slow downstream is queued and never called inside
  * a request. This endpoint calls Stripe synchronously, and it has to: the
- * client secret it returns is what lets the page take the payment, so there is
- * nobody to hand it to later. A job would finish after the response that needed
+ * address it returns is the Checkout Session the browser is about to be sent
+ * to, so there is nobody to hand it to later. A job would finish after the response that needed
  * its result.
  *
  * What the rule is actually protecting against is a worker held open by
@@ -71,12 +72,24 @@ class PayOrderController extends Controller
      * themselves interacting with an order that is not theirs, which is the
      * shape a leaked token plus an account would otherwise take.
      *
+     * **An order belonging to nobody is not somebody else's.** Orders have been
+     * allowed to wait for their customer since 29 August 2026, so a hosted
+     * checkout leaves `customer_id` null until the webhook learns who paid, and
+     * paying is precisely where that gap is. Comparing a key against null would
+     * answer 404 to somebody signing in mid-checkout and then paying for their
+     * own order, permanently, and the token is the whole authority here in any
+     * case.
+     *
      * The guard is named, as it is in OrderController and for the same reason:
      * this route carries no auth middleware, so a bare `user()` would ask the
      * session guard and silently see nobody when a bearer token arrived.
      */
     private function refuseAnybodyElse(PayOrderRequest $request, Order $order): void
     {
+        if ($order->customer_id === null) {
+            return;
+        }
+
         $signedIn = $request->user('sanctum');
 
         if ($signedIn instanceof Customer && $signedIn->getKey() !== $order->customer_id) {
@@ -98,7 +111,15 @@ class PayOrderController extends Controller
             return PaymentInstruction::nothingToPay();
         }
 
-        return $methods->resolve($request->validated('method'))->begin($order);
+        // Validated to a `ProductKey` or to nothing. The gateway is handed the
+        // enum rather than a string, so nothing a caller typed can reach an
+        // address even by accident.
+        $returnTo = $request->validated('return_to');
+
+        return $methods->resolve($request->validated('method'))->begin(
+            $order,
+            $returnTo === null ? null : ProductKey::from($returnTo),
+        );
     }
 
     private function answer(PaymentInstruction $instruction, Request $request): JsonResponse

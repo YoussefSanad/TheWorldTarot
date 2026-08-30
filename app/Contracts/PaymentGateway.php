@@ -2,6 +2,7 @@
 
 namespace App\Contracts;
 
+use App\Enums\ProductKey;
 use App\Models\Order;
 use App\Payments\PaymentInstruction;
 
@@ -37,6 +38,17 @@ interface PaymentGateway
      * customer who abandoned a checkout and came back, or whose card was
      * declined, retries against the order they already have rather than
      * building a new one.
+     *
+     * @param  ProductKey|null  $returnTo  Which reading page the customer came
+     *                                     from, so a method that sends them
+     *                                     away can send them back to it. **An
+     *                                     enum rather than a path or a URL**:
+     *                                     its values are already the frontend's
+     *                                     reading-page slugs, so no string a
+     *                                     caller typed ever reaches an address.
+     *                                     A method that collects in the page
+     *                                     has nowhere to return from and
+     *                                     ignores it.
      */
-    public function begin(Order $order): PaymentInstruction;
+    public function begin(Order $order, ?ProductKey $returnTo = null): PaymentInstruction;
 }

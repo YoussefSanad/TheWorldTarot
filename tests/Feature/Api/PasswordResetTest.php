@@ -5,7 +5,6 @@ use App\Models\Customer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Password;
 
 uses(RefreshDatabase::class);
 
@@ -20,15 +19,6 @@ function customerWhoForgot(): Customer
         'email' => 'jennifer@example.com',
         'password' => 'the-old-password',
     ]);
-}
-
-/**
- * The token as the customer receives it, which is the only place it exists in
- * readable form. The table stores a hash of it.
- */
-function resetTokenFor(Customer $customer): string
-{
-    return Password::broker('customers')->createToken($customer);
 }
 
 it('sends a reset link to somebody who has an account', function () {
@@ -54,7 +44,9 @@ it('points the link at the website, never at this API', function () {
 
         // This API renders nothing a customer can use, per hard rule 1. A link
         // back here is a dead end, and it is what the framework does by default.
-        return str_contains($rendered, 'https://staging.theworldtarot.com/reset-password?')
+        // Slash included: the website is a static export and the slashless
+        // form redirects.
+        return str_contains($rendered, 'https://staging.theworldtarot.com/reset-password/?')
             && str_contains($rendered, 'token=')
             && ! str_contains($rendered, config('app.url').'/reset-password');
     });
@@ -76,7 +68,7 @@ it('answers an unknown address exactly as it answers a known one, and sends noth
 
 it('changes the password and lets them sign in with the new one', function () {
     $customer = customerWhoForgot();
-    $token = resetTokenFor($customer);
+    $token = passwordTokenFor($customer);
 
     $this->postJson('/api/v1/reset-password', [
         'token' => $token,
@@ -97,7 +89,7 @@ it('refuses the old password afterwards', function () {
     $customer = customerWhoForgot();
 
     $this->postJson('/api/v1/reset-password', [
-        'token' => resetTokenFor($customer),
+        'token' => passwordTokenFor($customer),
         'email' => 'jennifer@example.com',
         'password' => 'a-brand-new-password',
         'password_confirmation' => 'a-brand-new-password',
@@ -111,7 +103,7 @@ it('refuses the old password afterwards', function () {
 
 it('refuses a token that has already been used', function () {
     $customer = customerWhoForgot();
-    $token = resetTokenFor($customer);
+    $token = passwordTokenFor($customer);
 
     $payload = [
         'token' => $token,
@@ -130,7 +122,7 @@ it('refuses a token that has already been used', function () {
 
 it('refuses a token that has expired', function () {
     $customer = customerWhoForgot();
-    $token = resetTokenFor($customer);
+    $token = passwordTokenFor($customer);
 
     $this->travel(config('auth.passwords.customers.expire') + 1)->minutes();
 
@@ -158,7 +150,7 @@ it('refuses a real token belonging to somebody else', function () {
     $other = Customer::factory()->create(['email' => 'someone@example.com']);
 
     $this->postJson('/api/v1/reset-password', [
-        'token' => resetTokenFor($other),
+        'token' => passwordTokenFor($other),
         'email' => 'jennifer@example.com',
         'password' => 'a-brand-new-password',
         'password_confirmation' => 'a-brand-new-password',
@@ -171,7 +163,7 @@ it('holds the new password to the same rules as registering', function () {
     $customer = customerWhoForgot();
 
     $this->postJson('/api/v1/reset-password', [
-        'token' => resetTokenFor($customer),
+        'token' => passwordTokenFor($customer),
         'email' => 'jennifer@example.com',
         'password' => 'short',
         'password_confirmation' => 'short',
@@ -186,7 +178,7 @@ it('signs every device out when the password changes', function () {
     expect($customer->tokens()->count())->toBe(2);
 
     $this->postJson('/api/v1/reset-password', [
-        'token' => resetTokenFor($customer),
+        'token' => passwordTokenFor($customer),
         'email' => 'jennifer@example.com',
         'password' => 'a-brand-new-password',
         'password_confirmation' => 'a-brand-new-password',

@@ -207,12 +207,78 @@ it('uses the signed in customer and ignores whatever email was typed', function 
         ->and(Customer::where('email', 'someone-else@example.com')->exists())->toBeFalse();
 });
 
-it('needs a name and an email from somebody who is not signed in', function () {
+it('takes an order from somebody who has given no name and no email', function () {
+    // Since 29 August 2026. Stripe's hosted page collects the email after the
+    // order exists, so requiring one here would be asking twice for the same
+    // address. See docs/adr/0002-the-redirect-case-comes-back.md.
     sellable();
 
-    $this->postJson('/api/v1/orders', ['currency' => 'USD', 'lines' => [['product' => 'one-card']]])
+    $response = $this->postJson('/api/v1/orders', [
+        'currency' => 'USD',
+        'lines' => [['product' => 'one-card']],
+    ])->assertStatus(201);
+
+    $order = Order::findOrFail($response->json('id'));
+
+    expect($order->customer_id)->toBeNull()
+        ->and($order->status)->toBe(OrderStatus::Pending)
+        ->and($order->total_amount)->toBe(2500)
+        ->and($order->pay_token)->not->toBeNull()
+        ->and($response->json('pay_token'))->toBe($order->pay_token)
+        ->and(Customer::count())->toBe(0);
+});
+
+it('creates no customer for an order that named nobody', function () {
+    // An abandoned checkout must leave nothing behind that looks like an
+    // account, because an account with no address cannot be one.
+    sellable();
+
+    $this->postJson('/api/v1/orders', [
+        'currency' => 'USD',
+        'lines' => [['product' => 'one-card']],
+    ])->assertStatus(201);
+
+    expect(Customer::count())->toBe(0);
+});
+
+it('reads an empty name and email as nobody rather than as bad input', function () {
+    // A form that posts every field it has sends "" for one left alone.
+    // Refusing that with "must be a valid email" would refuse an order that is
+    // now allowed to carry no address at all.
+    sellable();
+
+    $response = $this->postJson('/api/v1/orders', orderPayload(['name' => '', 'email' => '']))
+        ->assertStatus(201);
+
+    expect(Order::findOrFail($response->json('id'))->customer_id)->toBeNull();
+});
+
+it('still wants a name from a guest who gave an address', function () {
+    // Identity arrives as a pair or not at all. An account is created from the
+    // address, and a customer with no name is one every message hedges around.
+    sellable();
+
+    $this->postJson('/api/v1/orders', [
+        'email' => 'jennifer@example.com',
+        'currency' => 'USD',
+        'lines' => [['product' => 'one-card']],
+    ])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['name', 'email']);
+        ->assertJsonValidationErrors(['name'])
+        ->assertJsonMissingValidationErrors(['email']);
+});
+
+it('behaves exactly as before for an order that carries an identity', function () {
+    // This relaxed a requirement. It did not remove a capability.
+    sellable();
+
+    $response = $this->postJson('/api/v1/orders', orderPayload())->assertStatus(201);
+
+    $order = Order::findOrFail($response->json('id'));
+
+    expect($order->customer->email)->toBe('jennifer@example.com')
+        ->and($order->customer->name)->toBe('Jennifer Eisenberger')
+        ->and($order->customer->password)->toBeNull();
 });
 
 it('needs neither from somebody who is', function () {

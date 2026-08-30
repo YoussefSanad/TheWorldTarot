@@ -3,7 +3,6 @@
 use App\Models\Customer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Password;
 
 uses(RefreshDatabase::class);
 
@@ -19,11 +18,6 @@ function unclaimed(): Customer
     ]);
 }
 
-function claimToken(Customer $customer): string
-{
-    return Password::broker('customers')->createToken($customer);
-}
-
 function claimPayload(string $token, array $overrides = []): array
 {
     return array_merge([
@@ -37,7 +31,7 @@ function claimPayload(string $token, array $overrides = []): array
 it('lets somebody claim the account made when they bought something', function () {
     $customer = unclaimed();
 
-    $this->postJson('/api/v1/set-password', claimPayload(claimToken($customer)))
+    $this->postJson('/api/v1/set-password', claimPayload(passwordTokenFor($customer)))
         ->assertOk();
 
     expect(Hash::check('a-brand-new-password', $customer->fresh()->password))->toBeTrue();
@@ -50,7 +44,7 @@ it('lets somebody claim the account made when they bought something', function (
 
 it('works once and then never again', function () {
     $customer = unclaimed();
-    $payload = claimPayload(claimToken($customer));
+    $payload = claimPayload(passwordTokenFor($customer));
 
     $this->postJson('/api/v1/set-password', $payload)->assertOk();
 
@@ -70,7 +64,7 @@ it('cannot be used to change a password on an account that already has one', fun
     // A real token, correctly issued, and still refused. Changing a password
     // after claiming is a reset, which needs a fresh link to a mailbox somebody
     // is currently reading.
-    $this->postJson('/api/v1/set-password', claimPayload(claimToken($claimed)))
+    $this->postJson('/api/v1/set-password', claimPayload(passwordTokenFor($claimed)))
         ->assertStatus(422);
 
     expect(Hash::check('the-original-password', $claimed->fresh()->password))->toBeTrue();
@@ -101,7 +95,7 @@ it('refuses an invented token', function () {
 
 it('refuses a token that has expired', function () {
     $customer = unclaimed();
-    $token = claimToken($customer);
+    $token = passwordTokenFor($customer);
 
     $this->travel(config('auth.passwords.customers.expire') + 1)->minutes();
 
@@ -113,7 +107,7 @@ it('refuses a token that has expired', function () {
 it('holds the first password to the same rules as every other', function () {
     $customer = unclaimed();
 
-    $this->postJson('/api/v1/set-password', claimPayload(claimToken($customer), [
+    $this->postJson('/api/v1/set-password', claimPayload(passwordTokenFor($customer), [
         'password' => 'short',
         'password_confirmation' => 'short',
     ]))->assertStatus(422)->assertJsonValidationErrors('password');
@@ -123,7 +117,7 @@ it('refuses somebody else\'s token', function () {
     unclaimed();
     $other = Customer::factory()->create(['email' => 'someone@example.com', 'password' => null]);
 
-    $this->postJson('/api/v1/set-password', claimPayload(claimToken($other)))
+    $this->postJson('/api/v1/set-password', claimPayload(passwordTokenFor($other)))
         ->assertStatus(422);
 
     expect(Customer::firstWhere('email', 'jennifer@example.com')->password)->toBeNull();

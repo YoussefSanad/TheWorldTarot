@@ -2,10 +2,13 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Http\Requests\Api\V1\Concerns\NormalisesEmail;
 use Illuminate\Foundation\Http\FormRequest;
 
 class ForgotPasswordRequest extends FormRequest
 {
+    use NormalisesEmail;
+
     /**
      * @return array<string, array<int, mixed>>
      */
@@ -17,12 +20,5 @@ class ForgotPasswordRequest extends FormRequest
         return [
             'email' => ['required', 'string', 'email'],
         ];
-    }
-
-    protected function prepareForValidation(): void
-    {
-        if (is_string($this->input('email'))) {
-            $this->merge(['email' => mb_strtolower(trim($this->input('email')))]);
-        }
     }
 }

@@ -1,7 +1,9 @@
 <?php
 
+use App\Enums\PaymentMethod;
 use App\Services\Payments\ManualSettlement;
 use App\Services\Payments\StripeCheckout;
+use App\Services\Payments\StripeWallet;
 use Illuminate\Support\Env;
 
 /**
@@ -39,13 +41,29 @@ function paymentsConfiguredWith(?string $secret, ?string $webhookSecret): array
     }
 }
 
-it('offers stripe only where both keys are filled', function () {
+it('offers both stripe methods only where both keys are filled', function () {
     $config = paymentsConfiguredWith('sk_test_x', 'whsec_x');
 
     expect($config['methods'])->toBe([
         'manual' => ManualSettlement::class,
         'stripe' => StripeCheckout::class,
+        'stripe_wallet' => StripeWallet::class,
     ]);
+});
+
+/**
+ * **They are two methods and one configuration**, which is the point of testing
+ * them together. A wallet with no card behind it, or a card with no wallet, is
+ * a panel drawing one button where the frontend expects to decide. Both roads
+ * reach the same Stripe account with the same secret, so nothing could
+ * legitimately configure one and not the other.
+ */
+it('offers the wallet on exactly the same test as the hosted page', function () {
+    foreach ([['sk_test_x', 'whsec_x'], ['', ''], [null, null], ['sk_test_x', null], [null, 'whsec_x']] as [$secret, $webhook]) {
+        $methods = paymentsConfiguredWith($secret, $webhook)['methods'];
+
+        expect(array_key_exists('stripe_wallet', $methods))->toBe(array_key_exists('stripe', $methods));
+    }
 });
 
 /**
@@ -84,6 +102,35 @@ it('does not offer stripe with a webhook secret but no secret', function () {
     $config = paymentsConfiguredWith(null, 'whsec_x');
 
     expect($config['methods'])->toBe(['manual' => ManualSettlement::class]);
+});
+
+/**
+ * **The registry and `App\Enums\PaymentMethod` cannot drift apart.**
+ *
+ * The file is keyed by that enum's values from 29 August 2026, which is the
+ * third place its own comment now says a new way to pay has to be added. A key
+ * with no case behind it is a name the frontend would be handed by
+ * `GET /api/v1/payment-methods` and could not switch on, and it would not fail
+ * anywhere else: the registry refuses unknown names arriving from outside, and
+ * says nothing about the ones it declares itself.
+ */
+it('registers no method name that is not a PaymentMethod case', function () {
+    foreach ([['sk_test_x', 'whsec_x'], ['', ''], [null, null]] as [$secret, $webhook]) {
+        foreach (array_keys(paymentsConfiguredWith($secret, $webhook)['methods']) as $name) {
+            expect(PaymentMethod::tryFrom($name))->toBeInstanceOf(PaymentMethod::class);
+        }
+    }
+});
+
+/**
+ * **And the other direction**, so a case nobody registered is caught too. A
+ * fully configured environment offers all of them, which is what staging and
+ * production are.
+ */
+it('registers every PaymentMethod case where the environment allows it', function () {
+    $names = array_keys(paymentsConfiguredWith('sk_test_x', 'whsec_x')['methods']);
+
+    expect($names)->toEqualCanonicalizing(array_column(PaymentMethod::cases(), 'value'));
 });
 
 /**

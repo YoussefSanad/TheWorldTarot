@@ -22,10 +22,22 @@ it('belongs to a customer and holds its lines', function () {
         ->and($order->lines->first()->product->is($product))->toBeTrue();
 });
 
-it('cannot exist without a customer', function () {
-    // Every order belongs to somebody. A buyer with no account gets one made
-    // from the email they gave, so there is no such thing as an ownerless order.
-    expect(fn () => Order::factory()->create(['customer_id' => null]))
+it('can exist before it knows whose it is', function () {
+    // Since 29 August 2026. Stripe's hosted page collects the buyer's email
+    // after the order exists, so an order is placed by nobody and settlement
+    // attaches whoever paid. An abandoned one stays pending holding nobody,
+    // which is safe: placing an order sends no mail.
+    $order = Order::factory()->create(['customer_id' => null]);
+
+    expect($order->refresh()->customer_id)->toBeNull()
+        ->and($order->customer)->toBeNull()
+        ->and($order->status)->toBe(OrderStatus::Pending);
+});
+
+it('still refuses a customer id naming nobody', function () {
+    // Nullable is not unconstrained. An order either belongs to a customer who
+    // exists or to nobody yet, never to an id that resolves to neither.
+    expect(fn () => Order::factory()->create(['customer_id' => 9_999_999]))
         ->toThrow(QueryException::class);
 });
 

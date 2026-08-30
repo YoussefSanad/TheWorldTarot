@@ -30,9 +30,15 @@ class OrdersTable
                     ->formatStateUsing(fn (int $state): string => '#'.$state)
                     ->sortable(),
 
+                // **An order can be from nobody**, and that reads as
+                // "Not given yet" rather than as an empty cell that looks like
+                // a bug. Stripe's page collects the buyer's email after the
+                // order exists, so a pending order placed there holds no
+                // identity until it settles, and an abandoned one never does.
                 TextColumn::make('customer.name')
                     ->label('From')
-                    ->description(fn (Order $record): string => $record->customer->email)
+                    ->placeholder('Not given yet')
+                    ->description(fn (Order $record): ?string => $record->customer?->email)
                     ->searchable(),
 
                 TextColumn::make('lines')
@@ -122,7 +128,13 @@ class OrdersTable
             ->modalHeading('Mark this order as paid?')
             ->modalDescription('The customer is emailed straight away, and anything they bought is unlocked for them. This cannot be undone here.')
             ->modalSubmitActionLabel('Yes, it has been paid')
-            ->visible(fn (Order $record): bool => $record->status === OrderStatus::Pending)
+            // **Hidden on an order that belongs to nobody**, rather than
+            // shown and refused. Everything this does is addressed to a
+            // customer, and there is none here to address. An order in that
+            // state is an abandoned hosted checkout, so there is nothing to
+            // settle by hand either.
+            ->visible(fn (Order $record): bool => $record->status === OrderStatus::Pending
+                && $record->customer_id !== null)
             ->action(function (Order $record): void {
                 $changed = app(MarkOrderPaid::class)($record);
 

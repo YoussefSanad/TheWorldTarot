@@ -53,7 +53,7 @@ return [
          */
         'description' => 'Generated from the code, so these shapes are always current. '
             .'The written contract, covering authentication, locale and currency rules, '
-            .'and what is not built yet, lives in docs/api/frontend-contract.md. Read both.',
+            .'and what is not built yet, lives in API_CONTRACT.md. Read both.',
     ],
 
     'ui' => [

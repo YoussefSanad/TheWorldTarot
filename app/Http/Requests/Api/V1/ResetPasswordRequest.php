@@ -2,11 +2,14 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Http\Requests\Api\V1\Concerns\NormalisesEmail;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Password;
 
 class ResetPasswordRequest extends FormRequest
 {
+    use NormalisesEmail;
+
     /**
      * @return array<string, array<int, mixed>>
      */
@@ -20,12 +23,5 @@ class ResetPasswordRequest extends FormRequest
             // acceptable in one place cannot be refused in the other.
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
         ];
-    }
-
-    protected function prepareForValidation(): void
-    {
-        if (is_string($this->input('email'))) {
-            $this->merge(['email' => mb_strtolower(trim($this->input('email')))]);
-        }
     }
 }

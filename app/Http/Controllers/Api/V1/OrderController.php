@@ -42,12 +42,20 @@ class OrderController extends Controller
     }
 
     /**
-     * Whose order this is.
+     * Whose order this is, if anybody's yet.
      *
-     * **Every order belongs to a customer**, so a buyer without an account gets
-     * one made from the email they gave. It has no password and cannot be
-     * signed in to until they set one, which they are invited to do once the
-     * order is paid, never when it is placed.
+     * **A buyer who gave an address gets an account made from it**, with no
+     * password, which cannot be signed in to until they set one. They are
+     * invited to once the order is paid, never when it is placed.
+     *
+     * **Null is a real answer since 29 August 2026.** Checkout happens on
+     * Stripe's hosted page, which collects the email after the order exists,
+     * so an order can be placed by somebody we know nothing about. It is
+     * filled at settlement, from the Checkout Session, before anything is
+     * fulfilled. An abandoned one stays pending owned by nobody, which is safe
+     * because placing an order sends no mail: there is nothing that could be
+     * addressed to nobody. See
+     * `docs/adr/0002-the-redirect-case-comes-back.md`.
      *
      * Somebody already signed in uses their own account and whatever they typed
      * is ignored, so an order cannot be attached to another person by anybody
@@ -66,7 +74,7 @@ class OrderController extends Controller
      * framework catches the unique violation on `email` inside a savepoint and
      * re-reads, rather than the second buyer seeing an error.
      */
-    private function customerFor(StoreOrderRequest $request): Customer
+    private function customerFor(StoreOrderRequest $request): ?Customer
     {
         $signedIn = $request->user('sanctum');
 
@@ -74,10 +82,19 @@ class OrderController extends Controller
             return $signedIn;
         }
 
+        $email = $request->validated('email');
+
+        if (! is_string($email) || $email === '') {
+            return null;
+        }
+
         return Customer::firstOrCreate(
-            ['email' => $request->string('email')->value()],
+            ['email' => $email],
             [
-                'name' => $request->string('name')->value(),
+                // **An address with no name is still an account**, because the
+                // address is what identifies it. Stripe's page collects a name
+                // too, and settlement fills this in if it is still empty.
+                'name' => (string) ($request->validated('name') ?? ''),
                 'password' => null,
             ],
         );

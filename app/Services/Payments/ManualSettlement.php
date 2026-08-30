@@ -3,6 +3,7 @@
 namespace App\Services\Payments;
 
 use App\Contracts\PaymentGateway;
+use App\Enums\ProductKey;
 use App\Models\Order;
 use App\Payments\PaymentInstruction;
 
@@ -29,9 +30,10 @@ class ManualSettlement implements PaymentGateway
      * Nothing is collected and there is nowhere to send anybody.
      *
      * The order stays pending until a person marks it paid, which raises the
-     * same transition a webhook raises.
+     * same transition a webhook raises. Nobody is sent anywhere, so there is
+     * nowhere to come back from and `$returnTo` is nothing to this method.
      */
-    public function begin(Order $order): PaymentInstruction
+    public function begin(Order $order, ?ProductKey $returnTo = null): PaymentInstruction
     {
         return PaymentInstruction::nothingToPay();
     }

@@ -1,7 +1,9 @@
 <?php
 
+use App\Enums\PaymentMethod;
 use App\Services\Payments\ManualSettlement;
 use App\Services\Payments\StripeCheckout;
+use App\Services\Payments\StripeWallet;
 
 return [
 
@@ -11,15 +13,20 @@ return [
     |--------------------------------------------------------------------------
     |
     | Structure declared in code and arriving by deploy, per CLAUDE.md section 4.
-    | Adding a way to pay is a class implementing App\Contracts\PaymentGateway
-    | and one line here.
+    | ~~Adding a way to pay is a class implementing App\Contracts\PaymentGateway
+    | and one line here.~~ **Three places from 29 August 2026**: the class, a
+    | line here, and a case in App\Enums\PaymentMethod, which is what the keys
+    | below are written with. The third exists because these names are a
+    | published contract the frontend switches on, and they were being spelled
+    | out again in a request rule, a resource and the staging walk with nothing
+    | tying them together. PaymentsConfigTest pins that the two lists agree.
     |
     | **A registry rather than one gateway, because the customer picks.** This
-    | file named a single class while there was a single class, and the checkout
-    | design has four buttons on the reading page. Apple Pay, Google Pay and card
-    | are all `stripe`, and gift code redemption joins as a fourth method in the
-    | gifting milestone, which is why it is the method that is chosen per payment
-    | rather than the gateway that is chosen per environment.
+    | file named a single class while there was a single class, and the reading
+    | page has a wallet button and a card button on it. Gift code redemption
+    | joins as a further method in the gifting milestone, which is why it is the
+    | method that is chosen per payment rather than the gateway that is chosen
+    | per environment.
     |
     | **What is listed here is what this environment offers.** Locally that is
     | hand settlement alone, since nobody has Jennifer's Stripe keys on a laptop
@@ -42,12 +49,19 @@ return [
         | pays some other way and for the order that goes wrong, so it is
         | offered everywhere and is never removed.
         */
-        'manual' => ManualSettlement::class,
+        PaymentMethod::Manual->value => ManualSettlement::class,
 
         /*
-        | Apple Pay, Google Pay and card, which are one method here because they
-        | are one PaymentIntent at Stripe and the customer's choice between them
-        | is made in the page.
+        | Card, on Stripe's own hosted page. The card button.
+        |
+        | ~~Apple Pay, Google Pay and card are one method here because they are
+        | one PaymentIntent at Stripe.~~ **Two methods from 29 August 2026**,
+        | because they are now a hosted Session and a PaymentIntent, and no
+        | Stripe parameter reconciles those: a Session is an address you send a
+        | browser to, and the express checkout element is an iframe you mount.
+        | The customer's choice between them is still made in the page, by
+        | pressing one of two buttons that ask this API for different things.
+        | See docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md.
         |
         | **Offered only where Stripe is configured.** Nobody has Jennifer's
         | keys on a laptop, and a method that resolves and then fails on the
@@ -74,9 +88,35 @@ return [
         | this line runs. It would resolve to null uncached and to the right
         | value once `config:cache` ran, which is the worst of both.
         */
-        'stripe' => blank(env('STRIPE_SECRET')) || blank(env('STRIPE_WEBHOOK_SECRET'))
+        PaymentMethod::Stripe->value => blank(env('STRIPE_SECRET')) || blank(env('STRIPE_WEBHOOK_SECRET'))
             ? null
             : StripeCheckout::class,
+
+        /*
+        | Apple Pay and Google Pay, in the express checkout element on the
+        | frontend's own reading page. The wallet button.
+        |
+        | **`stripe_wallet` rather than `stripe_express`.** The element is
+        | Stripe's "Express Checkout Element", and what the customer picks is a
+        | wallet. The name says how the money arrives, which is what a method is
+        | here. It is a published value the moment the frontend switches on it,
+        | so it was agreed with them before it shipped.
+        |
+        | **The same both-keys test as the line above, deliberately.** Both
+        | roads reach the same Stripe account with the same secret and settle
+        | through the same webhook, so nothing could legitimately configure one
+        | and not the other. An environment where these two disagree is a panel
+        | drawing one button where the frontend expected to decide.
+        |
+        | **It fails by the button silently not appearing**, which is
+        | indistinguishable from a device with no wallet and therefore
+        | indistinguishable from working correctly, unless
+        | `theworldtarot.com` is a registered Stripe payment method domain in
+        | that mode. Section 10 of API_CONTRACT.md item 10 is where that sits.
+        */
+        PaymentMethod::StripeWallet->value => blank(env('STRIPE_SECRET')) || blank(env('STRIPE_WEBHOOK_SECRET'))
+            ? null
+            : StripeWallet::class,
 
     ]),
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Http\Requests\Api\V1\Concerns\NormalisesEmail;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
@@ -19,6 +20,8 @@ use Illuminate\Support\Str;
  */
 class LoginRequest extends FormRequest
 {
+    use NormalisesEmail;
+
     /**
      * How many wrong answers before the pair is locked out for a minute.
      */
@@ -39,13 +42,6 @@ class LoginRequest extends FormRequest
 
             'device_name' => ['sometimes', 'required', 'string', 'max:255'],
         ];
-    }
-
-    protected function prepareForValidation(): void
-    {
-        if (is_string($this->input('email'))) {
-            $this->merge(['email' => mb_strtolower(trim($this->input('email')))]);
-        }
     }
 
     /**

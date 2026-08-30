@@ -31,10 +31,6 @@ class StoreOrderRequest extends FormRequest
      */
     public function rules(): array
     {
-        // Somebody signed in is already known. Their own account is used and
-        // anything they typed is ignored, so nobody can attach an order to
-        // another person while authenticated as themselves.
-        //
         // **The guard is named, and it has to be.** This route carries no auth
         // middleware on purpose, since demanding an account before somebody can
         // buy costs sales at the worst moment. Nothing has resolved the caller
@@ -45,8 +41,26 @@ class StoreOrderRequest extends FormRequest
         $guest = $this->user('sanctum') === null;
 
         return [
-            'name' => [Rule::requiredIf($guest), 'string', 'max:255'],
-            'email' => [Rule::requiredIf($guest), 'string', 'email', 'max:255'],
+            // **Identity arrives as a pair or not at all.** A guest may send
+            // neither, and a guest who sends an address must name whoever it
+            // belongs to, because an account is created from that address and
+            // a customer with no name is one every message has to hedge
+            // around. Both are ignored for a signed-in customer, who always
+            // gets their own account, so nobody can attach an order to
+            // somebody else while authenticated as themselves.
+            //
+            // They were required, because the buyer's email arrived before the
+            // order did. Checkout now happens on Stripe's hosted page, which
+            // collects the email *after* the order exists, so requiring one
+            // here would mean asking twice for the same address. Identity is
+            // filled at settlement instead, from the Checkout Session. See
+            // `docs/adr/0002-the-redirect-case-comes-back.md`.
+            //
+            // **This relaxes a requirement rather than removing a
+            // capability.** An order arriving with a name and an email behaves
+            // exactly as it always has.
+            'name' => [Rule::requiredIf($guest && $this->filled('email')), 'nullable', 'string', 'max:255'],
+            'email' => ['sometimes', 'nullable', 'string', 'email', 'max:255'],
 
             // Never re-detected. CLAUDE.md section 4: when a currency is
             // supplied explicitly the backend must not second guess it.
@@ -132,7 +146,18 @@ class StoreOrderRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('email'))) {
-            $this->merge(['email' => mb_strtolower(trim($this->input('email')))]);
+            $email = mb_strtolower(trim($this->input('email')));
+
+            // **An empty string is nobody, not a malformed address.** A form
+            // that posts every field it has sends `""` for one the customer
+            // left alone, and refusing that with "must be a valid email" would
+            // be refusing an order that is now allowed to carry no address at
+            // all.
+            $this->merge(['email' => $email === '' ? null : $email]);
+        }
+
+        if (is_string($this->input('name')) && trim($this->input('name')) === '') {
+            $this->merge(['name' => null]);
         }
 
         if (is_string($this->input('currency'))) {

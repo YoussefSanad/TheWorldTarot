@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
 
@@ -33,6 +32,70 @@ beforeEach(function () {
 function forgetResolvedUser(): void
 {
     Auth::forgetGuards();
+}
+
+/**
+ * How long `/api/v1/login` takes to refuse an address, in milliseconds.
+ *
+ * **The stopwatch three tests below read.** Status and body are asserted
+ * identical elsewhere; this is the third channel, the one that stayed open
+ * while the other two were closed, because bcrypt was the only expensive thing
+ * on the route and a missing account skipped it.
+ *
+ * Written out three times before this, once per timing test, and a measurement
+ * shared by three assertions has to be the same measurement or the three are
+ * not comparable. Two of the three copies were already the same by hand.
+ *
+ * **Warm the route before the first measurement that counts.** The first
+ * request through a route pays to resolve it, and that cost lands on whichever
+ * sample happens to go first, which is the one thing a timing comparison cannot
+ * absorb. `warmTheRefusalPath()` below is that throwaway call.
+ *
+ * `test()` rather than `$this`, because a Pest helper is not bound to the case.
+ */
+function costOfRefusing(string $email): float
+{
+    $started = hrtime(true);
+
+    test()->postJson('/api/v1/login', [
+        'email' => $email,
+        'password' => 'not-the-password',
+    ])->assertStatus(422);
+
+    return (hrtime(true) - $started) / 1e6;
+}
+
+/**
+ * One refusal whose timing is thrown away, so the next one measures the route
+ * rather than the cost of resolving it.
+ */
+function warmTheRefusalPath(): void
+{
+    costOfRefusing('warming-up@example.com');
+}
+
+/**
+ * Two costs that a stopwatch cannot tell apart.
+ *
+ * **Deliberately loose, and bounded on both sides.** What these tests have to
+ * catch is one path costing nothing at all, which measured at roughly a
+ * fiftieth of a real check before the fix. A band tight enough to police
+ * scheduler noise on CI would fail for reasons that have nothing to do with the
+ * property being proved.
+ *
+ * Both sides because a stopwatch reads a gap whichever way it opens. The
+ * one-sided version this replaced stayed green through an unknown address
+ * costing twice what a known one costs, which is the same oracle pointing the
+ * other way.
+ *
+ * One definition rather than three, because three copies of a numeric bound is
+ * three chances to loosen one of them alone, and the loosened one still reports
+ * green.
+ */
+function expectIndistinguishableCost(float $measured, float $reference): void
+{
+    expect($measured)->toBeGreaterThan($reference * 0.5)
+        ->and($measured)->toBeLessThan($reference * 2);
 }
 
 /*
@@ -100,6 +163,35 @@ it('refuses an email somebody already has', function () {
     $this->postJson('/api/v1/register', registrationPayload())
         ->assertStatus(422)
         ->assertJsonValidationErrors('email');
+});
+
+/**
+ * The customer who bought a reading and then tried to register.
+ *
+ * They hit `unique:customers,email` and were told the address was already
+ * taken, with no mention of the claim link that is the only way into the
+ * account they already have. `API_CONTRACT.md` section 2 calls set-password
+ * "how they get out of that state", and this is the exact person who needs it.
+ *
+ * **One message covers both cases and names neither.** Any wording that
+ * distinguished "you have an unclaimed account" from "that address is taken"
+ * would be an account enumeration oracle, which is the thing the rest of this
+ * auth work deliberately refuses to be. So the sentence points at the claim
+ * path conditionally, and reads correctly for somebody who has never bought
+ * anything.
+ */
+it('answers a claimed address and an unclaimed one identically, and names the way out', function () {
+    Customer::factory()->create(['email' => 'claimed@example.com', 'password' => 'a-long-enough-password']);
+    Customer::factory()->create(['email' => 'unclaimed@example.com', 'password' => null]);
+
+    $claimed = $this->postJson('/api/v1/register', registrationPayload(['email' => 'claimed@example.com']));
+    $unclaimed = $this->postJson('/api/v1/register', registrationPayload(['email' => 'unclaimed@example.com']));
+
+    expect($claimed->status())->toBe($unclaimed->status())
+        ->and($claimed->json('errors.email'))->toBe($unclaimed->json('errors.email'));
+
+    // And it says something the person can act on, rather than only refusing.
+    expect($claimed->json('errors.email.0'))->toContain('sign in page');
 });
 
 it('treats an email as the same address whatever case it arrives in', function () {
@@ -195,40 +287,24 @@ it('takes as long to refuse an unknown email as it takes to refuse a wrong passw
     // comparison is between two equal amounts of real work.
     config(['hashing.bcrypt.rounds' => 10]);
 
-    $refuse = function (string $email): float {
-        $started = hrtime(true);
-
-        $this->postJson('/api/v1/login', [
-            'email' => $email,
-            'password' => 'not-the-password',
-        ])->assertStatus(422);
-
-        return (hrtime(true) - $started) / 1e6;
-    };
-
-    // Thrown away. The first request through a route pays for resolving it.
-    $refuse('warming-up@example.com');
+    warmTheRefusalPath();
 
     // **A fresh account per measurement.** LoginRequest limits per address and
     // email together, so repeating one email would spend its five attempts and
     // time a 429 instead of a hash.
     $median = fn (array $samples): float => collect($samples)->sort()->values()[1];
 
-    $known = $median(collect(range(1, 3))->map(function () use ($refuse): float {
+    $known = $median(collect(range(1, 3))->map(function (): float {
         $customer = Customer::factory()->create(['password' => 'a-long-enough-password']);
 
-        return $refuse($customer->email);
+        return costOfRefusing($customer->email);
     })->all());
 
     $unknown = $median(collect(range(1, 3))->map(
-        fn (int $n): float => $refuse("nobody-{$n}@example.com")
+        fn (int $n): float => costOfRefusing("nobody-{$n}@example.com")
     )->all());
 
-    // Deliberately loose. What this has to catch is a missing account costing
-    // nothing at all, which measured at roughly one fiftieth of a real check
-    // before the fix. A band tight enough to police scheduler noise on CI would
-    // fail for reasons that have nothing to do with the property being proved.
-    expect($unknown)->toBeGreaterThan($known * 0.5);
+    expectIndistinguishableCost($unknown, $known);
 });
 
 it('takes as long to refuse an account that has never had a password', function () {
@@ -238,23 +314,63 @@ it('takes as long to refuse an account that has never had a password', function 
     // customer who had chosen a password.
     config(['hashing.bcrypt.rounds' => 10]);
 
-    $refuse = function (string $email): float {
-        $started = hrtime(true);
-
-        $this->postJson('/api/v1/login', [
-            'email' => $email,
-            'password' => 'not-the-password',
-        ])->assertStatus(422);
-
-        return (hrtime(true) - $started) / 1e6;
-    };
-
-    $refuse('warming-up@example.com');
+    warmTheRefusalPath();
 
     $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
     $unclaimed = Customer::factory()->create(['password' => null]);
 
-    expect($refuse($unclaimed->email))->toBeGreaterThan($refuse($claimed->email) * 0.5);
+    $unclaimedCost = costOfRefusing($unclaimed->email);
+    $claimedCost = costOfRefusing($claimed->email);
+
+    expectIndistinguishableCost($unclaimedCost, $claimedCost);
+});
+
+/**
+ * The equal cost survives a change to `BCRYPT_ROUNDS`.
+ *
+ * **The claim was only ever true while the configured cost never moved.**
+ * `Hash::make` on the refusal path runs at config rounds; `Hash::check` runs at
+ * whatever cost is baked into the stored hash. Production runs twelve against a
+ * measured ten, so raising it reopened the gap for every hash written before
+ * the change, and the two tests above could not catch it because both set the
+ * rounds before creating their customers.
+ *
+ * `SessionController` now rehashes on a successful sign in, which is what
+ * closes it: the customer's stored cost catches up the first time they come
+ * back, and the two paths agree again.
+ */
+it('still costs the same on both paths after the rounds are raised', function () {
+    config(['hashing.bcrypt.rounds' => 10]);
+
+    $customer = Customer::factory()->create(['password' => 'a-long-enough-password']);
+
+    expect(password_get_info($customer->password)['options']['cost'])->toBe(10);
+
+    // **A resolved hasher holds the cost it was built with**, so the config
+    // change alone would not reach it. This is a fact about the harness rather
+    // than about the application, which meets a fresh container on every
+    // deploy. Same shape as `forgetResolvedUser` above.
+    config(['hashing.bcrypt.rounds' => 12]);
+    Hash::forgetDrivers();
+
+    $this->postJson('/api/v1/login', [
+        'email' => $customer->email,
+        'password' => 'a-long-enough-password',
+    ])->assertOk();
+
+    expect(password_get_info($customer->fresh()->password)['options']['cost'])->toBe(12);
+
+    forgetResolvedUser();
+
+    warmTheRefusalPath();
+
+    $known = costOfRefusing($customer->email);
+    $unknown = costOfRefusing('nobody-at-all@example.com');
+
+    // The whole point of the rehash. Without it the known address is checked at
+    // ten while the unknown one is hashed at twelve, and the difference is
+    // roughly fourfold in the direction a stopwatch reads easily.
+    expectIndistinguishableCost($unknown, $known);
 });
 
 it('locks out a slow guess at one account with a 429 and a Retry-After', function () {
@@ -287,7 +403,12 @@ it('lets the right password through once the guessing stops', function () {
     $this->postJson('/api/v1/login', ['email' => 'jennifer@example.com', 'password' => 'wrong'])
         ->assertStatus(422);
 
-    RateLimiter::clear(Str::transliterate('jennifer@example.com|127.0.0.1'));
+    // Asked of the production key builder rather than restated as a literal.
+    // Restating it meant a change to the key's shape would clear nothing while
+    // this test went on passing, which is B5's failure mode one layer down.
+    RateLimiter::clear(
+        LoginRequest::create('/api/v1/login', 'POST', ['email' => 'jennifer@example.com'])->throttleKey()
+    );
 
     $this->postJson('/api/v1/login', [
         'email' => 'jennifer@example.com',
