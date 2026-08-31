@@ -43,9 +43,17 @@ class StoreOrderRequest extends FormRequest
         return [
             // **Identity arrives as a pair or not at all.** A guest may send
             // neither, and a guest who sends an address must name whoever it
-            // belongs to, because an account is created from that address and
-            // a customer with no name is one every message has to hedge
-            // around. Both are ignored for a signed-in customer, who always
+            // belongs to, because an account is created from that address.
+            //
+            // ~~A customer with no name is one every message has to hedge
+            // around.~~ **Struck 30 August 2026, issue #52.** No message hedges
+            // now: `App\Support\Greeting` opens "Hello," and Jennifer's
+            // notification gives the address alone. The rule below stays,
+            // because a name somebody chose to give is still worth having, but
+            // it is no longer the thing standing between a buyer and a
+            // readable receipt.
+            //
+            // Both are ignored for a signed-in customer, who always
             // gets their own account, so nobody can attach an order to
             // somebody else while authenticated as themselves.
             //

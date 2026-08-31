@@ -42,6 +42,47 @@ it('lets somebody claim the account made when they bought something', function (
     ])->assertOk();
 });
 
+/**
+ * The shape `API_CONTRACT.md` promises the frontend partner, asserted on the
+ * wire rather than on the model.
+ *
+ * **A claimed buyer is the account that was never asked a name.** Since ADR
+ * 0002 the hosted page collects a text field the buyer types and the wallet is
+ * mounted asking for an address rather than a billing contact, so settlement
+ * makes the account and nobody asks. Issue #52.
+ *
+ * **The claim itself answers a message and no customer**, so the null name is
+ * met on the sign in that follows it and on `/me` after that. Walking from the
+ * claim rather than starting at a bare factory is what makes that true here
+ * rather than assumed, and it was written the other way first.
+ *
+ * The two settlement suites assert the column. Nothing asserted what
+ * `CustomerResource` does with it, which is the half the partner types
+ * against, and their `ApiCustomer` still declares `name: string`.
+ */
+it('answers a claimed account that was never asked a name with a null one', function () {
+    $customer = Customer::factory()->create([
+        'name' => null,
+        'email' => 'jennifer@example.com',
+        'password' => null,
+    ]);
+
+    $this->postJson('/api/v1/set-password', claimPayload(passwordTokenFor($customer)))
+        ->assertOk();
+
+    // Present and null, not absent. A missing key and a null one are different
+    // things to a client that destructures the body.
+    $this->postJson('/api/v1/login', [
+        'email' => 'jennifer@example.com',
+        'password' => 'a-brand-new-password',
+    ])->assertOk()
+        ->assertJsonPath('name', null)
+        ->assertJsonPath('email', 'jennifer@example.com');
+
+    // Not the local part of the address, which is what this used to answer.
+    $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('name', null);
+});
+
 it('works once and then never again', function () {
     $customer = unclaimed();
     $payload = claimPayload(passwordTokenFor($customer));

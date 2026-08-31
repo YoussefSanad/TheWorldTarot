@@ -92,9 +92,25 @@ class OrderController extends Controller
             ['email' => $email],
             [
                 // **An address with no name is still an account**, because the
-                // address is what identifies it. Stripe's page collects a name
-                // too, and settlement fills this in if it is still empty.
-                'name' => (string) ($request->validated('name') ?? ''),
+                // address is what identifies it.
+                //
+                // ~~Stripe's page collects a name too, and settlement fills
+                // this in if it is still empty.~~ **Struck 30 August 2026,
+                // issue #52: it never did.** `RecordStripePayment::identify()`
+                // returns early on an order that already has a customer, and
+                // its `Customer::firstOrCreate` writes the name only in the
+                // create. An account made here keeps the name it was made
+                // with, which is the right behaviour, since it is their account
+                // and their name rather than whatever was typed at a checkout.
+                //
+                // ~~`(string)`, so the NOT NULL column always has something.~~
+                // **Null since the same issue.** The cast wrote `''`, a second
+                // spelling of "nobody told us" that no reader of the column
+                // could tell from a name. Unreachable in practice, since
+                // `StoreOrderRequest` requires a name from a guest who sends an
+                // address and this method returns early without one, so what
+                // changes is what the column may hold rather than what arrives.
+                'name' => $request->validated('name'),
                 'password' => null,
             ],
         );

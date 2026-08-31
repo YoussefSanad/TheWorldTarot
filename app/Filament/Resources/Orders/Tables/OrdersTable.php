@@ -35,6 +35,14 @@ class OrdersTable
                 // a bug. Stripe's page collects the buyer's email after the
                 // order exists, so a pending order placed there holds no
                 // identity until it settles, and an abandoned one never does.
+                //
+                // **Two shapes reach the placeholder since issue #52**, and the
+                // second is the commoner one. A settled order has a customer,
+                // and that customer may have no name: nothing on the road they
+                // took asked for one, and a wallet is asked for an address
+                // rather than a billing contact. The description below is what
+                // she goes on in both cases, since the address is the half that
+                // always arrives.
                 TextColumn::make('customer.name')
                     ->label('From')
                     ->placeholder('Not given yet')

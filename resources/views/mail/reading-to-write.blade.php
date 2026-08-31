@@ -1,7 +1,7 @@
 {{-- Text, not HTML. Escaping here corrupts, so every value is echoed raw. #45 --}}
 Order #{!! $order->id !!} has been paid.
 
-From: {!! $customer->name !!} <{!! $customer->email !!}>
+From: {!! $from !!}
 Total: {!! $order->currency !!} {!! \App\Support\Money::toMajor($order->total_amount) !!}
 
 @foreach ($order->lines as $line)

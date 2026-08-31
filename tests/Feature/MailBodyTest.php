@@ -90,8 +90,13 @@ function queryOfLinkIn(string $body): array
 
 /**
  * An order for one reading, belonging to somebody with an awkward name.
+ *
+ * **`null` is a real buyer since issue #52**, not a broken fixture. Nothing on
+ * the road a customer actually takes asks them their name, so one created at
+ * settlement carries whatever Stripe collected, and the wallet may collect
+ * nothing at all.
  */
-function orderFrom(string $name, string $email): Order
+function orderFrom(?string $name, string $email): Order
 {
     return Order::factory()
         ->for(Customer::factory()->create(['name' => $name, 'email' => $email, 'password' => null]))
@@ -145,6 +150,47 @@ it('greets somebody by the name they gave, apostrophe and all', function () {
         expect($body)->toContain("Hello Miss Jodie O'Reilly,")
             ->and($body)->not->toContain('&#039;');
     }
+});
+
+it('opens without a name rather than inventing one, for a buyer who gave none', function () {
+    $order = orderFrom(null, 'jennifer@example.com');
+    $customer = $order->customer;
+
+    Mail::to($customer->email)->send(new OrderPaid($order));
+    Mail::to($customer->email)->send(new SetPasswordLink($customer, passwordTokenFor($customer)));
+    $customer->sendPasswordResetNotification(passwordTokenFor($customer));
+
+    // Issue #52. A real captured receipt opened "Hello Card Holder Name,", and
+    // the name in it was never asked for by this application. The placeholder
+    // itself is undetectable, so what is fixed is the case with a right answer.
+    $bodies = [
+        bodyMentioning('payment has gone through'),
+        bodyMentioning('/set-password/'),
+        bodyMentioning('/reset-password/'),
+    ];
+
+    foreach ($bodies as $body) {
+        expect($body)->toContain('Hello,')
+            // The two ways this goes wrong, and both have shipped. `Hello ,`
+            // is the empty interpolation the old fallback existed to avoid.
+            ->and($body)->not->toContain('Hello ,')
+            // And `Hello jennifer,` is that fallback, which invented a form of
+            // address out of the routing half of an email address.
+            ->and($body)->not->toContain('jennifer,');
+    }
+});
+
+it('gives Jennifer the address alone when the buyer gave no name', function () {
+    $order = orderFrom(null, 'jennifer@example.com');
+
+    Mail::to(config('mail.notify.fulfillment'))->send(new ReadingToWrite($order));
+
+    // **She still has to be able to write back**, so the address is the part
+    // that cannot go missing. `From: <jennifer@example.com>` reads as a bug in
+    // our software rather than as a buyer who was never asked.
+    expect(bodyMentioning('has been paid'))
+        ->toContain('From: jennifer@example.com')
+        ->not->toContain('From:  <');
 });
 
 it('gives Jennifer the buyer name exactly as the buyer typed it', function () {

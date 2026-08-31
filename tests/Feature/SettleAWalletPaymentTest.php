@@ -134,14 +134,23 @@ it('tries the checkout session first and never reaches the charge when it answer
         ->and($order->refresh()->customer->email)->toBe('session@example.com');
 });
 
-it('falls back to the address for a name the wallet did not collect', function () {
+it('leaves the name empty for one the wallet did not collect', function () {
     $order = unownedOrderWorth(2500, 'pi_wallet');
     stripeWithNoSessionAndACharge(['email' => 'jennifer@example.com', 'name' => null]);
 
     app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet'));
 
-    // A receipt reading "Hi ," is worse than one reading "Hi jennifer".
-    expect($order->refresh()->customer->name)->toBe('jennifer');
+    // ~~A receipt reading "Hi ," is worse than one reading "Hi jennifer".~~
+    // **Reversed 30 August 2026, issue #52.** That was true while a nameless
+    // greeting was broken, and it stopped being true the moment `Greeting`
+    // made one read properly. `jennifer` is the routing half of an address,
+    // not a name, and addressing somebody by it is a guess this application
+    // was making on the strength of never having asked.
+    //
+    // **This is the road it matters most on.** A wallet is asked for an
+    // address and not for a billing contact, so a name arriving at all is
+    // unproved here, and this is the shape a live wallet buyer may always have.
+    expect($order->refresh()->customer->name)->toBeNull();
 });
 
 it('everything downstream of settlement works for a wallet identity', function () {

@@ -1,5 +1,5 @@
 {{-- Text, not HTML. Escaping here corrupts, so every value is echoed raw. #45 --}}
-Hello {!! $name !!},
+{!! \App\Support\Greeting::line($name) !!}
 
 Someone asked to reset the password on your World Tarot account.
 

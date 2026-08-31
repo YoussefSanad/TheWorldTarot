@@ -138,14 +138,19 @@ it('never overwrites an identity the order already carried', function () {
         ->and($order->refresh()->customer_id)->toBe($customer->id);
 });
 
-it('falls back to the address for a name Stripe did not collect', function () {
+it('leaves the name empty for one Stripe did not collect', function () {
     $order = unownedOrderWorth(2500);
     stripeAnswering([['email' => 'jennifer@example.com', 'name' => null]]);
 
     app(RecordStripePayment::class)(paymentFor($order));
 
-    // A receipt reading "Hi ," is worse than one reading "Hi jennifer".
-    expect($order->refresh()->customer->name)->toBe('jennifer');
+    // ~~A receipt reading "Hi ," is worse than one reading "Hi jennifer".~~
+    // **Reversed 30 August 2026, issue #52.** That was true while a nameless
+    // greeting was broken, and it stopped being true the moment `Greeting`
+    // made one read properly. `jennifer` is the routing half of an address,
+    // not a name, and addressing somebody by it is a guess this application
+    // was making on the strength of never having asked.
+    expect($order->refresh()->customer->name)->toBeNull();
 });
 
 it('leaves the order pending and shouts when Stripe names nobody', function () {

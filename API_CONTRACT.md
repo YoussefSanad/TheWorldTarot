@@ -238,6 +238,12 @@ Both cookie auth and bearer tokens work, as with every protected route.
 
 All of them work under both authentication styles. Section 6 explains how to choose.
 
+**`name` can be `null` in every customer body below, since 30 August 2026, issue #52.** A customer created at settlement was never asked their name: Stripe's hosted page collects a text field the buyer types, and a wallet may collect no name at all. It used to be filled with the part of the address before the `@`, so a real customer read "Hello jennifer," in their receipt, and that invention is gone.
+
+- **Render nothing rather than the string "null"**, and treat a missing name as ordinary rather than as an error
+- **A buyer who claimed their account is where you will actually meet it.** Settlement made that account and nobody asked a name for it, so `POST /api/v1/login` and `GET /api/v1/me` answer `null` for them from their first sign in onward. `POST /api/v1/set-password` itself carries no customer body, only a message
+- **`POST /api/v1/register` always has a name**, since that form requires one
+
 #### POST /api/v1/register
 
 ```json
