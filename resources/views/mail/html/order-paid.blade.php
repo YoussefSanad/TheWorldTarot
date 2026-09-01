@@ -56,17 +56,19 @@
   body,table,td,a { -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
   table,td { mso-table-lspace:0pt; mso-table-rspace:0pt; }
   img { -ms-interpolation-mode:bicubic; border:0; height:auto; line-height:100%; outline:none; text-decoration:none; }
-  body { margin:0 !important; padding:0 !important; width:100% !important; background-color:#000000 !important; }
+  body { margin:0 !important; padding:0 !important; width:100% !important; background-color:#EFECE4 !important; }
 
   /* Gmail/Apple/iOS dark mode: restate every colour so nothing gets recalculated. */
   @media (prefers-color-scheme: dark) {
-    body, .bg { background-color:#000000 !important; }
+    body, .canvas { background-color:#1C1A16 !important; }
+    .bg { background-color:#000000 !important; }
     .gold, .gold a { color:#E4C46A !important; }
     .white { color:#FFFFFF !important; }
     .soft, .soft a { color:#F1EEE5 !important; }
     .vline { background-color:#E4C46A !important; }
   }
   /* Outlook.com dark mode rewrites colours behind [data-ogsc]/[data-ogsb]. */
+  [data-ogsc] .canvas, [data-ogsb] .canvas { background-color:#1C1A16 !important; }
   [data-ogsc] .bg, [data-ogsb] .bg { background-color:#000000 !important; }
   [data-ogsc] .gold, [data-ogsc] .gold a { color:#E4C46A !important; }
   [data-ogsc] .white { color:#FFFFFF !important; }
@@ -78,6 +80,7 @@
   .appleLinks a, .appleLinks a span { color:#F1EEE5 !important; text-decoration:none !important; }
 
   @media only screen and (max-width:600px) {
+    .canvas-pad { padding:12px !important; }
     .wrap { width:100% !important; max-width:100% !important; }
     .band { width:100% !important; height:auto !important; }
     .orn  { width:100% !important; height:auto !important; }
@@ -100,15 +103,31 @@
   }
 </style>
 </head>
-<body class="bg" style="margin:0;padding:0;background-color:#000000;">
+<body class="canvas" style="margin:0;padding:0;background-color:#EFECE4;">
 
 {{-- Inbox preview text, then whitespace so no body copy leaks into the preview. --}}
 <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">Thank you. We&#x27;ve received your order and payment.</div>
 <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</div>
 
-<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="background-color:#000000;">
+<table role="presentation" class="canvas" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#EFECE4" style="background-color:#EFECE4;">
   <tr>
-    <td align="center" style="padding:0;">
+    {{--
+      **The black is the frame, not the page.** Every surface in this document
+      used to be #000000, so on a desktop window the design had no edge: the
+      panel's black ran to the viewport on both sides and the gold bands
+      floated in it. The canvas is the brand's parchment now and the panel is
+      600px of black sitting on it with room to breathe, which is the edge the
+      bands were drawn to have.
+
+      Padding on the td, not a margin: Outlook has never laid out margins on a
+      table, and it does not read the `@media` block either, so it takes the
+      desktop figure and is right to.
+
+      **Dark-mode clients get a warm charcoal canvas instead of the parchment**,
+      restated in both dark blocks above. A light page behind a black panel is
+      the point in daylight and a glare at night.
+    --}}
+    <td align="center" class="canvas-pad" style="padding:32px 20px;">
 
       <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
       <table role="presentation" class="wrap bg" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="width:600px;max-width:600px;background-color:#000000;">
