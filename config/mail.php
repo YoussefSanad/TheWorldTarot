@@ -205,4 +205,47 @@ return [
             ?: 'fulfillment@theworldtarot.com',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Where a designed message loads its images from
+    |--------------------------------------------------------------------------
+    |
+    | Added 1 September 2026 with issue #53, the first message in this
+    | application that is HTML.
+    |
+    | **An email client cannot resolve a relative path.** There is no document
+    | base to resolve one against, so `src="/email/band-top.png"` is not a
+    | broken image in some clients and fine in others, it is a broken image in
+    | all of them. Every reference has to be absolute, which makes the host a
+    | decision this file has to make rather than one a view can duck.
+    |
+    | **The files ship in `public/email/` and are served by this application.**
+    | 100 KB of ornament for the gold frame, so no CDN is bought and no vendor
+    | is added. Chosen over a Bunny zone, because Bunny is wrapped here for
+    | Stream and for signing playback and serving a static PNG is a different
+    | job, and over the frontend's `public/`, because a backend template's
+    | dependency living in the frontend partner's repository breaks the first
+    | time somebody tidies away a folder that looks unused.
+    |
+    | **The supplied files pointed at `theworldtarot-emails.netlify.app`, a
+    | preview host**, and the designer's README names replacing it as the one
+    | thing to do before integrating. This key is that replacement. A key rather
+    | than a find-and-replace, so the next move, to a CDN in front of this app
+    | or to the platform bucket, is an environment variable instead of an edit
+    | to a 200 line view. `OrderPaidHtmlTest` fails on any reference that does
+    | not start with it, so a half-finished move cannot reach an inbox.
+    |
+    | Falls back through `APP_URL` with `?:` rather than `env()`'s second
+    | argument, for the reason the senders above do: a key that is present and
+    | blank gives an empty string, and an empty string here is a receipt whose
+    | every image is requested from whatever host the client decides
+    | `/email/band-top.png` means.
+    |
+    */
+
+    'assets' => [
+        'url' => rtrim(env('MAIL_ASSETS_URL')
+            ?: rtrim((string) (env('APP_URL') ?: 'http://localhost'), '/').'/email', '/'),
+    ],
+
 ];
