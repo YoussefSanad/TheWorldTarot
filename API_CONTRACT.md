@@ -105,7 +105,7 @@ Everything on sale, in the order the client arranged them.
 ```
 
 - **Published readings only.** Anything unpublished is absent
-- **`key` is the product's permanent identifier and its URL segment.** It is the same in every language, it is never edited, and it is a fixed set: `one-card`, `three-card`, `month-ahead`, `in-depth`, later `viewing-room-pass` and `rush-24h`. The generated specification carries it as an enum, so you can build an exhaustive switch over it and let your compiler tell you when we add one
+- **`key` is the product's permanent identifier and its URL segment.** It is the same in every language, it is never edited, and it is a fixed set: `one-card`, `three-card`, `month-ahead`, `in-depth`, later `viewing-room-pass`, plus `rush-24h`, which **is cancelled and will never be sold** — see section 9. It remains in the enum only because it is unseeded, and our tests use it as their example of a key nobody seeded. The generated specification carries it as an enum, so you can build an exhaustive switch over it and let your compiler tell you when we add one
 - `type` is `reading`, `pass` or `addon`, so you can map presentation to it. **Changed 20 August 2026: this list now contains the viewing room pass as well as the readings**, so `type` is how you tell them apart rather than something you can currently ignore. See the note below
 - `allows_question` means the customer may attach a question when buying. It is never required of them
 - `price` is exactly one price, in the currency this request resolved to. See section 5
@@ -116,7 +116,7 @@ Everything on sale, in the order the client arranged them.
 
 **So expect five entries, not four:** `one-card`, `three-card`, `month-ahead`, `in-depth`, `viewing-room-pass`. If your homepage shows four tiles, match on `key` and ignore what you have no artwork for. `in-depth` has no tile today.
 
-**When the rush add-on arrives it will not appear here**, because nothing sells an add-on on its own. If you would rather filter yourself, ask and we will add `?type=`.
+~~**When the rush add-on arrives it will not appear here**, because nothing sells an add-on on its own.~~ **Moot from 25 August 2026: the rush was dropped and there is no add-on.** `type` is still `reading`, `pass` or `addon`, and nothing returns `addon` today. If a future add-on gives you a reason to filter yourself, ask and we will add `?type=`.
 
 **Everything we seed is complete and priced**, changed the same day. A product used to be created with empty copy and a zero price, which meant a deploy against a fresh database produced a shop with nothing in it. Seeding now fills anything empty and never overwrites an edit, so **an empty products list should be treated as a fault rather than a state to design for.** It can still legitimately be *shorter* in a language that is not fully translated.
 
@@ -693,7 +693,7 @@ Designed 25 August 2026, built after payment and **before launch**. A code names
 10. **Register `theworldtarot.com` as a Stripe payment method domain**, in both test and live mode. Apple Pay will not render until you do, and it fails by simply not appearing rather than by erroring. **Mandatory rather than belt and braces from 29 August 2026**, because the element is now mounted on our own origin: an unregistered domain and a device with no wallet look identical from the page, which means this failing looks exactly like it working
 11. **Confirm you will pass `emailRequired: true`** to the Express Checkout Element. **Un-struck 29 August 2026, later the same day it was struck.** It was moot for the hours in which there was no element; `stripe_wallet` brings one back for the wallet button, and this flag is now the only thing that puts a buyer's email on the charge we read at settlement. Without it a wallet payment settles nobody
 12. ~~**An email field on the card path**~~ **Still moot from 29 August 2026.** The card path is the hosted page and Stripe's own page collects the email, so this one does not come back with item 11
-13. **Confirmation you have the design without the 24 hour rush.** The version we have shows it as a radio under the price and as a bullet in the feature list, and it was dropped on 25 August
+13. ~~**Confirmation you have the design without the 24 hour rush.** The version we have shows it as a radio under the price and as a bullet in the feature list, and it was dropped on 25 August~~ **Answered 1 September 2026: they have it, and the rush is out of the design for good.** The website's reading page renders one delivery and states it. Nothing on either side should be built against `rush-24h` again
 14. ~~**Whether you want the Payment Element or a hosted redirect for the card path**~~ **Answered 29 August 2026: the hosted page.** ~~For every path rather than only the card.~~ **That half was corrected later the same day**, when you asked for the wallet buttons back: the hosted page is the card path and nothing else, and the wallet path is the Express Checkout Element on your own page. Both roads are live and the customer picks between them, which is what item 11 above came back for. Recorded in `docs/adr/0002-the-redirect-case-comes-back.md` and `docs/adr/0003-the-wallet-keeps-its-own-payment-intent.md`
 
 **Added 29 August 2026, with the redirect:**

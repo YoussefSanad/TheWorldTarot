@@ -42,3 +42,27 @@ and works exactly once.
 
 _Avoid_: activation link, welcome link, invite, set password link (that is the
 mailable's class name, not the thing)
+
+## Readings
+
+The words for a reading as a thing of its own are the **frontend's**
+`CONTEXT.md`, which exists to fix what both repositories call the same thing:
+**Reading**, **Ask**, **Querent**, **Gift**, **Gift code**, **Redeem**,
+**Recipient**, **Gift signature**. The argument for all of them is
+`docs/adr/0004-a-reading-is-a-row-of-its-own.md`. They are not restated here —
+two glossaries and an ADR saying the same thing in three voices is the drift the
+note at the top of this file is about.
+
+One distinction is this repository's alone, because nothing on the wire can see
+it:
+
+**Question of record**:
+`readings.question` — what the querent asked, and the only thing anybody writes
+a reading from. **Not `order_lines.question`**, which is what a buyer typed at
+checkout and exists because a question is typed before the money arrives and a
+reading may not exist before it does. Settlement copies the one onto the other,
+the way a line already captures `product_key` and `unit_amount` rather than
+joining for them, and a gift line has nothing to copy.
+
+_Avoid_: the question (ambiguous the moment both exist), the buyer's question
+(true of the line, and wrong for every gift)

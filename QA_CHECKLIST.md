@@ -466,4 +466,6 @@ Do this in one sitting, in this order, and record where it breaks:
 
 ## 14. Not built yet
 
-Card payment and the checkout redirect, receipts, VAT, refunds, gift codes, the 24 hour rush, reading an order back over the API, FAQ and legal content, the newsletter, and AI fulfillment.
+Card payment and the checkout redirect, receipts, VAT, refunds, gift codes, reading an order back over the API, FAQ and legal content, the newsletter, and AI fulfillment.
+
+**The 24 hour rush is not on this list and is not coming.** It was dropped from the design by the client on 25 August 2026, confirmed 1 September, so it is cancelled rather than pending. `ProductKey::Rush24h` still exists in the enum and is still deliberately unseeded, which several tests assert as their example of a key nobody seeded — that is the only reason it is still there, and nothing should be QA'd against it.
