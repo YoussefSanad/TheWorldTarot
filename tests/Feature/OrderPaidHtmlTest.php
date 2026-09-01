@@ -268,13 +268,15 @@ it('ships every image the view asks for', function () {
     preg_match_all('/(?:src|srcset)="([^"]+)"/', htmlBodySent(), $found);
 
     // **A loop over nothing is green**, so the count is pinned before it runs.
-    // Nine images, each referenced at 1x and again at 2x through `srcset`.
+    // Ten images, each referenced at 1x and again at 2x through `srcset`. The
+    // tenth is the wordmark, which was type until the frontend's own artwork
+    // replaced it.
     $files = array_unique(array_map(
         fn (string $reference): string => basename((string) strtok($reference, ' ')),
         $found[1],
     ));
 
-    expect($files)->toHaveCount(18);
+    expect($files)->toHaveCount(20);
 
     // **An email cannot fall back to a missing image the way a page can.** A
     // referenced file that was never committed is a gap in the gold frame in

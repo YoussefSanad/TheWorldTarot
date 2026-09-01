@@ -94,8 +94,7 @@
     .vline { width:1px !important; }
     .card { width:88% !important; }
     .card-pad { padding:16px 14px 28px 14px !important; }
-    .logo-top  { font-size:26px !important; line-height:30px !important; }
-    .logo-main { font-size:31px !important; line-height:36px !important; }
+    .logo  { width:66% !important; height:auto !important; }
     .head  { font-size:25px !important; line-height:29px !important; }
     .body  { font-size:15px !important; line-height:21px !important; }
     .prod  { font-size:20px !important; line-height:24px !important; }
@@ -166,9 +165,29 @@
 
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 
-              {{-- logo lockup --}}
-              <tr><td align="center" class="white logo-top" style="padding:4px 20px 0 20px;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:30px;line-height:32px;letter-spacing:0.03em;color:#FFFFFF;text-transform:uppercase;">The</td></tr>
-              <tr><td align="center" class="white logo-main" style="padding:0 20px 0 20px;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:36px;line-height:40px;letter-spacing:0.03em;color:#FFFFFF;text-transform:uppercase;">World Tarot</td></tr>
+              {{--
+                **The logo lockup, which is a drawing and not two lines of type.**
+                It was set in Cinzel here because the design supplied it as
+                artwork and this document could not carry artwork it did not
+                have. The frontend has always had the real one, `wt-logo.svg`
+                at `assets.logo`, and it is not Cinzel: the wordmark is drawn,
+                letterspaced by hand and cream rather than white. Type set to
+                imitate it is a near miss on the one element a reader knows by
+                heart.
+
+                Rasterised out of that same SVG into `public/email/`, because
+                no mail client of consequence renders SVG. 342x62 at 1x with a
+                matching @2x, the pattern every other asset here follows.
+
+                **The alt text is styled on purpose.** Images are off by
+                default in a large share of inboxes, and unstyled alt on this
+                background is black text on black. Font and colour on the `img`
+                are what a client paints in the gap, so the wordmark still
+                reads when the file never loads.
+              --}}
+              <tr><td align="center" style="padding:10px 20px 0 20px;font-size:0;line-height:0;">
+                <img src="{{ $assets }}/logo.png" srcset="{{ $assets }}/logo@2x.png 2x" width="342" height="62" alt="The World Tarot" border="0" class="logo" style="display:block;width:342px;height:62px;border:0;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:30px;line-height:34px;letter-spacing:0.03em;color:#FCF4DA;text-transform:uppercase;">
+              </td></tr>
 
               {{-- gold divider --}}
               <tr><td align="center" style="padding:25px 20px 0 20px;font-size:0;line-height:0;">
