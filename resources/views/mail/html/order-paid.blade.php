@@ -86,6 +86,7 @@
     body, .canvas { background-color:#000000 !important; }
     [data-ogsc] .canvas, [data-ogsb] .canvas { background-color:#000000 !important; }
     .canvas-pad { padding:0 !important; }
+    .wrap { box-shadow:none !important; }
     .wrap { width:100% !important; max-width:100% !important; }
     .band { width:100% !important; height:auto !important; }
     .orn  { width:100% !important; height:auto !important; }
@@ -131,11 +132,19 @@
       **Dark-mode clients get a neutral #1A1A1A canvas instead of the white**,
       restated in both dark blocks above. A light page behind a black panel is
       the point in daylight and a glare at night.
+
+      **The panel's `box-shadow` is an enhancement and nothing depends on it.**
+      Apple Mail and iOS paint it; the Word engine behind Outlook on Windows
+      has never drawn a shadow and never will, and it is not the only client
+      that drops the property. What it degrades to is the panel sitting flat on
+      the canvas, which is the design as it shipped, so no fallback is owed.
+      The 28px of horizontal padding above is what the blur falls into; tighten
+      one and the other clips.
     --}}
-    <td align="center" class="canvas-pad" style="padding:32px 20px;">
+    <td align="center" class="canvas-pad" style="padding:36px 28px;">
 
       <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-      <table role="presentation" class="wrap bg" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="width:600px;max-width:600px;background-color:#000000;">
+      <table role="presentation" class="wrap bg" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="width:600px;max-width:600px;background-color:#000000;box-shadow:0 6px 24px rgba(0,0,0,0.22);">
 
         {{-- ============ top flourishes + gold rule ============ --}}
         <tr>
