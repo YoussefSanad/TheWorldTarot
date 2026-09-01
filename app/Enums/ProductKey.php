@@ -159,6 +159,90 @@ enum ProductKey: string
         };
     }
 
+    /**
+     * The line under the product name in the confirmation email's gold box.
+     *
+     * **Copy that arrived with the designs and exists nowhere else**, issue
+     * #53. It is not `defaultShortDescription()`: the tile for `month-ahead`
+     * says "What's in Store? 5 Card Forecast" and the email says "A Clear Path
+     * Forward", which is a different register for a different moment. Somebody
+     * reading the tile is deciding whether to buy. Somebody reading this has
+     * already paid.
+     *
+     * **Here rather than in a column, and that is worth revisiting.** CLAUDE.md
+     * section 4 says values belong to the client and structure belongs to code,
+     * and by that rule this is a value and Jennifer should own it. It is in
+     * code today because #53 asked for the emails to be wired up and not for a
+     * migration, a seeder change and two panel fields. **The day she asks to
+     * reword one is the signal to move these to columns**, not to edit this
+     * file on her behalf.
+     *
+     * **`one-card` had no design in the package.** The three that did are
+     * verbatim. Its own follows their shape and is the only invented string
+     * here, so it is the one to put in front of her first.
+     */
+    public function emailSubtitle(): string
+    {
+        return match ($this) {
+            self::MonthAhead => 'A Clear Path Forward',
+            self::ThreeCard => 'Past • Present • Future',
+            self::InDepth => 'The Full Picture',
+
+            self::OneCard => 'A Single Message',
+            self::ViewingRoomPass => 'The Complete Collection',
+            self::Rush24h => 'Straight to the Front',
+        };
+    }
+
+    /**
+     * How long the confirmation tells a buyer to wait.
+     *
+     * **The first time this promise exists anywhere in the system.** Nothing
+     * models a turnaround, no job measures one, and nothing tells Jennifer when
+     * one has been missed. This is a sentence in an email, and putting it in
+     * front of a paying customer is where it starts being a commitment somebody
+     * keeps by hand.
+     *
+     * **It contradicts the rush add-on, and that is not resolved here.**
+     * `Rush24h`'s own copy sells delivery "within twenty-four hours instead of
+     * seventy-two", so the standing promise it was written against is 72 hours.
+     * The designs say 24 for the two cheaper readings and 48 for `in-depth`,
+     * which would leave a 24 hour rush add-on selling somebody a wait they
+     * already have. The designs are the newer artifact and the one Jennifer
+     * signed off, so they win here, and **M5's rush add-on cannot ship against
+     * these numbers until she settles which promise is real.** Raised on #53
+     * rather than split silently.
+     *
+     * The window alone rather than the whole sentence, so "Delivery within"
+     * lives once, in the view, beside the styling that makes it a line.
+     *
+     * **Null is not "unknown", it is "nothing is delivered"**, and the view
+     * omits the whole row for it rather than printing a blank one. A pass
+     * grants access the moment it is paid for and an add-on changes another
+     * line's wait rather than having one of its own, so neither has a delivery
+     * window in the sense this method means.
+     *
+     * Returning a word instead was the first attempt and it was wrong in a way
+     * worth recording: `'immediately'` reads perfectly here and renders
+     * "DELIVERY WITHIN IMMEDIATELY" in the box, because the sentence is
+     * completed in the view. A value that only makes sense at one of its two
+     * call sites is the shape to distrust.
+     */
+    public function deliveryWindow(): ?string
+    {
+        return match ($this) {
+            self::InDepth => '48 hours',
+            self::MonthAhead, self::ThreeCard => '24 hours',
+
+            // No design, so no signed-off number. The two cheaper readings are
+            // the nearest precedent, and the shortest reading carrying the
+            // longest wait would need explaining.
+            self::OneCard => '24 hours',
+
+            self::ViewingRoomPass, self::Rush24h => null,
+        };
+    }
+
     public function defaultSortOrder(): int
     {
         return match ($this) {

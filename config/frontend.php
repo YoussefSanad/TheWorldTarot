@@ -7,10 +7,23 @@ return [
     | Where the website lives
     |--------------------------------------------------------------------------
     |
-    | This API renders nothing a customer ever sees, per hard rule 1, so any
-    | link we put in an email has to point at the Next.js app rather than here.
+    | Every page a customer ever sees is the Next.js app's, per hard rule 1, so
+    | any link we put in an email has to point there rather than here.
     |
     | Per environment: staging mail must never send somebody to production.
+    |
+    | **This said "This API renders nothing a customer ever sees" until
+    | 1 September 2026**, and issue #53 made the sentence untrue twice over. The
+    | purchase confirmation is a designed HTML document rendered by this
+    | application, and its gold frame is eighteen images served to a customer's
+    | mail client from this host out of `public/email/`. Neither is a page and
+    | neither is UI, so hard rule 1 is intact as written, but the flat claim was
+    | not, and a reader checking whether something belongs here deserves the
+    | narrower version.
+    |
+    | **Where those images live is a `mail.assets.url` away from changing**, and
+    | moving them to a CDN or to the frontend's own `public/` is the change to
+    | make if serving them from the API is judged the wrong side of that line.
     |
     */
 

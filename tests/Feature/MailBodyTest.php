@@ -235,6 +235,64 @@ function mailViews(): array
 }
 
 /**
+ * Where a view being HTML is decided, and it is the directory it sits in.
+ *
+ * **Issue #53 is the day the file above warned about**, when a message became
+ * genuinely meant to be HTML. The two rules underneath were only ever correct
+ * together, so neither is deleted: they are given a boundary instead, and the
+ * boundary is a path rather than a naming convention or a comment, because a
+ * path is the one thing a person adding a view cannot forget to apply.
+ *
+ * `resources/views/mail/html/` renders as markup and **must** escape.
+ * Everything else in `resources/views/mail/` is text and **must not**.
+ */
+function isHtmlMailView(string $view): bool
+{
+    return str_starts_with($view, resource_path('views/mail/html').DIRECTORY_SEPARATOR);
+}
+
+/**
+ * @return array<int, string>
+ */
+function textMailViews(): array
+{
+    return array_values(array_filter(mailViews(), fn (string $view): bool => ! isHtmlMailView($view)));
+}
+
+/**
+ * @return array<int, string>
+ */
+function htmlMailViews(): array
+{
+    return array_values(array_filter(mailViews(), 'isHtmlMailView'));
+}
+
+/**
+ * A view's lines, with anything inside a Blade comment blanked out.
+ *
+ * **A comment is not an interpolation, and the rules below scan for text.** The
+ * HTML view's own header explains the escaping split and quotes `{!! !!}` while
+ * doing it, which the raw-echo check read as a raw echo. Blanking rather than
+ * removing, so a reported line number still points at the right line.
+ *
+ * `{{--` was already exempt from the text-side rule for the same reason. This
+ * generalises that to the whole comment rather than to its opening brace, since
+ * a comment spanning lines put the exemption on the wrong one.
+ *
+ * @return array<int, string>
+ */
+function viewLinesWithoutComments(string $view): array
+{
+    $source = (string) preg_replace_callback(
+        '/\{\{--.*?--\}\}/s',
+        fn (array $match): string => str_repeat("\n", substr_count($match[0], "\n")),
+        (string) file_get_contents($view),
+    );
+
+    return explode("\n", $source);
+}
+
+/**
  * The rule, made structural rather than remembered.
  *
  * `QueuedMail` already carries two of these: nothing is sent inline, and every
@@ -250,22 +308,50 @@ function mailViews(): array
  * defect, so the escape sequence is what is asserted on.
  */
 it('never lets a text mail view HTML-escape what it interpolates', function () {
-    $views = mailViews();
+    $views = textMailViews();
 
     expect($views)->not->toBeEmpty();
 
     foreach ($views as $view) {
-        foreach (file($view, FILE_IGNORE_NEW_LINES) as $number => $line) {
-            // `{{--` is a Blade comment and escapes nothing. `@{{` is an escaped
-            // brace that Blade prints literally.
-            expect(preg_match('/(?<!@)\{\{(?!--)/', $line))
+        foreach (viewLinesWithoutComments($view) as $number => $line) {
+            // `@{{` is an escaped brace that Blade prints literally. Comments
+            // are already gone, so `{{--` needs no exemption here.
+            expect(preg_match('/(?<!@)\{\{/', $line))
                 ->toBe(0, basename($view).':'.($number + 1).' escapes: '.trim($line));
         }
     }
 });
 
 /**
- * Every message is text, which is the whole reason a raw echo is safe.
+ * And the same rule read the other way, for the views that are markup.
+ *
+ * **This is the half issue #53 added, and it is the more dangerous half.** A
+ * text view that escapes sends `O&#039;Reilly` to a customer, which is
+ * embarrassing. An HTML view that does not escape puts a customer's own name and
+ * their own typed question into a document as markup, which is an injection, and
+ * `{!! !!}` is what every view in the sibling directory correctly uses. Somebody
+ * copying an existing mail view into `html/` to start a new one carries the raw
+ * echo across with it, and that is the mistake this exists to catch.
+ *
+ * Read off the view source rather than a rendered body for the reason the rule
+ * above is: a behavioural assertion only sees it when the fixture happens to
+ * hold a character worth escaping.
+ */
+it('makes every HTML mail view escape what it interpolates', function () {
+    $views = htmlMailViews();
+
+    expect($views)->not->toBeEmpty();
+
+    foreach ($views as $view) {
+        foreach (viewLinesWithoutComments($view) as $number => $line) {
+            expect(preg_match('/\{!!/', $line))
+                ->toBe(0, basename($view).':'.($number + 1).' echoes raw into markup: '.trim($line));
+        }
+    }
+});
+
+/**
+ * Every message still carries a text part, which is what makes a raw echo safe.
  *
  * **This is the precondition the rule above rests on, and it was unenforced.**
  * Without it the fix for #45 is one careless mailable away from being worse
@@ -274,11 +360,24 @@ it('never lets a text mail view HTML-escape what it interpolates', function () {
  * document as markup, and a cosmetic bug becomes an injection. The two are only
  * ever correct together, so they are asserted together.
  *
- * The day a message is genuinely meant to be HTML, this is the test that has to
- * be told about it, and telling it means giving that view escaping back rather
- * than deleting the line.
+ * **Until 1 September 2026 this said `text` and nothing else, and issue #53 is
+ * the day it was told about HTML.** It was told by narrowing rather than by
+ * deleting, which is what the note it used to end on asked for. What changed:
+ * `html:` is now an accepted argument, its view has to live in the one
+ * directory where escaping is enforced, and `text:` is still required on every
+ * message. What did not change is the part that matters: no mailable may render
+ * markup out of a view that echoes raw.
+ *
+ * **`view:` is still refused**, and deliberately, even though Laravel treats it
+ * as an alias for `html:`. Two spellings of one thing means the rule above has
+ * two ways to be escaped and a reader has two things to recognise.
+ *
+ * The text part is required rather than optional because dropping it is a
+ * silent change: the message still sends, still looks right in every client the
+ * developer checks, and quietly loses the alternative part that a plain-text
+ * client and a spam filter both read.
  */
-it('renders every message as text, which is what makes a raw echo safe', function () {
+it('gives every message a text part, and takes markup only from the checked directory', function () {
     $mailables = array_filter(
         glob(app_path('Mail/*.php')),
         fn (string $file): bool => ! (new ReflectionClass('App\\Mail\\'.basename($file, '.php')))->isAbstract(),
@@ -287,12 +386,37 @@ it('renders every message as text, which is what makes a raw echo safe', functio
     expect($mailables)->not->toBeEmpty();
 
     foreach ($mailables as $file) {
-        preg_match_all('/new Content\(\s*(\w+):/', (string) file_get_contents($file), $found);
+        // Every `name: 'value'` in the file, filtered down to the four a
+        // Content can be built from. Matching the whole `new Content(...)` call
+        // in one pattern needs it to survive line breaks, trailing commas and a
+        // `with:` array, and a pattern that does all that is harder to read
+        // than the two lines it saves.
+        preg_match_all('/(\w+):\s*\'([^\']+)\'/', (string) file_get_contents($file), $arguments);
 
-        expect($found[1])->not->toBeEmpty(basename($file).' builds no Content');
+        $rendered = [];
 
-        foreach ($found[1] as $argument) {
-            expect($argument)->toBe('text', basename($file)." renders {$argument}:, which escapes nothing and is not text");
+        foreach ($arguments[1] as $index => $argument) {
+            if (in_array($argument, ['text', 'html', 'view', 'markdown'], true)) {
+                $rendered[$argument] = $arguments[2][$index];
+            }
+        }
+
+        expect($rendered)->not->toBeEmpty(basename($file).' builds no Content');
+
+        // **`toHaveKey`'s second argument is an expected value and not a
+        // failure message**, so writing this the obvious way asserts that the
+        // text view is named after the sentence describing the bug.
+        expect(array_key_exists('text', $rendered))
+            ->toBeTrue(basename($file).' sends no text part, so its alternative body is gone');
+
+        foreach (array_keys($rendered) as $argument) {
+            expect(in_array($argument, ['text', 'html'], true))
+                ->toBeTrue(basename($file)." renders {$argument}:, which is neither text nor a checked HTML view");
+        }
+
+        if (isset($rendered['html'])) {
+            expect(isHtmlMailView(view()->getFinder()->find($rendered['html'])))
+                ->toBeTrue(basename($file)." renders markup from {$rendered['html']}, which is outside resources/views/mail/html");
         }
     }
 });
@@ -312,7 +436,11 @@ it('renders every message as text, which is what makes a raw echo safe', functio
  */
 it('keeps every message its own view inside the directory that is checked', function () {
     foreach (glob(app_path('Mail/*.php')) as $file) {
-        preg_match_all("/new Content\(\s*text:\s*'([^']+)'/", (string) file_get_contents($file), $found);
+        // Both parts, since #53. A confirmation that took its markup from
+        // `emails.order-paid` would extend `QueuedMail`, carry a text part,
+        // satisfy every other rule here, and never be read by the escaping
+        // check at all.
+        preg_match_all("/(?:text|html):\s*'([^']+)'/", (string) file_get_contents($file), $found);
 
         foreach ($found[1] as $view) {
             expect(view()->exists($view))->toBeTrue("{$view} does not exist");

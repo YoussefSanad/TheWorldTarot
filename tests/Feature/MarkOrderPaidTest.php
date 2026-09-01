@@ -401,6 +401,26 @@ it('does not ask the customer to reply to a mailbox that reads nothing', functio
     settle(orderFor(Product::factory()->create()));
 
     Mail::assertQueued(OrderPaid::class, function (OrderPaid $mail): bool {
+        // **Telling somebody not to reply is not inviting them to**, and since
+        // issue #53 the designed body says so in as many words. This is the
+        // second narrowing of the same pattern and it is the same mistake in a
+        // new place: the rule is about an invitation, and the proxy for it is
+        // a word that an explicit refusal also contains.
+        //
+        // Struck out first rather than added to the alternation, so the
+        // exemption is one fixed sentence and not the word 'not' appearing
+        // anywhere near 'reply'. "Reply to this message and we will not
+        // charge you" still fails, which is the point.
+        //
+        // **Both parts, because `render()` answers only the HTML one.** The
+        // confirmation became multipart with #53, and a rule that used to cover
+        // the whole message would have quietly shrunk to half of it on the day
+        // the other half was added. The text part is still the one a plain-text
+        // client shows, and an invitation is no less an invitation there.
+        $body = $mail->render().' '.view('mail.order-paid', $mail->buildViewData())->render();
+
+        $body = str_ireplace('This is an automated message. Please do not reply.', '', $body);
+
         // Word boundaries, because this message now leaves from **noreply@**
         // and a plain substring search finds 'reply' inside it. Naming the
         // sending address in a footer is a reasonable thing to do and it would
@@ -412,7 +432,7 @@ it('does not ask the customer to reply to a mailbox that reads nothing', functio
         // prefix, which would also match 'replace' and 'replenish'. 'respond'
         // is here because the invitation does not have to use the word 'reply'
         // to be an invitation, and `\b` keeps it from firing on 'correspond'.
-        return preg_match('/\b(repl(y|ies|ying)|respond(ing)?)\b/i', $mail->render()) === 0;
+        return preg_match('/\b(repl(y|ies|ying)|respond(ing)?)\b/i', $body) === 0;
     });
 });
 
