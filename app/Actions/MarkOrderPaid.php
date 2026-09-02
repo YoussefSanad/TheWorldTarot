@@ -5,11 +5,12 @@ namespace App\Actions;
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
 use App\Mail\OrderPaid;
-use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\OrderLine;
 use App\Payments\OrderBelongsToNobody;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
@@ -41,7 +42,10 @@ use Illuminate\Support\Facades\Password;
  */
 class MarkOrderPaid
 {
-    public function __construct(private readonly MarkOrderFulfilled $markFulfilled) {}
+    public function __construct(
+        private readonly MarkOrderFulfilled $markFulfilled,
+        private readonly AskForReading $askForReading,
+    ) {}
 
     /**
      * @return bool Whether this call is the one that changed anything. False
@@ -118,7 +122,28 @@ class MarkOrderPaid
         // whether this order is one of the ones that needs nobody.
         if (! $this->needsAPerson($order)) {
             ($this->markFulfilled)($order);
+
+            return;
         }
+
+        // **Somebody has asked, and that is now a row.** Since 2 September 2026
+        // and `docs/adr/0004-a-reading-is-a-row-of-its-own.md`: a paid order
+        // used to be the only record that a person was waiting, and a gift
+        // redeemed three months after it was bought makes that untrue. What is
+        // handed over is the lines that are waiting, so `AskForReading` never
+        // has to ask the question this line has just answered.
+        //
+        // **Inside the transaction on purpose.** A reading is part of what
+        // settling an order does, and an order that is paid with nothing on
+        // Jennifer's list to show for it is the failure this row exists to
+        // prevent. The mail it queues waits for the commit, which is
+        // `AskForReading`'s to arrange and is why the telling is no longer in
+        // `tell()` below.
+        ($this->askForReading)(
+            $this->linesNeedingAPerson($order),
+            $order->customer->email,
+            $order->customer->name,
+        );
     }
 
     /**
@@ -129,12 +154,35 @@ class MarkOrderPaid
      * fulfilled at payment that she is also told about is work on her list that
      * is already done, and one left waiting that she never hears about is a
      * customer who paid and receives nothing.
+     *
+     * **The two callers became the two branches of one `if` on 2 September
+     * 2026**, when the telling moved out to `AskForReading`. The pair this
+     * guards against can no longer be written, since there is one place that
+     * decides and no second derivation to drift from it. The reasoning is kept
+     * rather than deleted: it is why the shape is a branch and not two
+     * questions, and the next person to separate them needs to find out why
+     * they were joined.
      */
     private function needsAPerson(Order $order): bool
     {
-        return $order->lines->contains(
+        return $this->linesNeedingAPerson($order)->isNotEmpty();
+    }
+
+    /**
+     * Which lines on this order are waiting for her, rather than whether any is.
+     *
+     * A reading is a row per line now, so the answer that used to be a boolean
+     * has to name them. `needsAPerson` above is this question with its answer
+     * thrown away, and keeping it that way round is what stops a second
+     * definition of "waiting for a person" existing.
+     *
+     * @return Collection<int, OrderLine>
+     */
+    private function linesNeedingAPerson(Order $order): Collection
+    {
+        return $order->lines->filter(
             fn ($line): bool => $line->product?->fulfillment === Fulfillment::ManualPdf,
-        );
+        )->values();
     }
 
     /**
@@ -226,15 +274,15 @@ class MarkOrderPaid
             ));
         }
 
-        // One message for the whole order rather than one per line, so Jennifer
-        // gets a single thing to work from instead of three that arrive
-        // together and have to be reassembled.
+        // **Telling Jennifer a reading is waiting left here on 2 September
+        // 2026**, for `AskForReading`, which now owns the moment a reading
+        // starts existing and the message that follows from it. It is reached
+        // from `fulfill()` above rather than from here, because the row belongs
+        // in the transaction and the mail belongs after it, and one action can
+        // arrange both. Redemption reaches the same action months later, which
+        // is the whole reason it is no longer payment's.
         //
-        // To orders@ since 30 August 2026, its own key rather than the one the
-        // dispute mail reads. It still leaves from fulfillment@: what changed
-        // is where it lands.
-        if ($this->needsAPerson($order)) {
-            Mail::to(config('mail.notify.orders'))->send(new ReadingToWrite($order));
-        }
+        // What stays here is what payment itself has to say: the receipt, and
+        // the invitation to a password when a pass is what was bought.
     }
 }

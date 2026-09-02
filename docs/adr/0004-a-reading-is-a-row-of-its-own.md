@@ -55,6 +55,20 @@ gifts
   redeemed_at     nullable. Null is an outstanding obligation
 ```
 
+> **`question` is written NOT NULL above. ~~NOT NULL~~ struck 2 September 2026**,
+> building B3 (#69), and the column landed nullable. The argument for it, "a
+> reading nobody asked is not a reading", is about **when the row exists** and
+> survives untouched: a reading is still created only by somebody asking. It was
+> never an argument about the text, and read as one it refuses a purchase this
+> system already accepts. `StoreOrderRequest` takes `lines.*.question` as
+> `sometimes, nullable`, `Purchasability\Rules` only refuses a question on a
+> product that does not allow one, and `mail.reading-to-write` has always
+> carried a branch reading "No question was asked." NOT NULL would therefore
+> have thrown at settlement, after the money was taken, on an order the API had
+> already accepted. **Whether a reading should be buyable without a question is
+> a separate question and is still open**, on #69: answering it means changing
+> the contract and the website, not the column.
+
 Two moments create a reading and they are the same moment in different clothes:
 settlement, for a line nobody gifted, and redemption, for a line somebody did.
 
