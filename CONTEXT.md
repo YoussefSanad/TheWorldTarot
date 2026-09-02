@@ -66,3 +66,41 @@ joining for them, and a gift line has nothing to copy.
 
 _Avoid_: the question (ambiguous the moment both exist), the buyer's question
 (true of the line, and wrong for every gift)
+
+## The panel
+
+Also this repository's alone, because nothing on the wire can see a panel.
+Settled 2 September 2026 in `docs/adr/0006-one-screen-per-question.md`, which
+carries the argument for three screens rather than one.
+
+**Orders**, **Readings**, **Gifts**:
+One screen per question. **Orders is money**, and a row is a purchase.
+**Readings is work**, and a row is an asking. **Gifts is liability**, and a row
+is a gifted line until it is spent. No screen answers two of them, and no number
+on one is derived from another's table. `OrderResource` answered all three until
+gifting, because until gifting they were the same question asked three ways.
+
+_Avoid_: calling Orders the work queue (it stopped being one, and the navigation
+badge moved to Readings), a Gifts tab on Orders (the liability is not filed under
+the money)
+
+**Due**:
+`readings.asked_at` plus the product's delivery window, **computed at read time
+and never stored**. A stored `due_at` is a second writer for a value that already
+has one, and it goes stale the day a window changes, which is the fault
+`MarkOrderFulfilled` exists to prevent for `fulfilled_at`. The screen shows it
+relatively, colours it, and sorts by it oldest first. No job measures it and
+nothing alerts on it: the screen is where she looks.
+
+_Avoid_: deadline, SLA, `due_at` as a column, overdue as a stored flag
+
+**Delivered**:
+`readings.delivered_at`, stamped one reading at a time, because she delivers a
+reading and not an order. An order becoming **fulfilled** follows from it, when
+everything it owes has gone: every reading delivered, every gift redeemed and
+delivered. `MarkOrderFulfilled` still owns what that is recorded as, and gains a
+caller rather than a button.
+
+_Avoid_: fulfilled for a single reading (that word is the order's, and
+`MarkOrderFulfilled` owns it), sent, completed
+
