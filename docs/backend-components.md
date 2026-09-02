@@ -1,0 +1,455 @@
+# The backend, component by component
+
+A walkthrough of every part of `theworldtarot-backend` as it stands on 27 August 2026, written to be read top to bottom by somebody new to the codebase.
+
+`CLAUDE.md` holds the standing rules and the reasoning behind the decisions. `docs/CHECKPOINT.md` holds what is true today. This file holds the map: what each component is, what it talks to, and where it sits in the flow.
+
+---
+
+## 0. Shape of the whole thing
+
+A Laravel 13 application on PHP 8.4 with Postgres, doing three jobs at once:
+
+1. **A versioned JSON API** under `/api/v1`, consumed by a separate Next.js frontend owned by a frontend partner
+2. **A Filament 4 admin panel** at `/admin`, the only rendered UI in the project, used by the client to edit content, watch orders and publish languages
+3. **A set of queued workers and scheduled sweeps** that talk to Bunny.net, Stripe, Resend and Mailchimp out of band
+
+Nothing customer-facing is rendered here. `routes/web.php` serves one placeholder view and nothing else.
+
+```
+Browser (Next.js on Cloudflare Pages)
+        |  cookie or bearer token
+        v
+   /api/v1/*  ------------------> Controllers -> Actions -> Models -> Postgres
+        ^                              |
+        |                              +-> Jobs (managed queue) -> Bunny / Mailchimp / Stripe
+   webhooks                            |
+   Stripe, Bunny                       +-> Mail (Resend)
+
+   /admin  --------------------> Filament resources -> the same Models and Actions
+```
+
+---
+
+## 1. Entry points and bootstrap
+
+### `bootstrap/app.php`
+
+The whole framework configuration, in one file:
+
+- **Routing**: `routes/web.php`, `routes/api.php`, `routes/console.php`, plus a `/up` health endpoint the platform polls
+- **Trusted proxies** from `App\Support\TrustedProxies`. Load bearing: without an explicit list, Laravel trusts `'*'` on Laravel Cloud, which makes Symfony read the leftmost `X-Forwarded-For` entry, and that value is client supplied. Anything keyed on an IP address, rate limiters included, is only meaningful because this is configured
+- **`statefulApi()`**, which puts Sanctum's cookie handling in front of the API so the SPA can authenticate with a session cookie scoped to `.theworldtarot.com`
+- **`encryptCookies(except: ['currency'])`**, because the currency override cookie is written by the frontend in JavaScript and read here, so it cannot be encrypted at one end only
+- **`ResolveRequestContext`** appended to every API request
+- **JSON exception rendering** for anything matching `api/*`
+
+### `app/Providers/AppServiceProvider.php`
+
+The container wiring, and the place to look when something resolves to a class you did not expect:
+
+- `FilmSource` is bound **contextually**, not globally. `CardController` gets whatever `config/reveal.php` names, `CardVideoController` gets whatever `config/viewing-room.php` names. There is deliberately no default binding, so a bare `app(FilmSource::class)` is an error rather than a silent guess
+- `PaymentGateway` resolves through `PaymentMethods`, which reads `config/payments.php`
+- `StripeClient` is a singleton configured with a **10 second timeout, 5 to connect, and zero network retries**, because creating a PaymentIntent happens inside a customer's request and cannot be queued
+- The `enter-viewing-room` gate, one line: a customer may enter if `viewing_room_access_at` is set
+- `TranslatableContentObserver` is registered against every model in `config/translatable.php`
+- The shared password rule used by registration, reset and set-password
+
+### `app/Providers/Filament/AdminPanelProvider.php`
+
+The `admin` panel: path `/admin`, its own `admin` auth guard, amber theme, auto-discovered resources, and the `SpatieTranslatablePlugin` that gives every translatable resource its language tabs.
+
+---
+
+## 2. The request context middleware
+
+`app/Http/Middleware/ResolveRequestContext.php` runs on every API request and resolves two things that almost everything downstream depends on:
+
+- **Locale**, from the `{locale}` route segment, or the fallback when a route has none. Resolved through `LocaleResolver`, which asks the `locales` table whether that language is servable to this caller. A language that is not servable throws a 404 rather than falling back to English, because a path segment is an address and not a hint. Admins can see `preview` languages, the public cannot
+- **Currency**, from `?currency=`, then the `currency` cookie, then Cloudflare's `CF-IPCountry` header, then the `USD` default. An explicit currency is honoured exactly and never re-detected
+
+Both are put into the container as an immutable `App\Support\RequestContext`, which controllers and resources type-hint.
+
+---
+
+## 3. Routes
+
+`routes/api.php` is the contract. Everything is under `/api/v1`; there is no unversioned route.
+
+**Flat routes, no language segment**, because they are not content:
+
+| Route | Throttle | Notes |
+|---|---|---|
+| `GET /languages` | none | The list of live languages. Cannot sit behind a language, since it is what tells the frontend which exist |
+| `GET /currencies` | none | Available currencies plus the detected one |
+| `POST /register` | 10/min | |
+| `POST /login` | 20/min | A second, tighter per address and per email limit lives in `LoginRequest` |
+| `POST /logout` | auth | |
+| `GET /me` | 60/min, auth | |
+| `POST /forgot-password` | 6/min | Plus a 60 second per account limit in the broker |
+| `POST /reset-password` | 10/min | |
+| `POST /set-password` | 10/min | Only works on an account that has never had a password |
+| `POST /orders` | 20/min | Open to guests. Placing an order sends no email, which is what keeps the abuse case small |
+| `POST /orders/{payToken}/pay` | 30/min | Addressed by token, not id, because ids are sequential |
+| `POST /newsletter` | 6/min | |
+| `POST /webhooks/bunny` | 60/min | |
+| `POST /webhooks/stripe` | 120/min | |
+
+**Content routes, under `/{locale}`:**
+
+| Route | Notes |
+|---|---|
+| `GET /{locale}/products` | Readings and the pass |
+| `GET /{locale}/products/{key}` | `key` is the `ProductKey` enum value and the URL segment |
+| `GET /{locale}/cards` | The Library |
+| `GET /{locale}/cards/draw` | The homepage reveal, 30/min, public, returns a signed film |
+| `GET /{locale}/cards/{card}` | Digit-constrained, so it cannot swallow `draw` |
+| `GET /{locale}/cards/{card}/video` | The Viewing Room, 30/min, `auth:sanctum` plus the pass gate |
+
+**The third argument to every `throttle` is a key prefix and is load bearing.** Without it, Laravel keys a guest's limiter on domain and IP alone, so every throttled route in the file shares one counter and the strictest limit applies to their sum. This was a real defect found on staging: six orders refused the next password reset.
+
+`routes/console.php` holds the two scheduled sweeps, described in section 10.
+
+---
+
+## 4. Controllers
+
+Thin by policy. Anything that is a rule lives in an action or a service.
+
+| Controller | What it does |
+|---|---|
+| `LanguageController` | Lists live locales |
+| `CurrencyController` | Lists currencies plus the detected one from `RequestContext` |
+| `ProductController` | `index` lists available readings and the pass; `show` resolves a `ProductKey` and 404s on anything unknown |
+| `CardController` | `index` the Library, `show` one card, `draw` picks a random card that has a playable film and returns a signed URL with `Cache-Control: no-store` |
+| `CardVideoController` | The Viewing Room. `Gate::authorize('enter-viewing-room')`, then mints the same kind of signed URL |
+| `RegisterController` | Creates a customer, then issues credentials |
+| `SessionController` | Login and logout |
+| `MeController` | The signed-in customer |
+| `ForgotPasswordController` | Always answers the same message, whether or not the account exists |
+| `ResetPasswordController` | Resets and revokes every existing token |
+| `SetPasswordController` | Claims an account created by a purchase. Refuses if a password already exists |
+| `OrderController` | Places an order, creating a customer for an unrecognised email if nobody is signed in |
+| `PayOrderController` | Looks an order up by `pay_token`, refuses a signed-in customer who is not its owner, and returns a payment instruction |
+| `NewsletterController` | Honeypot check, then queues the subscription and answers 202 |
+| `BunnyWebhookController` | Reads a video id out of the payload and re-asks Bunny. Always answers 200 |
+| `StripeWebhookController` | Verifies the signature against the raw body first, then dispatches |
+
+**`Concerns/IssuesCredentials`** is shared by register and login: if the request names a `device_name`, it mints a Sanctum personal access token; otherwise it logs into the `web` guard and regenerates the session. An origin that cannot hold a session and did not name a device gets a validation error explaining that.
+
+### Form Requests
+
+`app/Http/Requests/Api/V1/` holds seven. Backend validation is authoritative; the frontend's Zod schemas are a convenience, never a substitute. `LoginRequest` carries the per address and per email rate limit that actually protects a single account from a slow guess.
+
+### API Resources
+
+`app/Http/Resources/Api/V1/` holds thirteen. **Nothing ever returns a model directly**, so column names never leak into the contract and a migration is not automatically a breaking change. All money is integer cents in transit; formatting is the frontend's job. `RevealCardResource` and `CardVideoResource` add a `video` object carrying the signed URL and its expiry.
+
+---
+
+## 5. Models and the database
+
+| Model | Table | Notes |
+|---|---|---|
+| `Admin` | `admins` | Filament login, separate guard, implements `FilamentUser` |
+| `Customer` | `customers` | Sanctum tokens, nullable password for accounts created by a purchase, `viewing_room_access_at` timestamp for the pass |
+| `Locale` | `locales` | `code`, `english_name`, `native_name`, `status`, `sort_order` |
+| `Product` | `products` | One table for everything sellable, soft deleting |
+| `Card` | `cards` | The 22 Major Arcana and anything added later, soft deleting |
+| `Order` | `orders` | |
+| `OrderLine` | `order_lines` | |
+
+### Products
+
+```
+key                 string + ProductKey cast, unique, never translated, and the URL segment
+type                reading | pass | addon
+fulfillment         manual_pdf | access_grant, internal, never exposed
+allows_question     boolean
+name                jsonb, translatable
+short_description   jsonb, translatable
+long_description    jsonb, translatable
+price_usd           integer minor units, NOT NULL
+price_eur           integer minor units, NOT NULL
+price_gbp           integer minor units, NOT NULL
+is_published        developer switch, not in the panel
+sort_order
+defaults_seeded_at
+```
+
+Three price columns rather than a related table, so that **nothing can exist without a price in every currency** and the database enforces it with no trigger. The accepted cost is that a fourth currency is a migration. Prices are fixed per currency and set by hand; there is no base price and no exchange rate anywhere in the system.
+
+Products are **seeded, never created in the panel**. The client edits copy, translations and prices.
+
+### Cards
+
+```
+number                    the deck order, The Fool is 0. Unique among rows where deleted_at is null
+name / short / long       jsonb, translatable
+image_path                path only, nullable. The disk is configuration
+is_published              developer switch
+bunny_video_id            only ever a video that is ready to watch
+bunny_incoming_video_id   one being prepared, waiting to take over
+video_status              pending | processing | ready | failed
+video_master_path         the master, on the private uploads disk
+video_uploaded_at
+```
+
+**Two video columns, not one.** Replacing a video must never take a card out of the Viewing Room while the replacement transcodes, and a failed replacement leaves the old film playing.
+
+`Card::booted()` carries the ingestion trigger. On save, a changed `video_master_path` either forgets the video entirely or forgets just the superseded master, flips the status to `pending`, and after commit dispatches `SendCardVideoToBunny`. The discarded artefacts go to `ForgetCardVideo`.
+
+### Orders
+
+```
+orders
+  customer_id                restrictOnDelete
+  status                     pending | paid | cancelled
+  currency                   3 chars
+  total_amount               unsigned integer minor units
+  charged_amount             nullable, what Stripe actually took
+  stripe_payment_intent_id   nullable, indexed
+  pay_token                  unique, 48 random chars, minted on create
+  paid_at / fulfilled_at
+
+order_lines
+  order_id                   cascadeOnDelete
+  product_id                 restrictOnDelete, read withTrashed
+  product_key                captured at purchase
+  unit_amount                captured at purchase, never re-read from the product
+  quantity
+  question                   nullable
+```
+
+Prices are tax inclusive, and Stripe Tax is off, so `charged_amount` always equals `total_amount`.
+
+### Other tables
+
+`personal_access_tokens` (Sanctum), `sessions`, `password_reset_tokens`, `cache` and `cache_locks`, `jobs`, `job_batches`, `failed_jobs`.
+
+---
+
+## 6. The rule engines
+
+Two small declarative engines carry the rules that would otherwise be scattered across queries, panels and controllers, each of which used to disagree with the others.
+
+### `app/Availability`, is this on the website?
+
+`Availability::of(Condition, Condition, ...)` composes conditions that can each do three things: **constrain a query**, **answer about one record**, and **say what is missing in words**. That is what stops the list query and the panel's explanation drifting apart.
+
+- `Product::availability()`: finished in the original language, finished in the language asked for, priced above zero in every currency, published, not deleted
+- `Card` uses the same shape, with "has a picture" where a product has "has a price"
+- `FilmSource::whatItCanPlay()` returns a `Condition`, so "has a playable film" composes into the same machinery
+
+`php artisan availability:check` proves the query, the predicate and the panel all agree about every row.
+
+### `app/Purchasability`, may this be bought?
+
+`Purchasability::declared()` is the checkout guard, run by `PlaceOrder` against a `Basket` of `Line`s:
+
+- sold here (the product exists)
+- published
+- priced in the currency being charged
+- priced at something above zero
+- a question only where the product takes one
+- one access grant per line
+- one access grant per basket
+- not already held
+
+Each `Rule` produces a `Refusal` carrying both a field, customer-facing words, and an internal fault message.
+
+---
+
+## 7. Actions
+
+Small invokable classes holding the transitions that matter.
+
+| Action | What it does |
+|---|---|
+| `PlaceOrder` | Builds a basket, runs the purchasability guard, captures prices at purchase time, and creates the order and its lines in a transaction |
+| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, refuses anything not `pending`, stamps `paid_at`, grants the Viewing Room pass for any `access_grant` line, marks the order fulfilled if no line needs a person, then sends the receipt, a set-password link if the order grants access and the account has no password, and a "reading to write" note to the client |
+| `MarkOrderFulfilled` | Stamps `fulfilled_at` once, idempotently |
+| `RecordStripePayment` | Refuses anything not succeeded, refuses a payment naming an unknown order, refuses one whose **amount and currency do not match the order**, then records `charged_amount` and the intent id and calls `MarkOrderPaid` |
+| `SyncCardVideo` | Asks Bunny for a video's real status and promotes, fails or updates the card accordingly |
+
+The row lock plus the "must be pending" check in `MarkOrderPaid` is what makes a duplicated webhook, a retried job and a panel click all safe together.
+
+---
+
+## 8. Services and the seams
+
+**Every third party sits behind an interface this system defines, named in config.** The interface describes what we need, in our words. If it mentions a Bunny library id or a Stripe payment intent, the seam is in the wrong place.
+
+| Need | Interface | Implementation | Config |
+|---|---|---|---|
+| What the homepage reveal plays | `FilmSource` | `FullFilmRevealVideo` | `config/reveal.php` |
+| What a pass buys | `FilmSource` | `ViewingRoomFilm` | `config/viewing-room.php` |
+| Taking money for an order | `PaymentGateway` | `ManualSettlement`, `StripeCheckout` | `config/payments.php` |
+| Subscribing to the newsletter | `NewsletterList` | `MailchimpAudience`, `LoggedNewsletterList` | `config/newsletter.php` |
+
+Where the framework already provides a seam, nothing is wrapped: Resend is a mail driver, the media bucket is a filesystem disk, managed queues are a queue connection.
+
+### `Services/Bunny/BunnyStream`
+
+The one service not yet behind an interface, deliberately, because it holds the signing logic and retrofitting it is real risk against modest gain. It offers `createVideo`, `uploadVideo`, `fetchStatus`, `deleteVideo` and `playbackUrl`.
+
+**`playbackUrl` is the security-critical method in the project.** Three things about the signature are load bearing and each was learned expensively:
+
+- The token covers the video's **whole directory**, not its manifest, because HLS resolves renditions and segments relative to `playlist.m3u8`
+- The viewer's IP is **not** part of the signature and cannot be. The API is behind dual-stack Cloudflare while the video zone is IPv4 only, so an IPv6 visitor signs one address and arrives from another. `ZoneSecurityIncludeHashRemoteIP` is off on the zone to match, and the two must move together
+- A playback URL cannot be opened in a browser tab, since the zone refuses requests with no referrer
+
+What limits a copied link is its life: 30 minutes, from `services.bunny.playback_ttl` and `reveal_ttl`.
+
+### `Services/Film`, `Reveal`, `ViewingRoom`
+
+`LivingTarotFilm` is the abstract implementation of `FilmSource`. `FullFilmRevealVideo` and `ViewingRoomFilm` differ only in which config key names their expiry. One implementation, two named adapters, so that changing what anybody gets for free can never reach into what somebody paid for. Recorded as `docs/adr/0001`.
+
+### `Services/Payments`
+
+- `PaymentMethods` is the registry. `config/payments.php` maps `manual` to `ManualSettlement` and `stripe` to `StripeCheckout`, and **the Stripe entry filters itself out when the secrets are absent**, so an environment without keys cannot half-offer it
+- `StripeCheckout` refuses anything not pending, refuses an order whose total disagrees with its lines, creates a PaymentIntent carrying `order_id` in metadata, stores the intent id and returns a client secret
+- `ManualSettlement` returns "nothing to pay", which is how an order is settled by hand in the panel
+
+`PaymentInstruction` is the return value either way: a small value object that is either `nothing_to_pay` or a `client_secret`.
+
+### `Services/Newsletter`
+
+`MailchimpAudience` treats "Member Exists" as success, and classifies a 4xx that is not a 429 as a **permanent** failure by implementing `PermanentFailure`, which is how the job knows not to retry forever. `LoggedNewsletterList` is the local driver.
+
+---
+
+## 9. Jobs
+
+Managed queues on Laravel Cloud, database driver locally. Delivery is **at least once**, delays cannot exceed 15 minutes, and a job slower than the visibility timeout will be delivered again while still running. Every job here is written to tolerate that.
+
+| Job | Tries | What it does |
+|---|---|---|
+| `SendCardVideoToBunny` | 3, 600s timeout | Creates the video at Bunny **before** sending bytes and stores the id immediately, so a redelivery does not produce a duplicate film. Streams the master from the uploads disk. Marks the card failed if the master is missing |
+| `ForgetCardVideo` | 3 | Deletes superseded videos at Bunny and the old master from the bucket |
+| `SettleStripePayment` | unlimited, 6 hour ceiling | Runs `RecordStripePayment`. Backs off 30s, 120s, 900s |
+| `SubscribeToNewsletter` | unlimited, 6 hour ceiling | Fails immediately on a `PermanentFailure`, retries otherwise |
+
+Anything a job needs to read goes to a bucket first: managed workers run in a separate container from the request that uploaded the file.
+
+---
+
+## 10. Scheduled work
+
+`routes/console.php`:
+
+- **`cards:reconcile-videos`, daily.** The safety net under Bunny's transcode callback. Makes no request at all unless something is genuinely in flight
+- **`orders:reconcile`, every five minutes.** The safety net under the Stripe webhook, paired with the command's own 15 minute window, so a lost notification costs about twenty minutes rather than a customer who paid and received nothing
+
+The platform invokes `schedule:run` every five minutes, measured on staging on 26 August 2026.
+
+### Console commands
+
+| Command | Purpose |
+|---|---|
+| `availability:check` | Prove the query, the predicate and the panel agree about every card and product |
+| `mail:check {email}` | Send a real message through the configured transport |
+| `media:check` | Write, read back and delete a file on every disk |
+| `app:create-admin` | Create or update a Filament admin |
+| `cards:reconcile-videos` | Ask Bunny about anything still being prepared |
+| `orders:reconcile` | Ask Stripe about any order still waiting on a payment |
+
+---
+
+## 11. Mail
+
+`QueuedMail` is the base: every message is queued, and each names a sender from the `Sender` enum, which maps `support`, `orders` and `fulfillment` to addresses in `config/mail.php`.
+
+| Mailable | When |
+|---|---|
+| `OrderPaid` | The receipt, on payment |
+| `SetPasswordLink` | On payment of an order that grants Viewing Room access, when the account has never had a password |
+| `ReadingToWrite` | To the client, when a paid order needs a person |
+| `PasswordResetLink` | A reset request |
+| `PaymentDisputed` | A `charge.dispute.created` webhook |
+| `TransportCheck` | `mail:check` only |
+
+Links point at the frontend, built by `App\Support\FrontendUrl` from `config/frontend.php`, so the API never renders a page the customer lands on.
+
+---
+
+## 12. Translation
+
+- `spatie/laravel-translatable` for values, one **jsonb** column per translatable field
+- A `locales` table for the registry. **Adding a language is a row, never a migration**
+- A locale is `draft`, `preview` or `live`. `preview` is visible to admins only
+- Only **cards and product copy** are database-translatable, listed in `config/translatable.php`. UI strings, marketing pages, FAQ and legal all live in the frontend repo
+- Completeness is **calculated, never stored**: a record is finished in a language when every field in the model's `requiredTranslations()` has a value. `HasTranslationCompleteness` on the model and `TranslationCoverage` across all of them
+- `TranslatableContentObserver` watches every save and delete, and **takes a live language back off the website the moment anything in it becomes untranslated**, logging exactly what is outstanding. A language shows everything or nothing
+- `Locales` caches the registry per request and degrades to an empty collection if the table does not exist yet, so the app can boot before its first migration
+
+---
+
+## 13. Filament admin panel
+
+The only rendered UI in the project. Four resources:
+
+| Resource | What the client does there |
+|---|---|
+| **Cards** | Full CRUD, the one place rows are created. Copy, picture, video upload, per-language tabs |
+| **Products** | Edit and list only. Copy, translations and prices. Never sees `key`, `type` or `fulfillment`, and never creates or deletes |
+| **Locales** | List with actions: "Let me review it" (draft to preview), "Show on the website" (to live, refused while anything is untranslated), and withdraw |
+| **Orders** | List, filter by status and fulfilment, mark as paid, mark as fulfilled |
+
+**Marking an order paid in the panel runs `MarkOrderPaid`**, the same action a card payment runs, so a hand-settled order and a Stripe-settled one can never come to mean different things.
+
+Two shared concerns: `EditsTranslatableContent` and `ShowsTranslationProgress`.
+
+---
+
+## 14. Configuration
+
+Beyond the Laravel defaults:
+
+| File | Holds |
+|---|---|
+| `config/currencies.php` | The three currencies, their symbols, and the country to currency map. EU to EUR, GB to GBP, else USD |
+| `config/payments.php` | The payment method registry and the default |
+| `config/reveal.php` | Which `FilmSource` the homepage reveal uses |
+| `config/viewing-room.php` | Which `FilmSource` the pass buys |
+| `config/newsletter.php` | Which `NewsletterList` implementation is live |
+| `config/translatable.php` | Which models are database-translatable |
+| `config/frontend.php` | The frontend URL and its reset and set-password paths |
+| `config/services.php` | Bunny, Stripe, Mailchimp, Resend credentials and timeouts |
+| `config/mail.php` | The three named senders, and where internal mail lands |
+| `config/filesystems.php` | `media` and `uploads` disk names. Rows store paths, never URLs |
+| `config/scramble.php` | API documentation generation |
+
+---
+
+## 15. Testing
+
+Pest. Roughly a thousand tests in `tests/Feature` and `tests/Unit`, plus a separate suite in `tests/Staging`.
+
+- **Never hit a real external service from the offline suite.** `Http::fake()`, `Queue::fake()`, `Mail::fake()`
+- **Never assert an external service's format against your own implementation of it.** `BunnyStreamTest` did exactly that, the suite stayed green, and playback returned 403 for every viewer for five days. Where only the other side can confirm a format, a **vector captured from that service** is pinned, with the date it was accepted, and regenerating one means proving the new one live first
+- `tests/Staging/` is the one carve-out: run by hand against the deployed environment, test-mode credentials only, off by default, never in CI. It exists to answer the one question a fake cannot, whether a customer can actually hand over a card and receive what they bought
+- Two agreement tests, `AvailabilityAgreementTest` and `PurchasabilityAgreementTest`, prove the rule engines answer consistently across query, predicate and words
+
+---
+
+## 16. Where the state is today
+
+Milestones 1 to 4 are complete. M5 phase A (accounts, mail, orders, fulfilment) and phase B (Stripe and the webhook) are both merged and on staging, and the card walk passed there on 26 August 2026. Production has never been walked.
+
+Outstanding, per `docs/CHECKPOINT.md`:
+
+- The captured Stripe webhook vector does not exist yet, so `StripeWebhookVectorTest` skips loudly
+- Gifting is required at launch, planned in `docs/plans/gifting-plan.md`, not started
+- M6 (FAQ and legal content, Mailchimp beyond the signup), M7 (AI fulfilment) and M8 (launch) are not started
+- The origin is still reachable without going through Cloudflare on its `*.laravel.cloud` hostname, and a request arriving that way is trusted one hop too far
+
+---
+
+## Further reading
+
+- `CLAUDE.md`, the standing rules and the reasoning behind every settled decision
+- `docs/CHECKPOINT.md`, what is true today, and the reversals table
+- `.claude/api.md`, `.claude/database.md`, `.claude/translation.md`, `.claude/external-services.md`, `.claude/filament.md`, `.claude/testing.md`
+- `API_CONTRACT.md`, the endpoint-by-endpoint contract with the frontend partner
+- `docs/adr/0001-one-film-implementation-two-named-adapters.md`
