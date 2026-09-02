@@ -1,6 +1,6 @@
 # Checkpoint
 
-Current state, 29 August 2026. `CLAUDE.md` holds the standing rules, this holds what is true today.
+Current state, 2 September 2026. `CLAUDE.md` holds the standing rules, this holds what is true today.
 
 **Read this before `docs/plans/`.** Several plans there describe designs that were later reversed, and the reversals table below is the authority on which.
 
@@ -16,10 +16,10 @@ Current state, 29 August 2026. `CLAUDE.md` holds the standing rules, this holds 
 | M5 phase A | Built, on staging since 12 August, merged to production |
 | M5 phase B | Merged 26 August, PR #37, deployed to staging. **The card walk passed there the same day** |
 | Checkout shape | **Reversed 29 August to a hosted Stripe page, then given a second road the same day.** The card goes to the hosted page, the wallet keeps its own PaymentIntent. ADRs 0002 and 0003 |
-| Gifting | **Designed 1 to 2 September 2026, nothing built.** ADRs 0004, 0005, 0006 and the frontend's 0003 carry the design; `docs/plans/gifting-build.md` carries the build order and `docs/plans/gifting-tickets.md` the sixteen units. `docs/plans/gifting-plan.md` is superseded. Required at launch, and comes after phase B |
+| Gifting | **Designed 1 to 2 September 2026, building since 2 September.** ADRs 0004, 0005, 0006 and the frontend's 0003 carry the design; `docs/plans/gifting-build.md` carries the build order and `docs/plans/gifting-tickets.md` the sixteen units. `docs/plans/gifting-plan.md` is superseded. **The sixteen are filed**: #67 to #76 here, 70 to 75 on the frontend tracker, indexed on #55. **B1 and B2 are shipped, committed and not pushed.** `/docs` is tracked, so every ADR path in those tickets now resolves in a clone, and `API_CONTRACT.md` no longer advertises `gift_code`. B3 (#69) is next and is the proving unit. Required at launch, and comes after phase B |
 | M6, M7, M8 | Not started |
 | Panel fulfillment | Not started, and deliberately not planned. Comes last |
-| Suite | **1189 tests, 1185 passing, 3 skipped, 1 failing**, `./vendor/bin/pest`, measured on 31 August with #52 in the tree. The three skips are `StripeWebhookVectorTest`, unchanged. **The one failure is not #52's**: `tests/Feature/CommentIntegrityTest.php:125` hardcodes "CLAUDE.md has 14" and that file now has 15 hard rules. **`CLAUDE.md` is gitignored**, so nothing committed pins the number that test asserts against, and the suite goes red on a file no reviewer can see |
+| Suite | **1189 tests, 1185 passing, 3 skipped**, `./vendor/bin/pest`, measured on 31 August with #52 in the tree. The three skips are `StripeWebhookVectorTest`, unchanged. ~~1 failing: `CommentIntegrityTest.php:125` hardcodes "CLAUDE.md has 14" and that file now has 15 hard rules.~~ **Fixed 2 September at `78fbc0f`**, the fixture counts fifteen. The reason it could happen stands: **`CLAUDE.md` is gitignored**, so nothing committed pins the number that test asserts against, and the suite can go red on a file no reviewer can see |
 | Staging suite | `composer test:staging`, skips entirely unless configured. `tests/Staging/README.md` |
 | `origin/main` | `9b5d156`, PR #50 |
 | `staging` | `d0af128`, 30 August, level with `origin/staging` and **three commits ahead of `origin/main`** |
