@@ -38,8 +38,10 @@ class ReadPaymentStatus
      */
     public function __invoke(Order $order): PaymentStatus
     {
-        // Read before Stripe is reached for, so the order settled by hand and
-        // the one a gift code paid for both answer without an intent existing.
+        // Read before Stripe is reached for, so an order settled by hand
+        // answers without an intent existing. ~~And the one a gift code paid
+        // for.~~ Struck 2 September 2026: a redemption never calls this, and
+        // the order behind a redeemed code was paid at Stripe like any other.
         if ($order->isPaid()) {
             return PaymentStatus::settled();
         }

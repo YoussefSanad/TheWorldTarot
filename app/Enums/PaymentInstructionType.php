@@ -18,8 +18,12 @@ enum PaymentInstructionType: string
     /**
      * Nothing to collect. The order is settled, or it waits for a person.
      *
-     * Hand settlement answers this, and gift code redemption will, since by the
-     * time the recipient hears anything the order is already paid.
+     * Hand settlement answers this. ~~And gift code redemption will, since by
+     * the time the recipient hears anything the order is already paid.~~
+     * **Struck 2 September 2026: redemption is not a payment method and never
+     * reaches this endpoint.** It collects nothing, so there is nothing for an
+     * instruction to instruct. The case keeps its one caller and its meaning is
+     * unchanged. See docs/adr/0004-a-reading-is-a-row-of-its-own.md.
      */
     case NothingToPay = 'nothing_to_pay';
 

@@ -24,9 +24,12 @@ use App\Enums\PaymentInstructionType;
  * account one file away is how it came to disagree with itself, and it is why
  * `tests/Feature/CommentIntegrityTest.php` now fails a build over it.
  *
- * Hand settlement answers the first of these. Gift code redemption will answer
- * it too, in the gifting milestone, since by the time the recipient hears
- * anything the order is already paid.
+ * Hand settlement answers the first of these. ~~Gift code redemption will
+ * answer it too, in the gifting milestone, since by the time the recipient
+ * hears anything the order is already paid.~~ **Struck 2 September 2026**: a
+ * redemption collects nothing and never asks for an instruction, so the
+ * withdrawn `GiftCodeRedemption` above did not come back under another name.
+ * See docs/adr/0004-a-reading-is-a-row-of-its-own.md.
  *
  * **The redirect case was removed on 26 August 2026 for having no caller, and
  * is back on 29 August because it has one.** The removal's reasoning held about
