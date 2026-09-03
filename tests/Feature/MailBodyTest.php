@@ -369,18 +369,16 @@ it('sends the present as a document and as text, and escapes only the document',
 
     // The signature, the note and the reading's name, all typed by somebody and
     // all three in a document that has tags to close.
-    expect($html)->toContain('Mum &lt;3 has bought you a reading.')
+    expect($html)->toContain('Mum &lt;3 has bought you a gift.')
         ->and($html)->toContain('&ldquo;Thinking of you &amp; the &lt;move&gt;.&rdquo;')
         ->and($html)->toContain('THE IN-DEPTH READING')
         // The title carries it too, and a title is the one place an unescaped
         // value looks harmless right up until it is not.
-        ->and($html)->toContain('<title>A reading from Mum &lt;3</title>')
+        ->and($html)->toContain('<title>A gift from Mum &lt;3</title>')
         ->and($html)->not->toContain('Mum <3');
 
     // The credential, in both of its forms, spaced the way it is meant to be
-    // typed. The link is shown as its address rather than behind a phrase: a
-    // mail carrying a bearer code and saying "click here" is the shape this
-    // whole document exists not to be.
+    // typed.
     expect($html)->toContain('https://staging.theworldtarot.com/redeem/?code=ABCD-2345-EFGH')
         ->and($html)->toContain('>ABCD-2345-EFGH<');
 
@@ -389,11 +387,77 @@ it('sends the present as a document and as text, and escapes only the document',
     // client that will not render markup reads.
     $text = bodyMentioning('A gift code does not expire');
 
-    expect($text)->toContain('Mum <3 has bought you a reading: THE IN-DEPTH READING.')
+    expect($text)->toContain('Mum <3 has bought you a gift: THE IN-DEPTH READING.')
         ->and($text)->toContain('Thinking of you & the <move>.')
         ->and($text)->toContain('https://staging.theworldtarot.com/redeem/?code=ABCD-2345-EFGH')
         ->and($text)->not->toContain('&lt;')
         ->and($text)->not->toContain('&amp;');
+});
+
+/**
+ * The word for what has arrived, and the control that opens it.
+ *
+ * **A reading is a document written by hand against a question somebody has
+ * asked**, and the reader of this message has asked nothing: what they hold is
+ * a code, and it stays one until they spend it. The subject line took that
+ * correction on 3 September 2026 and both bodies followed it the same day —
+ * which is worth a test of its own, because a subject and a document
+ * disagreeing about what arrived is exactly the kind of half-landed copy change
+ * nobody sees in a diff.
+ *
+ * **The card still names the reading**, and that is the assertion this pairs
+ * with: which reading the gift is *for* is not a claim that a reading exists,
+ * and a document withholding it would leave the reader unable to see what they
+ * have been given.
+ *
+ * **And the way in is a button**, with the address still printed under it. Both
+ * halves are asserted because the second is the one that looks redundant: a
+ * mail carrying a bearer credential and saying only "click here" is the shape
+ * this whole document exists not to be, and the reader who will not press an
+ * unfamiliar control is exactly the reader this message is for.
+ */
+it('says a gift rather than a reading, and opens it with a button', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+
+    $gift = aGiftWithAwkwardWords();
+
+    Mail::to($gift->recipient_email)->send(new GiftToRedeem($gift));
+
+    $html = theHtmlSent();
+    $link = 'https://staging.theworldtarot.com/redeem/?code=ABCD-2345-EFGH';
+
+    // Nothing in this document says the reader has been given a reading — not
+    // the heading, not the opening line, not the title.
+    expect($html)->toContain('You Have Been<br>Given A Gift')
+        ->and($html)->toContain('has bought you a gift.')
+        ->and($html)->toContain('<title>A gift from')
+        ->and($html)->not->toContain('Given A Reading')
+        ->and($html)->not->toContain('bought you a reading')
+        // But the card still names which reading it is for.
+        ->and($html)->toContain('THE IN-DEPTH READING');
+
+    // The button, in both of the forms this document ships it in: the anchor
+    // every client but one renders, and the VML Word draws instead.
+    expect($html)->toContain('<a href="'.$link.'" style="display:block;')
+        ->and($html)->toContain('>Open Your Gift</a>')
+        ->and($html)->toContain('<v:roundrect')
+        ->and($html)->toContain('OPEN YOUR GIFT</center>')
+        // The fill and the ink, which the frame restates for the two dark modes
+        // because this is the one control here that is dark on light.
+        ->and($html)->toContain('bgcolor="#E4C46A"')
+        ->and($html)->toContain('.btn a { color:#101B2E !important; }');
+
+    // **And the address is still printed**, under the button rather than
+    // instead of it. The reader who wants to look at a host before trusting it
+    // is the reader this message is written for.
+    expect($html)->toContain('>'.$link.'</a>');
+
+    // The text part has no controls and prints the address, as it always has.
+    $text = bodyMentioning('A gift code does not expire');
+
+    expect($text)->toContain('has bought you a gift: THE IN-DEPTH READING.')
+        ->and($text)->toContain($link)
+        ->and($text)->not->toContain('bought you a reading');
 });
 
 /**

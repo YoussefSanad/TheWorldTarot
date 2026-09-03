@@ -1,7 +1,7 @@
 {{-- Text, not HTML. Escaping here corrupts, so every value is echoed raw. #45 --}}
 {!! \App\Support\Greeting::line(null) !!}
 
-{!! $signature !!} has bought you a reading: {!! $reading !!}.
+{!! $signature !!} has bought you a gift: {!! $reading !!}.
 @if ($note)
 
 Their message to you:

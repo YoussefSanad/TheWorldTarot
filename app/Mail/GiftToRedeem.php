@@ -8,7 +8,7 @@ use App\Support\FrontendUrl;
 use Illuminate\Mail\Mailables\Content;
 
 /**
- * Telling somebody they have been given a reading, and how to spend it.
+ * Telling somebody they have been given a gift, and how to spend it.
  *
  * **The only message this application sends to a person who has never bought
  * anything**, at an address a third party typed for them. Everything unusual
@@ -37,6 +37,14 @@ use Illuminate\Mail\Mailables\Content;
  * promising the wrong thing to the one person in this system with nothing else
  * to go on, and the word for what arrived is a gift. The line is pinned whole
  * in `MailHeadersTest`.
+ *
+ * **Both bodies followed it the same day**, which is the half that was left
+ * behind: the subject said a gift and the document under it still said "You
+ * Have Been Given A Reading". The heading, the opening line, the `<title>` and
+ * the text part all say a gift now. **The card still names the reading**, and
+ * that is not the same claim — it is which reading the gift is *for*, and
+ * withholding it would leave the reader unable to see what they have been
+ * given.
  *
  * ## The buyer's address is not in here
  *
@@ -92,11 +100,20 @@ class GiftToRedeem extends QueuedMail
      * branded message this application sends the one going to the only person
      * in it who has never bought anything. The designed body is the HTML one
      * now, drawn in `mail.html.frame`, the same document the receipt is drawn
-     * in. The text one is what shipped before it, **unchanged**, and it stays
-     * for the two reasons `OrderPaid::content()` gives: a client that will not
-     * render markup still has to be able to read this, and a message offering
-     * no alternative part scores worse with the filters that decide whether
-     * any of it arrives at all.
+     * in. ~~The text one is what shipped before it, **unchanged**~~ — it was,
+     * until the word for what arrives became a gift on 3 September 2026, and a
+     * text part still calling it a reading would be two versions of one message
+     * disagreeing in front of the reader least able to tell which was meant.
+     * The rest of it is untouched. It stays for the two reasons
+     * `OrderPaid::content()` gives: a client that will not render markup still
+     * has to be able to read this, and a message offering no alternative part
+     * scores worse with the filters that decide whether any of it arrives at
+     * all.
+     *
+     * **The button is the document's alone.** A text part has no controls, and
+     * the address it prints is the same string the button carries — which is
+     * also still printed under the button, for the reader who wants to look at
+     * a host before trusting it.
      *
      * **The two views obey opposite escaping rules and that is enforced by
      * path.** `mail.gift-to-redeem` is text and echoes raw. `mail.html.

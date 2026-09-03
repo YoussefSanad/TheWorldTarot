@@ -47,7 +47,7 @@
   instead. `MailBodyTest` scans for the shape; the receipt's `<title>` is where
   it was found, having sent Blade source to customers since #53.
 --}}
-@section('title')A reading from {{ $signature }}@endsection
+@section('title')A gift from {{ $signature }}@endsection
 
 {{--
   The inbox preview, which sits beside a subject already naming who this is
@@ -62,9 +62,16 @@
   frame away.** Nothing is on its way: the reading is written when this person
   asks for it, which may be months from now or never. What has happened is that
   somebody bought them one.
+
+  ~~Given A Reading~~ **A gift, from 3 September 2026** (frontend #82), which is
+  the same correction the subject line took: a reading is a document written by
+  hand against a question somebody has asked, and this reader has asked nothing.
+  What has arrived is a code, and it stays one until they spend it. The reading
+  is named on the card below, which is the honest place for it — that is which
+  reading the gift is *for*, not what is in the envelope.
 --}}
 @section('heading')
-                You Have Been<br>Given A Reading
+                You Have Been<br>Given A Gift
 @endsection
 
 @section('body')
@@ -83,8 +90,11 @@
                 signed the present with rather than the name on their card, so
                 "Mum" is a truer answer than "Jodie O'Reilly" and it is the only
                 name in this transaction the reader can be expected to know.
+                **A gift and not a reading**, as the heading and the subject
+                both say: nothing has been asked and nothing is being written.
+                What the buyer bought is named one row down, on the card.
               --}}
-              <tr><td align="center" class="white body" style="padding:10px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">{{ $signature }} has bought you a reading.</td></tr>
+              <tr><td align="center" class="white body" style="padding:10px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">{{ $signature }} has bought you a gift.</td></tr>
 
               {{--
                 The gold box, and one of them, because a gift is one line.
@@ -129,20 +139,62 @@
                 both are printed for the reason the text part prints both: a
                 reader who will not click an unfamiliar link can still type the
                 code into a page they navigated to themselves.
+              --}}
+              <tr><td align="center" class="white body" style="padding:30px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">Open it here, and you can ask your own question:</td></tr>
 
-                **The address is shown rather than hidden behind a phrase.**
-                A mail that says "click here" and carries a bearer credential is
-                the shape this whole document exists to not be, and the host is
-                something the reader can look at before deciding. `goldLinks`
-                stops the clients that recolour a link from painting it in brand
-                blue, which is the same job it does for the recipient address on
-                the receipt.
+              {{--
+                **The button, from 3 September 2026, and the address under it
+                rather than instead of it.**
+
+                ~~The address is shown rather than hidden behind a phrase.~~ A
+                mail that says "click here" and carries a bearer credential is
+                the shape this whole document exists to not be, and that
+                argument did not move — what moved is the assumption that a
+                shown address and a button are alternatives. The button is what
+                a reader who trusts the sender presses; the address below it is
+                what a reader who does not can read before deciding, and it is
+                the same string either way. Losing it was never the ask.
+
+                **Gold on black inverted**, which makes this the one control in
+                the document that is dark on light. That is why `.btn` exists in
+                the frame: a phone width, and the fill and the ink restated for
+                the two dark modes, which recolour halves independently and
+                would otherwise leave ink the colour of its own background.
+
+                **The `mso` half is VML and is not optional.** Word draws
+                Outlook on Windows and ignores `border-radius`, `padding` on an
+                anchor, and a background on a table cell it did not paint
+                itself — so the one client most likely to belong to a reader
+                being sent an unexpected present is the one that would render
+                this as a bare blue link. `arcsize` is the radius as a
+                percentage of the height: 10px of 49 is 20%.
+              --}}
+              <tr><td align="center" style="padding:20px 24px 0 24px;">
+              <!--[if mso]>
+              <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ $link }}" style="height:49px;v-text-anchor:middle;width:280px;" arcsize="20%" stroke="f" fillcolor="#E4C46A">
+                <w:anchorlock/>
+                <center style="color:#101B2E;font-family:Georgia, 'Times New Roman', Times, serif;font-size:17px;font-weight:normal;letter-spacing:0.08em;">OPEN YOUR GIFT</center>
+              </v:roundrect>
+              <![endif]-->
+              <!--[if !mso]><!-->
+              <table role="presentation" class="btn" width="280" cellpadding="0" cellspacing="0" border="0" align="center" style="width:280px;border-collapse:separate;">
+                <tr><td align="center" bgcolor="#E4C46A" style="background-color:#E4C46A;border-radius:10px;padding:14px 18px;"><a href="{{ $link }}" style="display:block;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:17px;line-height:21px;letter-spacing:0.08em;color:#101B2E;text-decoration:none;text-transform:uppercase;">Open Your Gift</a></td></tr>
+              </table>
+              <!--<![endif]-->
+              </td></tr>
+
+              {{--
+                The address the button goes to, printed. Cream and small rather
+                than gold and underlined, because it is evidence now rather than
+                the way in — two gold controls one above the other would be the
+                document asking twice. `appleLinks` stops the clients that
+                recolour a link from painting it in brand blue, the same job
+                `goldLinks` does for the recipient address on the receipt.
 
                 `break-all` because a redemption URL is longer than a phone is
                 wide and a client that will not break it scrolls the panel.
               --}}
-              <tr><td align="center" class="white body" style="padding:30px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">Open it here, and you can ask your own question:</td></tr>
-              <tr><td align="center" class="gold goldLinks" style="padding:8px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:15px;line-height:21px;letter-spacing:0.03em;color:#E4C46A;word-break:break-all;"><a href="{{ $link }}" style="color:#E4C46A;text-decoration:underline;">{{ $link }}</a></td></tr>
+              <tr><td align="center" class="soft appleLinks" style="padding:14px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:14px;line-height:19px;letter-spacing:0.03em;color:#F1EEE5;word-break:break-all;"><a href="{{ $link }}" style="color:#F1EEE5;text-decoration:none;">{{ $link }}</a></td></tr>
 
               <tr><td align="center" class="white body" style="padding:22px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">Or go to that page and type this in:</td></tr>
 

@@ -30,8 +30,13 @@
 
   **The `<style>` block is shared, and so is the cost of adding to it.** A
   class added here for one document is carried by every other, in a message
-  where bytes are what a client downloads. The gift added none: it is drawn in
-  classes the receipt already had.
+  where bytes are what a client downloads. ~~The gift added none: it is drawn
+  in classes the receipt already had.~~ **It added one, `.btn`, on 3 September
+  2026**, when the redemption link became a button: a filled control is three
+  rules no inline style can carry — a width on a phone, and the fill and the
+  ink restated for the two dark modes, which recolour what they are not told
+  about. The receipt has no button today and pays for the rules; the day it
+  grows one it inherits them.
 
   **The four `@yield`s sit at column 0 and each section carries its own
   indentation.** Whitespace on a `@yield` line is output ahead of the section's
@@ -90,6 +95,10 @@
     .white { color:#FFFFFF !important; }
     .soft, .soft a { color:#F1EEE5 !important; }
     .vline { background-color:#E4C46A !important; }
+    /* The one control on this page that is dark on light, and therefore the
+       one a dark mode would ruin by inverting each half separately. */
+    .btn td { background-color:#E4C46A !important; }
+    .btn a { color:#101B2E !important; }
   }
   /* Outlook.com dark mode rewrites colours behind [data-ogsc]/[data-ogsb]. */
   [data-ogsc] .canvas, [data-ogsb] .canvas { background-color:#1A1A1A !important; }
@@ -98,6 +107,8 @@
   [data-ogsc] .white { color:#FFFFFF !important; }
   [data-ogsc] .soft, [data-ogsc] .soft a { color:#F1EEE5 !important; }
   [data-ogsb] .vline { background-color:#E4C46A !important; }
+  [data-ogsb] .btn td { background-color:#E4C46A !important; }
+  [data-ogsc] .btn a { color:#101B2E !important; }
 
   a { color:#F1EEE5; }
   /* Stop iOS/Gmail auto-linking dates, addresses and numbers in brand blue. */
@@ -121,6 +132,9 @@
     .gut-r { width:6.5% !important; }
     .vline { width:1px !important; }
     .card { width:88% !important; }
+    /* Edge to edge inside the row's own 24px, which is the one width that
+       cannot overflow the narrowest phone still in use. */
+    .btn { width:100% !important; }
     .card-pad { padding:16px 14px 28px 14px !important; }
     .logo  { width:66% !important; height:auto !important; }
     .head  { font-size:25px !important; line-height:29px !important; }
