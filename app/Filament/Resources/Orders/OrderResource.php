@@ -14,9 +14,14 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * What people have bought, and what Jennifer still owes them.
  *
- * Read only, with two things she can do to a row: say the money arrived, and
- * say the reading has gone. Everything else about an order is a record of
- * something that happened, and a record you can edit is not a record.
+ * **Money, and only money, since 3 September 2026.** One screen per question,
+ * `docs/adr/0006-one-screen-per-question.md`: this one answers what came in and
+ * a row is a purchase. What work is owed moved to `ReadingResource`, and with
+ * it the question column, `Mark as fulfilled` and the navigation badge.
+ *
+ * Read only, with one thing she can do to a row: say the money arrived.
+ * Everything else about an order is a record of something that happened, and a
+ * record you can edit is not a record.
  *
  * **Nothing here edits money.** Not the total, not a line, not a price. What
  * was charged is what was charged, and a panel that could change it would be a
@@ -66,21 +71,12 @@ class OrderResource extends Resource
     }
 
     /**
-     * The badge next to "Orders" in the sidebar: how many readings are waiting
-     * to be written. It is the number she actually needs to see.
+     * **No badge, since 3 September 2026 and ADR 0006.** It counted
+     * `awaitingFulfillment` and moved to `ReadingResource`, because readings
+     * waiting is the number she acts on and orders paid is not. An order paid
+     * three months ago whose gift nobody has redeemed is outstanding, and it is
+     * not work.
      */
-    public static function getNavigationBadge(): ?string
-    {
-        $waiting = Order::awaitingFulfillment()->count();
-
-        return $waiting > 0 ? (string) $waiting : null;
-    }
-
-    public static function getNavigationBadgeColor(): ?string
-    {
-        return 'warning';
-    }
-
     public static function getPages(): array
     {
         return [

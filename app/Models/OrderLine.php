@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -46,6 +47,20 @@ class OrderLine extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class)->withTrashed();
+    }
+
+    /**
+     * What has been asked off this line.
+     *
+     * **Not one.** `readings.order_line_id` is deliberately not unique: a line
+     * is one product at one price and nothing promises it is asked about
+     * exactly once.
+     *
+     * @return HasMany<Reading, $this>
+     */
+    public function readings(): HasMany
+    {
+        return $this->hasMany(Reading::class);
     }
 
     /**

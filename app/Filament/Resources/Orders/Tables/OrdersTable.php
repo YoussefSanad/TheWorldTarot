@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Orders\Tables;
 
-use App\Actions\MarkOrderFulfilled;
 use App\Actions\MarkOrderPaid;
 use App\Enums\OrderStatus;
 use App\Models\Order;
@@ -57,17 +56,12 @@ class OrdersTable
                             : self::nameOf($line))
                         ->join(', ')),
 
-                // Wrapped rather than truncated. This is the thing she cannot
-                // write the reading without, so making her open something else
-                // to read it would be the wrong trade.
-                TextColumn::make('question')
-                    ->label('What they asked')
-                    ->state(fn (Order $record): ?string => $record->lines
-                        ->pluck('question')
-                        ->filter()
-                        ->join("\n\n") ?: null)
-                    ->placeholder('Nothing asked')
-                    ->wrap(),
+                // **`What they asked` left on 3 September 2026**, for
+                // `ReadingsResource` and a detail page of its own, ADR 0006.
+                // This screen is money and a row is a purchase; a gift bought
+                // in September and redeemed in December makes "what money came
+                // in" and "what work is owed" two answers about one row, and
+                // one column cannot give both.
 
                 TextColumn::make('total_amount')
                     ->label('Paid')
@@ -106,9 +100,14 @@ class OrdersTable
                     ->falseLabel('Still to fulfill')
                     ->nullable(),
             ])
+            // **`Mark as fulfilled` left with the question column.** She
+            // delivers a reading and not an order, so the action stamps
+            // `readings.delivered_at` on the readings screen and an order
+            // becoming fulfilled follows from everything it owes having gone.
+            // `fulfilled_at` stays a column and stops being something anybody
+            // sets by hand.
             ->recordActions([
                 self::markAsPaid(),
-                self::markAsFulfilled(),
             ])
             // No create, no delete, no bulk anything. An order is a record of
             // something that happened.
@@ -150,39 +149,6 @@ class OrdersTable
                     ->success()
                     ->title($changed ? 'Marked as paid' : 'That order was already paid')
                     ->send();
-            });
-    }
-
-    /**
-     * Saying the reading has gone.
-     *
-     * The system notifies and records, it does not fulfill. She writes the
-     * reading and emails the PDF herself, and this is how she keeps track of
-     * which ones she has done.
-     *
-     * "Fulfilled" rather than "sent", because a pass is fulfilled by access
-     * being granted and nothing about it is ever sent. One word has to cover
-     * both, and only this one is true of both.
-     *
-     * **The stamping is not hers alone.** This screen and the payment path both
-     * reach MarkOrderFulfilled, so an order delivered by a person and one
-     * delivered by the money landing cannot come to mean different things. What
-     * is decided here is only when she is offered the button.
-     */
-    private static function markAsFulfilled(): Action
-    {
-        return Action::make('markAsFulfilled')
-            ->label('Mark as fulfilled')
-            ->icon(Heroicon::OutlinedPaperAirplane)
-            ->requiresConfirmation()
-            ->modalHeading('Mark this order as fulfilled?')
-            ->modalDescription('Use this once you have emailed the reading, so it drops off your list.')
-            ->modalSubmitActionLabel('Yes, it is done')
-            ->visible(fn (Order $record): bool => $record->isPaid() && ! $record->isFulfilled())
-            ->action(function (Order $record): void {
-                app(MarkOrderFulfilled::class)($record);
-
-                Notification::make()->success()->title('Marked as fulfilled')->send();
             });
     }
 

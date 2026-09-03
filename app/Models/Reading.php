@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use App\Enums\ProductKey;
+use Carbon\CarbonInterface;
 use Database\Factories\ReadingFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -42,6 +45,118 @@ class Reading extends Model
     public function orderLine(): BelongsTo
     {
         return $this->belongsTo(OrderLine::class);
+    }
+
+    /**
+     * When this was promised, which is `asked_at` plus what the product sells.
+     *
+     * **Computed here and never stored.** A `due_at` column is a second writer
+     * for a value that already has one, and it goes stale the day a delivery
+     * window changes. That is the fault `MarkOrderFulfilled` exists to prevent
+     * for `fulfilled_at`, and ADR 0006 refuses to re-introduce it one screen
+     * along.
+     *
+     * **Null is "nothing is delivered", not "unknown"**, which is the meaning
+     * `ProductKey::deliveryWindow()` already gives it. A pass grants access the
+     * moment it is paid for and an add-on changes another line's wait, so
+     * neither has a window. Neither has a reading either, so this is defensive
+     * rather than reachable, and it returns null instead of guessing.
+     *
+     * The delivery window is the first promise this system ever made in a
+     * customer's inbox. This is the first time the person who has to keep it
+     * can see it.
+     */
+    public function dueAt(): ?CarbonInterface
+    {
+        $window = $this->orderLine->product_key->deliveryWindow();
+
+        return $window === null ? null : $this->asked_at->copy()->add($window);
+    }
+
+    /**
+     * Whether the promise has been missed and the reading is still owed.
+     *
+     * **A delivered reading is never overdue, however long it took.** This is a
+     * question about work outstanding, not a grade on work already done, and
+     * colouring a finished row red would put permanent noise on the one screen
+     * that has to stay readable.
+     *
+     * No job asks this and nothing alerts on it. The screen is where she looks.
+     */
+    public function isOverdue(): bool
+    {
+        $due = $this->dueAt();
+
+        return ! $this->isDelivered() && $due !== null && $due->isPast();
+    }
+
+    /**
+     * Oldest promise first, or last.
+     *
+     * **Due has to be computed in SQL as well as in PHP, and the two are one
+     * definition split by necessity.** `dueAt()` answers for a row in hand;
+     * this answers for a page of rows the database has not sent yet, and
+     * sorting a paginated table in PHP would sort only the page. The `case` is
+     * built from `ProductKey::deliveryWindow()` rather than written out, so a
+     * window corrected in the catalogue moves both.
+     *
+     * **Not `asked_at`, which is the tempting shortcut and is wrong.** The four
+     * readings do not share a window: `in-depth` promises 48 hours and the rest
+     * promise 24, so a reading asked an hour earlier can be due a day later.
+     * Sorting by when it was asked would quietly be a different list.
+     *
+     * @param  Builder<Reading>  $query
+     * @return Builder<Reading>
+     */
+    public function scopeOrderByDue(Builder $query, string $direction = 'asc'): Builder
+    {
+        $cases = [];
+        $bindings = [];
+
+        foreach (ProductKey::cases() as $key) {
+            $window = $key->deliveryWindow();
+
+            // Null is "nothing is delivered" rather than "unknown", so the row
+            // has no due date rather than an unbounded one. Nothing with a null
+            // window has a reading, so this is unreachable rather than lenient.
+            if ($window === null) {
+                continue;
+            }
+
+            $cases[] = 'when order_lines.product_key = ? then ?::interval';
+            $bindings[] = $key->value;
+            $bindings[] = $window;
+        }
+
+        return $query
+            ->select('readings.*')
+            ->join('order_lines', 'order_lines.id', '=', 'readings.order_line_id')
+            ->orderByRaw(
+                'readings.asked_at + (case '.implode(' ', $cases).' else null end) '
+                    .($direction === 'desc' ? 'desc' : 'asc'),
+                $bindings,
+            );
+    }
+
+    /**
+     * Whether somebody was given this rather than buying it.
+     *
+     * The querent of a gift never chose the reading they are holding, and has
+     * never heard from us before. The list marks them for that reason.
+     */
+    public function isAGift(): bool
+    {
+        return $this->gift_id !== null;
+    }
+
+    /**
+     * The present this came from, if it came from one.
+     *
+     * @return BelongsTo<Gift, $this>
+     */
+    public function gift(): BelongsTo
+    {
+        return $this->belongsTo(Gift::class);
     }
 
     /**

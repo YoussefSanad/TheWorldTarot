@@ -41,14 +41,18 @@ it('lists orders, newest first', function () {
         ->assertCanSeeTableRecords([$newer, $older], inOrder: true);
 });
 
-it('shows what somebody asked, since that is what the reading answers', function () {
+it('no longer shows what somebody asked, because that is the readings screen', function () {
     $order = Order::factory()
         ->forProduct(Product::factory()->create(), 1, 'Will the move be right for me?')
         ->create();
 
+    // **Orders is money and a row is a purchase**, ADR 0006. The question moved
+    // to Readings with a detail page of its own, because a gift bought in
+    // September and redeemed in December makes "what money came in" and "what
+    // work is owed" two different answers about one row.
     Livewire::test(ListOrders::class)
         ->assertCanSeeTableRecords([$order])
-        ->assertSee('Will the move be right for me?');
+        ->assertDontSee('Will the move be right for me?');
 });
 
 /*
@@ -105,28 +109,18 @@ it('offers marking as paid only while an order is waiting for money', function (
 });
 
 /*
-| Marking an order fulfilled.
+| Marking an order fulfilled, which this screen no longer does.
 */
 
-it('records when Jennifer says the reading has gone', function () {
-    $order = Order::factory()->paid()->forProduct(Product::factory()->create())->create();
-
-    Livewire::test(ListOrders::class)
-        ->callTableAction('markAsFulfilled', $order);
-
-    expect($order->refresh()->fulfilled_at)->not->toBeNull()
-        ->and($order->isFulfilled())->toBeTrue();
-});
-
-it('offers marking as fulfilled only on something paid for and not yet fulfilled', function () {
-    $pending = pendingOrder();
+it('no longer offers marking an order fulfilled', function () {
     $paid = Order::factory()->paid()->forProduct(Product::factory()->create())->create();
-    $sent = Order::factory()->fulfilled()->forProduct(Product::factory()->create())->create();
 
+    // **She delivers a reading, not an order.** The action moved to Readings
+    // and stamps `readings.delivered_at`; an order becoming fulfilled follows
+    // from every reading on it having gone rather than from a button here.
+    // `fulfilled_at` stays a column and stops being something anybody sets.
     Livewire::test(ListOrders::class)
-        ->assertTableActionHidden('markAsFulfilled', record: $pending)
-        ->assertTableActionVisible('markAsFulfilled', record: $paid)
-        ->assertTableActionHidden('markAsFulfilled', record: $sent);
+        ->assertTableActionDoesNotExist('markAsFulfilled', record: $paid);
 });
 
 /*
@@ -144,20 +138,13 @@ it('cannot create, edit or delete an order', function () {
         ->and(OrderResource::canDeleteAny())->toBeFalse();
 });
 
-it('counts what is still owed in the sidebar', function () {
+it('carries no badge, because readings waiting is the number she needs', function () {
     Order::factory()->paid()->forProduct(Product::factory()->create())->create();
     Order::factory()->paid()->forProduct(Product::factory()->create())->create();
-    Order::factory()->fulfilled()->forProduct(Product::factory()->create())->create();
-    pendingOrder();
 
-    // Paid and not yet sent. Not "all orders", which is a number that only
-    // grows and tells her nothing.
-    expect(OrderResource::getNavigationBadge())->toBe('2');
-});
-
-it('shows no badge when nothing is waiting', function () {
-    Order::factory()->fulfilled()->forProduct(Product::factory()->create())->create();
-
+    // The badge moved to Readings. Orders paid is not a number anybody acts on,
+    // and a badge counting it would be permanently lit for orders that are
+    // finished as far as this screen is concerned.
     expect(OrderResource::getNavigationBadge())->toBeNull();
 });
 
@@ -176,10 +163,10 @@ it('keeps orders out of reach of anybody who is not an admin', function () {
 | problem. It is that replacing the writer moves both.
 */
 
-it('sends the payment path and this screen through one writer', function () {
+it('sends the payment path through the one writer', function () {
     // A date nobody arrives at by accident, from a writer bound over the real
-    // one. Both callers have to produce it, which is only true if neither of
-    // them stamps a date of its own.
+    // one. The caller has to produce it, which is only true if it stamps no
+    // date of its own.
     app()->bind(MarkOrderFulfilled::class, fn (): MarkOrderFulfilled => new class extends MarkOrderFulfilled
     {
         public function __invoke(Order $order): bool
@@ -194,12 +181,10 @@ it('sends the payment path and this screen through one writer', function () {
     $atPayment = pendingOrder(product: Product::factory()->pass()->create());
     app(MarkOrderPaid::class)($atPayment);
 
-    // A reading, delivered when Jennifer says she has emailed it.
-    $byHand = Order::factory()->paid()->forProduct(Product::factory()->create())->create();
-    Livewire::test(ListOrders::class)->callTableAction('markAsFulfilled', $byHand);
-
-    expect($atPayment->refresh()->fulfilled_at?->toDateString())->toBe('2001-01-01')
-        ->and($byHand->refresh()->fulfilled_at?->toDateString())->toBe('2001-01-01');
+    // **The other half of this test moved to ReadingResourceTest**, which is
+    // where the by-hand caller lives now. Both are still one writer and the
+    // pair is still asserted, one file each.
+    expect($atPayment->refresh()->fulfilled_at?->toDateString())->toBe('2001-01-01');
 });
 
 it('leaves the first date alone when an order is fulfilled again', function () {
