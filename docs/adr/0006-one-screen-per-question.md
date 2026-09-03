@@ -129,6 +129,26 @@ A badge that is permanently orange because three gifts are legitimately
 outstanding teaches somebody to stop reading badges, and the one it costs them
 is the readings badge, which does mean something.
 
+**A gift with no code is not on this screen, decided 3 September 2026 while
+building B9 (#75).** This document did not settle it and the screen could not
+avoid it. A gift row is written when the buyer types their four fields at
+checkout and the code is minted later, when the money arrives, so between those
+two moments there is a row that owes nobody anything: nothing was taken, nothing
+was sent, and nothing can be redeemed. ADR 0005 said `redeemed_at IS NULL` was
+the whole of the query that finds outstanding gifts, which read literally counts
+every abandoned checkout as an obligation; that sentence is struck and corrected
+there on the same day. The screen asks `code IS NOT NULL` as well, so the one
+number on a liability screen is not out by however many people reached the
+payment page and stopped. `Gift::scopeOutstanding` is where both halves live,
+asked from the badge and from the filter the screen opens on, so the sidebar
+cannot come to disagree with the list under it.
+
+**And the age is counted from the purchase rather than from the minting**, which
+is the same choice made the cheaper way round. The two are apart by the length
+of a checkout, minutes, and `gifts.created_at` is on the row already where the
+settlement instant is two joins away. A column measured in days and months
+cannot show the difference.
+
 ## What this refuses, for now
 
 **The PDF does not go through the panel.** Uploading the written reading and

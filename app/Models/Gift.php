@@ -193,6 +193,64 @@ class Gift extends Model
     }
 
     /**
+     * Rows whose code contains what somebody typed.
+     *
+     * **Partial, where `scopeWithTypedCode` above is exact**, because the two
+     * answer different questions. Redemption is handed a whole code and must
+     * match one row or none. A panel search box is handed whatever she could
+     * read off a mail or was told over the phone.
+     *
+     * **Read through the same normalising**, which is the point of it being
+     * here rather than in the table. A code is stored in one run and quoted in
+     * three groups, so a column that searched what it stored would mean the one
+     * form of it anybody ever says out loud finds nothing.
+     *
+     * **Nothing readable finds nothing**, and that clause is the whole reason
+     * this is a scope. `normaliseCode` states the rule for its own callers,
+     * that nonsense normalises to nonsense and then misses, and a `like` would
+     * silently invert it: an empty needle matches every row rather than none,
+     * so a search box holding one stray character would answer with the entire
+     * liability.
+     *
+     * @param  Builder<Gift>  $query
+     * @return Builder<Gift>
+     */
+    public function scopeContainingTypedCode(Builder $query, string $typed): Builder
+    {
+        $code = self::normaliseCode($typed);
+
+        if ($code === '') {
+            return $query->whereRaw('false');
+        }
+
+        return $query->where('code', 'like', '%'.$code.'%');
+    }
+
+    /**
+     * The presents that are still owed.
+     *
+     * **Asked here rather than spelled out at each call site**, for the reason
+     * `CONTEXT.md` gives about `Customer::isUnclaimed()`: three modules once
+     * wrote `password === null` separately and agreed only because all three
+     * happened to write it the same way. The gifts screen asks this twice, from
+     * its badge and from the filter it opens on, and a number in the sidebar
+     * that disagreed with the list under it would be worse than no number.
+     *
+     * **Minted and unredeemed, both halves.** `redeemed_at IS NULL` alone is
+     * how `docs/adr/0005-gift-codes-do-not-expire.md` puts it, and that
+     * sentence predates the row existing before its code does. A gift with no
+     * code took no money and told nobody, so counting it here would put the
+     * liability out by every abandoned checkout.
+     *
+     * @param  Builder<Gift>  $query
+     * @return Builder<Gift>
+     */
+    public function scopeOutstanding(Builder $query): Builder
+    {
+        return $query->whereNotNull('code')->whereNull('redeemed_at');
+    }
+
+    /**
      * Give this present a code, which is the moment it becomes spendable.
      *
      * **The write lives with the alphabet rather than with the caller.**

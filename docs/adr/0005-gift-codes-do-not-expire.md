@@ -15,11 +15,21 @@ indefinitely — the obligation is one reading, it never grows, and honouring it
 late costs exactly what honouring it on time would have.
 
 **The liability is real and is named rather than capped.** An unredeemed gift is
-an outstanding obligation, and `redeemed_at IS NULL` is the whole of the query
-that finds them. It wants a screen in the panel from the first release, not
-because anyone has to act on it, but because otherwise a recipient whose address
-bounced is invisible: the money is taken, the code exists, and nobody is
-waiting for anything they know about.
+an outstanding obligation, and ~~`redeemed_at IS NULL` is the whole of the query
+that finds them~~ `code IS NOT NULL AND redeemed_at IS NULL` finds them. It
+wants a screen in the panel from the first release, not because anyone has to
+act on it, but because otherwise a recipient whose address bounced is invisible:
+the money is taken, the code exists, and nobody is waiting for anything they
+know about.
+
+**That query was corrected on 3 September 2026, building B9 (#75).** The
+original was written on 1 September, before ADR 0004's addendum split a gift row
+from its code: the row is written when the buyer types their four fields at
+checkout and minted when the money arrives, so `redeemed_at IS NULL` on its own
+counts every abandoned checkout as an obligation. Nothing was taken and nobody
+was told, so nothing is owed. `Gift::scopeOutstanding` is the one place that
+query lives now, and `docs/adr/0006-one-screen-per-question.md` carries the
+argument beside the screen it is read on.
 
 **A nudge rather than a deadline.** A reminder to an unredeemed recipient some
 weeks on does the thing an expiry date is usually reached for — getting the gift
