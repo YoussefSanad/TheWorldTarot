@@ -1,6 +1,8 @@
 # The backend, component by component
 
-A walkthrough of every part of `theworldtarot-backend` as it stands on 27 August 2026, written to be read top to bottom by somebody new to the codebase.
+A walkthrough of every part of `theworldtarot-backend` as it stands on 3 September 2026, written to be read top to bottom by somebody new to the codebase.
+
+**Brought up to date with the gifting epic on 3 September 2026**, B1 to B7 of it, which had been landing since 2 September while this file still said gifting was not started. What is described below as gifting is committed on `feat/gift-a-reading` and is **not deployed anywhere**. B8 to B10 are not built and are named where they belong.
 
 `CLAUDE.md` holds the standing rules and the reasoning behind the decisions. `docs/CHECKPOINT.md` holds what is true today. This file holds the map: what each component is, what it talks to, and where it sits in the flow.
 
@@ -105,6 +107,10 @@ Both are put into the container as an immutable `App\Support\RequestContext`, wh
 | `GET /{locale}/cards/draw` | The homepage reveal, 30/min, public, returns a signed film |
 | `GET /{locale}/cards/{card}` | Digit-constrained, so it cannot swallow `draw` |
 | `GET /{locale}/cards/{card}/video` | The Viewing Room, 30/min, `auth:sanctum` plus the pass gate |
+| `POST /{locale}/gifts/lookup` | What a gift code is worth, 10/min, and it does not spend it |
+| `POST /{locale}/gifts/redeem` | Spends it, 20/min, under a row lock |
+
+**The two gift routes are POSTs for a read**, because the code is a bearer credential and a path segment lands in every access log between the browser and here, which is the same argument `POST /orders/status` makes for the pay token. **They sit behind the language segment** and orders and payment do not, because these two genuinely answer content: the lookup carries the reading's copy, in the language the visitor opened the link in.
 
 **The third argument to every `throttle` is a key prefix and is load bearing.** Without it, Laravel keys a guest's limiter on domain and IP alone, so every throttled route in the file shares one counter and the strictest limit applies to their sum. This was a real defect found on staging: six orders refused the next password reset.
 
@@ -134,16 +140,17 @@ Thin by policy. Anything that is a rule lives in an action or a service.
 | `NewsletterController` | Honeypot check, then queues the subscription and answers 202 |
 | `BunnyWebhookController` | Reads a video id out of the payload and re-asks Bunny. Always answers 200 |
 | `StripeWebhookController` | Verifies the signature against the raw body first, then dispatches |
+| `GiftController` | `lookup` resolves a typed code without spending it; `redeem` spends it. Both normalise through `Gift::withTypedCode`, both answer `Cache-Control: no-store`, and both read the product **past `is_published`**, which is the one place in this system that does |
 
 **`Concerns/IssuesCredentials`** is shared by register and login: if the request names a `device_name`, it mints a Sanctum personal access token; otherwise it logs into the `web` guard and regenerates the session. An origin that cannot hold a session and did not name a device gets a validation error explaining that.
 
 ### Form Requests
 
-`app/Http/Requests/Api/V1/` holds seven. Backend validation is authoritative; the frontend's Zod schemas are a convenience, never a substitute. `LoginRequest` carries the per address and per email rate limit that actually protects a single account from a slow guess.
+`app/Http/Requests/Api/V1/` holds ten. Backend validation is authoritative; the frontend's Zod schemas are a convenience, never a substitute. `LoginRequest` carries the per address and per email rate limit that actually protects a single account from a slow guess.
 
 ### API Resources
 
-`app/Http/Resources/Api/V1/` holds thirteen. **Nothing ever returns a model directly**, so column names never leak into the contract and a migration is not automatically a breaking change. All money is integer cents in transit; formatting is the frontend's job. `RevealCardResource` and `CardVideoResource` add a `video` object carrying the signed URL and its expiry.
+`app/Http/Resources/Api/V1/` holds seventeen. **Nothing ever returns a model directly**, so column names never leak into the contract and a migration is not automatically a breaking change. All money is integer cents in transit; formatting is the frontend's job. `RevealCardResource` and `CardVideoResource` add a `video` object carrying the signed URL and its expiry.
 
 ---
 
@@ -158,6 +165,8 @@ Thin by policy. Anything that is a rule lives in an action or a service.
 | `Card` | `cards` | The 22 Major Arcana and anything added later, soft deleting |
 | `Order` | `orders` | |
 | `OrderLine` | `order_lines` | |
+| `Reading` | `readings` | Somebody asked a question and is waiting. Exists from the asking, never before |
+| `Gift` | `gifts` | A reading bought for somebody who has not asked yet. A row here is a liability, not a purchase |
 
 ### Products
 
@@ -223,6 +232,40 @@ order_lines
 
 Prices are tax inclusive, and Stripe Tax is off, so `charged_amount` always equals `total_amount`.
 
+`order_lines.question` is what the buyer typed at checkout and stopped being the question of record when gifting landed. It is null on a gift line, because the person who will ask has not seen the present yet.
+
+### Readings and gifts
+
+Added by the gifting epic, `docs/adr/0004-a-reading-is-a-row-of-its-own.md`. **A gift bought in September and redeemed in December pulls "the money arrived" and "somebody asked" three months apart**, and one row cannot hold "paid, and not yet asked".
+
+```
+readings
+  order_line_id              restrictOnDelete, deliberately not unique
+  gift_id                    nullable, restrictOnDelete. Null is a line somebody bought for themselves
+  question                   nullable, the question of record
+  querent_email              captured, never joined: a gift's querent gets no customers row
+  querent_name               nullable
+  asked_at                   when the clock starts
+  delivered_at               nullable
+
+gifts
+  order_line_id              unique, restrictOnDelete. One line is one thing bought once
+  code                       nullable, unique. Null until settlement mints one
+  recipient_email            where the code is sent, and the one address nothing can check
+  signature                  who it is from, and not a name
+  message                    nullable, the only optional one of the four
+  locale                     the language the recipient's mail is written in
+  redeemed_at                nullable. Null is an obligation still on the books
+```
+
+Three things about these are load bearing:
+
+- **`gifts.code` is null between placement and settlement.** A code minted when the buyer typed the address would be a live bearer credential behind every abandoned checkout. A codeless row is inert: nothing can look it up and nothing can redeem it
+- **Due is computed at read time**, `asked_at` plus `ProductKey::deliveryWindow()`, and there is deliberately no `due_at` column. A stored one is a second writer for a value that already has one
+- **There is deliberately no `expires_at`.** `docs/adr/0005-gift-codes-do-not-expire.md` accepts the indefinite liability, and a column nothing writes is a column the next person assumes is enforced somewhere
+
+`products.is_giftable` joins `allows_question` on the catalogue. The two are independent, and `one-card` is what proves it: it takes a question and cannot be gifted.
+
 ### Other tables
 
 `personal_access_tokens` (Sanctum), `sessions`, `password_reset_tokens`, `cache` and `cache_locks`, `jobs`, `job_batches`, `failed_jobs`.
@@ -267,12 +310,18 @@ Small invokable classes holding the transitions that matter.
 | Action | What it does |
 |---|---|
 | `PlaceOrder` | Builds a basket, runs the purchasability guard, captures prices at purchase time, and creates the order and its lines in a transaction |
-| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, refuses anything not `pending`, stamps `paid_at`, grants the Viewing Room pass for any `access_grant` line, marks the order fulfilled if no line needs a person, then sends the receipt, a set-password link if the order grants access and the account has no password, and a "reading to write" note to the client |
+| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, refuses anything not `pending`, stamps `paid_at`, grants the Viewing Room pass for any `access_grant` line, **mints a code for every gift on the order**, asks `AskForReading` about the lines that are waiting for a person, then asks the order itself whether everything it owes has gone. Then it sends the receipt, a set-password link if the order grants access and the account has no password, and a `GiftToRedeem` to each recipient |
+| `AskForReading` | **The one moment a reading starts existing**, and the note to the client that follows it. Two roads reach it: settlement for a line nobody gifted, and `forGift` for a line somebody did. One message per asking, not per reading |
+| `RedeemGift` | Spends a code. Re-reads the gift **under `lockForUpdate` inside the transaction**, refuses one already spent with a 409, stamps `redeemed_at`, and calls `AskForReading::forGift` in the same transaction. The mail waits for the commit |
+| `DeliverReading` | Stamps `readings.delivered_at` once, then asks `MarkOrderFulfilled` whether the order it belongs to is now finished |
+| `ReadPaymentStatus` | Asks Stripe what became of an order's PaymentIntent, for the confirmation screen to poll |
 | `MarkOrderFulfilled` | Stamps `fulfilled_at` once, idempotently |
 | `RecordStripePayment` | Refuses anything not succeeded, refuses a payment naming an unknown order, refuses one whose **amount and currency do not match the order**, then records `charged_amount` and the intent id and calls `MarkOrderPaid` |
 | `SyncCardVideo` | Asks Bunny for a video's real status and promotes, fails or updates the card accordingly |
 
-The row lock plus the "must be pending" check in `MarkOrderPaid` is what makes a duplicated webhook, a retried job and a panel click all safe together.
+The row lock plus the "must be pending" check in `MarkOrderPaid` is what makes a duplicated webhook, a retried job and a panel click all safe together. `RedeemGift` is the same shape for the same reason, and it is the one place where getting it wrong means a free reading: `tests/Feature/RedeemAGiftRaceTest.php` forks two real processes at one code to prove the lock is there, because nothing else can.
+
+**"Fulfilled" is asked rather than remembered.** `Order::everythingItOwesHasGone()` is the one definition: every reading delivered, every gift redeemed and delivered. `MarkOrderFulfilled` records it and deliberately does not decide it, and both the payment path and the panel's `Mark delivered` ask the same question.
 
 ---
 
@@ -364,7 +413,8 @@ The platform invokes `schedule:run` every five minutes, measured on staging on 2
 |---|---|
 | `OrderPaid` | The receipt, on payment |
 | `SetPasswordLink` | On payment of an order that grants Viewing Room access, when the account has never had a password |
-| `ReadingToWrite` | To the client, when a paid order needs a person |
+| `ReadingToWrite` | To the client, whenever somebody asks: on settlement for a line nobody gifted, and on redemption for a line somebody did |
+| `GiftToRedeem` | To the recipient, on payment, carrying the code and the `/redeem/` link. Rendered in `gifts.locale`, and the buyer never receives a copy |
 | `PasswordResetLink` | A reset request |
 | `PaymentDisputed` | A `charge.dispute.created` webhook |
 | `TransportCheck` | `mail:check` only |
@@ -387,14 +437,17 @@ Links point at the frontend, built by `App\Support\FrontendUrl` from `config/fro
 
 ## 13. Filament admin panel
 
-The only rendered UI in the project. Four resources:
+The only rendered UI in the project. Five resources, since `docs/adr/0006-one-screen-per-question.md` split one into three:
 
 | Resource | What the client does there |
 |---|---|
 | **Cards** | Full CRUD, the one place rows are created. Copy, picture, video upload, per-language tabs |
 | **Products** | Edit and list only. Copy, translations and prices. Never sees `key`, `type` or `fulfillment`, and never creates or deletes |
 | **Locales** | List with actions: "Let me review it" (draft to preview), "Show on the website" (to live, refused while anything is untranslated), and withdraw |
-| **Orders** | List, filter by status and fulfilment, mark as paid, mark as fulfilled |
+| **Orders** | **Money, and only money.** List, filter by status and fulfilment, mark as paid. It lost the question column, the `Mark as fulfilled` button and its navigation badge to Readings |
+| **Readings** | **The work queue.** Sorted oldest promise first, with due computed at read time and coloured, a detail page carrying the whole question and the buyer's message, and `Mark delivered` per reading. Carries the navigation badge |
+
+**Orders is money, Readings is work, and Gifts is liability.** No screen answers two of them and no number on one is derived from another's table. The Gifts screen is B9 (#75) and is not built, so an outstanding gift is visible today only through the order it hangs off.
 
 **Marking an order paid in the panel runs `MarkOrderPaid`**, the same action a card payment runs, so a hand-settled order and a Stripe-settled one can never come to mean different things.
 
@@ -424,12 +477,13 @@ Beyond the Laravel defaults:
 
 ## 15. Testing
 
-Pest. Roughly a thousand tests in `tests/Feature` and `tests/Unit`, plus a separate suite in `tests/Staging`.
+Pest. 1359 tests in `tests/Feature` and `tests/Unit`, 1356 passing and 3 skipped, measured 3 September 2026. The three skips are `StripeWebhookVectorTest` and are the same three they have always been. There is a separate suite in `tests/Staging`.
 
 - **Never hit a real external service from the offline suite.** `Http::fake()`, `Queue::fake()`, `Mail::fake()`
 - **Never assert an external service's format against your own implementation of it.** `BunnyStreamTest` did exactly that, the suite stayed green, and playback returned 403 for every viewer for five days. Where only the other side can confirm a format, a **vector captured from that service** is pinned, with the date it was accepted, and regenerating one means proving the new one live first
 - `tests/Staging/` is the one carve-out: run by hand against the deployed environment, test-mode credentials only, off by default, never in CI. It exists to answer the one question a fake cannot, whether a customer can actually hand over a card and receive what they bought
 - Two agreement tests, `AvailabilityAgreementTest` and `PurchasabilityAgreementTest`, prove the rule engines answer consistently across query, predicate and words
+- **`RefreshDatabase` everywhere but one file.** `tests/Feature/RedeemAGiftRaceTest.php` uses `DatabaseTruncation`, because a transaction that never commits is invisible to a second connection and there is then nothing for a second process to race for. It forks two real processes at one gift code, and it is the only proof anywhere that `RedeemGift` holds a row lock: every other case passes with no lock at all. **Two things about it are not optional**, and both were learned by getting them wrong. `Tests\Support\TruncatesWhatAGiftTouches` names the six tables it may empty as an **allowlist**, because `locales` is written by a migration and not a seeder and truncating it would empty the language registry for the rest of the process with nothing to put it back. And it clears up in an `afterEach`, because `DatabaseTruncation` truncates on the way in and not on the way out, so its committed rows would otherwise still be there for every test after it. Eleven tests in four unrelated files went red before that existed, and none of them named the file that caused it
 
 ---
 
@@ -440,7 +494,7 @@ Milestones 1 to 4 are complete. M5 phase A (accounts, mail, orders, fulfilment) 
 Outstanding, per `docs/CHECKPOINT.md`:
 
 - The captured Stripe webhook vector does not exist yet, so `StripeWebhookVectorTest` skips loudly
-- Gifting is required at launch, planned in `docs/plans/gifting-plan.md`, not started
+- ~~Gifting is required at launch, planned in `docs/plans/gifting-plan.md`, not started.~~ **Struck 3 September 2026.** B1 to B7 are built and committed on `feat/gift-a-reading`, and **nothing is deployed**. `docs/plans/gifting-plan.md` is superseded; the design is ADRs 0004 to 0006 and the build order is `docs/plans/gifting-build.md`. Left to build: B8 the querent's own mail (#74), B9 the gifts screen (#75), B10 the staging walk (#76)
 - M6 (FAQ and legal content, Mailchimp beyond the signup), M7 (AI fulfilment) and M8 (launch) are not started
 - The origin is still reachable without going through Cloudflare on its `*.laravel.cloud` hostname, and a request arriving that way is trusted one hop too far
 

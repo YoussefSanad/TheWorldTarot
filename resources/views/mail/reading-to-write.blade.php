@@ -13,4 +13,9 @@ Total: {!! $order->currency !!} {!! \App\Support\Money::toMajor($order->total_am
 @endif
 @endforeach
 
-Mark it as fulfilled in the admin panel once the reading is on its way.
+{{-- Was "Mark it as fulfilled in the admin panel", which stopped being true
+     in B4 (#70) when delivery moved onto the Readings screen and became one
+     stamp per reading rather than one per order. Corrected 3 September 2026,
+     in the words the panel's own confirmation uses. --}}
+Mark each one delivered on the Readings screen once you have sent it. The order
+finishes itself when everything on it has gone.
