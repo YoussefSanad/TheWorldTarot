@@ -54,6 +54,14 @@ final class Purchasability
             Rules::pricedInTheCurrencyCharged(),
             Rules::pricedAtSomethingReal(),
             Rules::aQuestionOnlyWhereOneIsTaken(),
+
+            // **Below the rule above it, and the order is the decision.** Both
+            // hang on `question` and a pass gifted with a question trips both,
+            // where at most one refusal per field is spoken. A customer who
+            // cannot ask this thing anything at all is told that, rather than
+            // told a second reason for a field they are already changing.
+            Rules::aQuestionOnlyOnALineNobodyGifted(),
+
             Rules::aGiftOnlyWhereOneIsAccepted(),
             Rules::oneAccessGrantPerLine(),
             Rules::oneAccessGrantPerBasket(),

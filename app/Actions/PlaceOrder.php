@@ -73,10 +73,15 @@ class PlaceOrder
             'unit_amount' => $line->product->priceIn($currency),
             'quantity' => $line->quantity,
 
-            // **Null on a gift line, and nothing composes prose into it any
-            // more.** The person who will ask has not seen the present yet, and
-            // asking is what redemption is for. The stopgap that wrote a note
-            // in here was always documented as having an end date.
+            // **Null on a gift line, and it is a normaliser now rather than
+            // the policy.** Both on one line is refused before this runs, by
+            // `Rules::aQuestionOnlyOnALineNobodyGifted` since 3 September 2026,
+            // so the only question reaching here beside a gift is a blank one:
+            // a form posting `""` for a field nobody filled in. Storing that as
+            // nothing rather than as an empty string is the whole of what is
+            // left to do here. The person who will ask has not seen the present
+            // yet, and asking is what redemption is for. The stopgap that wrote
+            // a note in here was always documented as having an end date.
             'question' => $line->gift === null ? $line->question : null,
         ]);
 

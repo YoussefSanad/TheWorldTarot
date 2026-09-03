@@ -262,4 +262,49 @@ final class Rules
             fault: fn (Line $line): string => "Product [{$line->key}] does not take a question.",
         );
     }
+
+    /**
+     * A question only on a line nobody gifted.
+     *
+     * **The buyer is not the person who will ask.** A present is opened by
+     * somebody who has not seen the reading yet, and the question they type at
+     * redemption is the one that gets written. A question typed at checkout
+     * beside a gift is the buyer asking on behalf of a stranger, about a
+     * reading whose answer will never be sent to them.
+     *
+     * **Refused rather than quietly ignored**, added 3 September 2026, and the
+     * only rule in this file that closes a hole in a document rather than in
+     * the code. `API_CONTRACT.md` has promised the 422 since 2 September and
+     * `PlaceOrder` wrote a null instead, so the buyer's words were dropped and
+     * nobody was told. That left `question` and `gift` behaving differently on
+     * one line for the same fault, with the principle the contract states two
+     * lines above it, that a gift on a line that may not carry one is refused
+     * rather than quietly ignored, applying to one field and not the other.
+     *
+     * The frontend had not built against the endpoint when this landed, which
+     * is the whole of why it was the cheap moment to choose. Nothing was
+     * relying on either behaviour.
+     *
+     * Not `aboutTheProduct`, because unlike every rule around it this is not a
+     * fact about the catalogue at all. Both fields arrived on one line and
+     * neither of them is a thing anybody sells.
+     *
+     * Hung on `question` rather than on `gift`, because the question is the
+     * half the buyer can take back. They chose the present.
+     *
+     * **Blank is nothing asked**, the same reading `aQuestionOnlyWhereOneIsTaken`
+     * gives and the same one `prepareForValidation` gives an empty email. A form
+     * that posts every field it has sends `""` for the one nobody filled in, and
+     * refusing an ordinary present over that would be refusing an order for a
+     * field the buyer never touched.
+     */
+    public static function aQuestionOnlyOnALineNobodyGifted(): Rule
+    {
+        return Rule::make(
+            met: fn (Line $line): bool => blank($line->question) || $line->gift === null,
+            field: 'question',
+            words: 'A present carries no question. Whoever receives it asks their own.',
+            fault: fn (Line $line): string => "Line [{$line->key}] carries both a question and a gift.",
+        );
+    }
 }
