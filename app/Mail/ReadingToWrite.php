@@ -5,8 +5,8 @@ namespace App\Mail;
 use App\Enums\Sender;
 use App\Models\Order;
 use App\Models\Reading;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Mail\Mailables\Content;
-use Illuminate\Support\Collection;
 
 /**
  * Telling Jennifer somebody is waiting for a reading.
@@ -38,6 +38,14 @@ class ReadingToWrite extends QueuedMail
      * **The order stays for the header**, which is genuinely about the order:
      * its number, its total and who paid. Redemption in B7 is the caller that
      * makes those two different things, months apart.
+     *
+     * **An Eloquent collection, corrected 3 September 2026 with B7 (#73).**
+     * ~~`Illuminate\Support\Collection`~~ was what this said, and `content()`
+     * below eager loads off it, which only an Eloquent collection can do. It
+     * held because settlement is the only caller and hands over one already.
+     * Redemption is the second caller, it builds its one line collection by
+     * hand, and the first attempt fatalled inside the mailable rather than at
+     * the call that got it wrong.
      *
      * @param  Collection<int, Reading>  $readings  What was asked in this one instant
      */

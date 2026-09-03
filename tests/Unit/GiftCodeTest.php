@@ -97,3 +97,64 @@ it('has no printed form before it is minted', function () {
     expect($gift->isMinted())->toBeFalse()
         ->and($gift->printedCode())->toBeNull();
 });
+
+/*
+| Reading a code back off a screen, which is the other half of choosing the
+| alphabet above.
+|
+| **B7 owns this and B6 made it safe.** `API_CONTRACT.md` specifies the
+| normalising under "Gifts": uppercase, strip anything that is not a letter or a
+| digit, read `I` and `L` as `1` and `O` as `0`. That last clause is only
+| unambiguous because `CODE_ALPHABET` contains none of those three, which is
+| why the reading lives beside the alphabet rather than in the endpoint that
+| calls it.
+|
+| Unit, for the same reason minting is: it is pure string work, and a normaliser
+| that drops a character is wrong in somebody's hands long before it is wrong in
+| a database.
+*/
+
+it('reads a code however it was typed', function () {
+    // The three shapes the contract names, and they are one code.
+    expect(Gift::normaliseCode('k7m4 9pqr 2xyz'))->toBe('K7M49PQR2XYZ')
+        ->and(Gift::normaliseCode('K7M4-9PQR-2XYZ'))->toBe('K7M49PQR2XYZ')
+        ->and(Gift::normaliseCode('k7m49pqr2xyz'))->toBe('K7M49PQR2XYZ');
+});
+
+it('strips whatever somebody pasted around it', function () {
+    // A code arrives out of a mail, so it arrives with whatever came with it.
+    expect(Gift::normaliseCode("  K7M4\u{00a0}9PQR\t2XYZ\n"))->toBe('K7M49PQR2XYZ')
+        ->and(Gift::normaliseCode('K7M4.9PQR.2XYZ'))->toBe('K7M49PQR2XYZ')
+        ->and(Gift::normaliseCode('“K7M4/9PQR/2XYZ”'))->toBe('K7M49PQR2XYZ');
+});
+
+it('reads the three glyphs that go wrong off a screen', function () {
+    // `I` and `L` become `1`, `O` becomes `0`, in either case.
+    expect(Gift::normaliseCode('I234567890AB'))->toBe('1234567890AB')
+        ->and(Gift::normaliseCode('L234567890AB'))->toBe('1234567890AB')
+        ->and(Gift::normaliseCode('1234567890OB'))->toBe('12345678900B')
+        ->and(Gift::normaliseCode('il234567890o'))->toBe('112345678900');
+});
+
+it('leaves a minted code exactly as it was minted', function () {
+    // **The property the whole substitution rests on.** Reading `I` as `1` is
+    // safe only because no code can contain an `I`, so normalising one of ours
+    // has to be the identity, printed or not. A glyph added to the alphabet
+    // that this file's other cases also happen to substitute would corrupt
+    // every code drawn from it, silently, in somebody's hands.
+    foreach (range(1, 100) as $ignored) {
+        $gift = new Gift;
+        $gift->code = Gift::mintCode();
+
+        expect(Gift::normaliseCode($gift->code))->toBe($gift->code)
+            ->and(Gift::normaliseCode((string) $gift->printedCode()))->toBe($gift->code);
+    }
+});
+
+it('reads nothing out of a string holding nothing to read', function () {
+    // Not a code, and not an error either. Whatever comes back is looked up and
+    // misses, because the difference between "malformed" and "unknown" is a way
+    // of asking whether a guess got closer.
+    expect(Gift::normaliseCode('----'))->toBe('')
+        ->and(Gift::normaliseCode(''))->toBe('');
+});

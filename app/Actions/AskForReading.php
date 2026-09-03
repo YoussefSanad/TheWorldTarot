@@ -3,9 +3,11 @@
 namespace App\Actions;
 
 use App\Mail\ReadingToWrite;
+use App\Models\Gift;
 use App\Models\OrderLine;
 use App\Models\Reading;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
@@ -58,11 +60,71 @@ class AskForReading
      * so where a reading goes is captured onto the reading the way a line
      * captures `product_key` rather than joining for it.
      *
-     * @param  Collection<int, OrderLine>  $lines  What was asked about. Never none: the caller reaches here because somebody is waiting
-     * @return Collection<int, Reading>
+     * @param  SupportCollection<int, OrderLine>  $lines  What was asked about. Never none: the caller reaches here because somebody is waiting
+     * @return SupportCollection<int, Reading>
      */
-    public function __invoke(Collection $lines, string $querentEmail, ?string $querentName = null): Collection
+    public function __invoke(SupportCollection $lines, string $querentEmail, ?string $querentName = null): SupportCollection
     {
+        // Settlement's road. The question is the one the buyer typed on each
+        // line at checkout, which is why nothing is passed in here.
+        return $this->ask($lines, null, null, $querentEmail, $querentName);
+    }
+
+    /**
+     * Somebody spent a present, and this is what they asked with it.
+     *
+     * **Redemption's road, and it is one line by construction.** The line is
+     * read off the gift rather than handed in, because a gift is exactly one
+     * line bought once, which `gifts.order_line_id` being unique is what says.
+     * Taking a collection here would be an interface that can be called with
+     * the wrong line and has no way to notice.
+     *
+     * **The question comes from the request and not from the line.**
+     * `order_lines.question` is null on a gift line: the person who asks has
+     * not seen the present at the point the buyer types anything, and asking is
+     * what redemption is for. `CONTEXT.md` keeps those two apart as the
+     * question of record and what the buyer typed.
+     *
+     * B7 (#73). `RedeemGift` is the only caller and holds the row lock this
+     * runs inside.
+     */
+    public function forGift(Gift $gift, string $question, string $querentEmail, ?string $querentName = null): Reading
+    {
+        // **An Eloquent collection and not `collect()`.** `ReadingToWrite`
+        // eager loads off what it is handed, which only an Eloquent collection
+        // can do, and settlement reaches this action holding one already. A
+        // support collection here is a fatal error in the mail rather than at
+        // the call, which is why the mailable's own hint was corrected with
+        // this unit.
+        return $this->ask(
+            new Collection([$gift->orderLine]),
+            $gift,
+            $question,
+            $querentEmail,
+            $querentName,
+        )->sole();
+    }
+
+    /**
+     * The rows, and the message that follows them.
+     *
+     * **One writer for both roads, which is what `Reading`'s own docblock
+     * claims.** Settlement and redemption are the same moment in different
+     * clothes, so what happens when somebody asks cannot come to differ between
+     * them, and a second `Reading::create` elsewhere is how it would.
+     *
+     * @param  SupportCollection<int, OrderLine>  $lines
+     * @param  ?Gift  $gift  The present this was asked with, on the redemption road and never on the other
+     * @param  ?string  $question  Given on the redemption road; null means the question each line already carries
+     * @return SupportCollection<int, Reading>
+     */
+    private function ask(
+        SupportCollection $lines,
+        ?Gift $gift,
+        ?string $question,
+        string $querentEmail,
+        ?string $querentName,
+    ): SupportCollection {
         // One instant for the whole asking, rather than `now()` per row. The
         // delivery window is counted from this, and two readings bought
         // together are not due at different times.
@@ -70,7 +132,8 @@ class AskForReading
 
         $readings = $lines->map(fn (OrderLine $line): Reading => Reading::create([
             'order_line_id' => $line->getKey(),
-            'question' => $line->question,
+            'gift_id' => $gift?->getKey(),
+            'question' => $question ?? $line->question,
             'querent_email' => $querentEmail,
             'querent_name' => $querentName,
             'asked_at' => $askedAt,

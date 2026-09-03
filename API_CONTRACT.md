@@ -18,7 +18,7 @@ Status: draft, not yet acknowledged. Until you confirm it, these shapes can stil
 - **A guest may place an order holding no name and no email.** Stripe's page collects the buyer's email, and it collects it after the order exists, so identity is filled here at settlement
 - **`POST /api/v1/orders/status` reads a payment's status back**, which answers the standing question in section 10 about whether your confirmation screen needs to re-read an order. It does
 
-**Updated 2 September 2026 with gifting, and the headline is a withdrawal.** ~~`gift_code` as a payment method~~ is gone from this document before anybody built a button for it: a redemption collects nothing, so there was never a payment for a third method to make. The sentences that promised one are struck where they stood, in sections 2 and 9. **What gifting is instead** is a `gift` object on an order line, `is_giftable` on `/products`, and two endpoints of its own under "Gifts" in section 2. **None of it is live yet**, and each piece says so where it is documented. The reasoning is `docs/adr/0004-a-reading-is-a-row-of-its-own.md` on our side and `docs/adr/0003-redemption-is-a-page-of-its-own.md` on yours.
+**Updated 2 September 2026 with gifting, and the headline is a withdrawal.** ~~`gift_code` as a payment method~~ is gone from this document before anybody built a button for it: a redemption collects nothing, so there was never a payment for a third method to make. The sentences that promised one are struck where they stood, in sections 2 and 9. **What gifting is instead** is a `gift` object on an order line, `is_giftable` on `/products`, and two endpoints of its own under "Gifts" in section 2. ~~**None of it is live yet**~~ **struck 3 September 2026: the two endpoints under "Gifts" answer now**, and each piece says where it stands where it is documented. The reasoning is `docs/adr/0004-a-reading-is-a-row-of-its-own.md` on our side and `docs/adr/0003-redemption-is-a-page-of-its-own.md` on yours.
 
 **What has not changed is the order of the calls and the shape of everything else.** You still place an order, you still POST the token to `/pay`, and you still read `type` before you read anything else.
 
@@ -509,7 +509,12 @@ The body is optional and has two fields:
 
 ### Gifts
 
-**Two endpoints, and neither is built yet.** Designed 2 September 2026, documented here rather than in section 9 because their shapes are settled and the frontend's `/redeem/` page is built against them. They will be marked live when they answer.
+~~**Two endpoints, and neither is built yet.**~~ **Both are built, 3 September 2026.** Designed 2 September, documented here rather than in section 9 because their shapes are settled and the frontend's `/redeem/` page is built against them. They answer now, and every shape below is what they actually return. **Committed and not yet pushed or deployed**, so `/redeem/` cannot be pointed at a deployed environment until it is.
+
+Two things worth having in writing, because the frontend can neither see them nor infer them:
+
+- **Both answer 200 on success**, redemption included. It creates a reading and still does not answer 201, because a 201 offers the address of the thing it made and nothing on your side addresses a reading
+- **The two rate limits are separate counters**, so mistyping a code ten times on the lookup does not cost anybody the redemption they were about to make
 
 **Looking a code up and spending it are two calls on purpose.** A visitor who opens the link and closes the tab must still have their present.
 
@@ -539,6 +544,7 @@ The body is optional and has two fields:
 - **Entry is normalised here before anything is looked up**: uppercased, everything that is not a letter or a digit stripped, `I` and `L` read as `1`, `O` read as `0`. So `k7m4 9pqr 2xyz`, `K7M4-9PQR-2XYZ` and `k7m49pqr2xyz` are one code. **Be forgiving on your side too**, but do not try to reproduce this: send what was typed
 - **`code` comes back in its printed form**, `XXXX-XXXX-XXXX`, so you can show the visitor what you resolved
 - **The reading's copy comes back with it**, in the language of the path. That is deliberate rather than an invitation to call `/products/{key}`: **a code for a withdrawn product still redeems**, and `/products/{key}` 404s on anything unpublished. The person paid. This is the one place in the system that reads a product past `is_published`
+- **Live since 3 September 2026.** Nothing about the shape above changed when it was built
 - **`redeemed` is the answer in full, and it does not hedge.** A code that has already been spent says so, and says when. That is a state the real recipient has to be told about, so it cannot hide behind the answer an unknown code gets. **What closes the oracle is the entropy in the code**, roughly 60 bits, plus the throttle below
 - **The words are yours.** This returns booleans and a date, never a sentence to display, because nothing here renders customer-facing copy
 - **An unknown code is a 404**, with no distinction between one that never existed and one that is malformed past normalising
@@ -571,7 +577,8 @@ The body is optional and has two fields:
 }
 ```
 
-- **`question` is required**, and every giftable product allows one. This is the moment the reading is asked for, and a reading without a question is not one
+- **Live since 3 September 2026.** Nothing about the shape above changed when it was built
+- **`question` is required**, and every giftable product allows one. This is the moment the reading is asked for, and a reading without a question is not one. **Maximum 2000 characters**, the same limit a buyer's question gets at checkout, so two screens do not tell one person two different things
 - **`querent_email` is required, and it is asked for rather than inherited** from the address the gift was sent to. A forwarded gift is enough to part those two people, and inheriting silently would deliver the reading to whoever forwarded it. `querent_name` is optional, exactly as a buyer's name is
 - **The answer is the confirmation**, and it is rendered from this rather than from a second call. **Do not call `POST /api/v1/orders/status` after redeeming.** That endpoint reports a payment, and the payment here happened months ago to somebody else
 - **`asked_at` is when the clock starts.** State the reading's delivery window relative to it if you show one, as a property of the reading rather than as a promise this call makes. The promise is made once, in the mail this sends to the querent
@@ -703,7 +710,7 @@ Everything under `/api/*` returns JSON, never an HTML error page.
 
 On 422, `errors` is keyed by field name with an array of messages per field, and field names match what you sent.
 
-**409 was added 2 September 2026, with gifting, and it has exactly one caller: a gift code that has already been spent.** It carries a 422's body so your existing error handling reads it unchanged, and it is a separate status because a 422 says "fix what you sent and send it again" and there is nothing here to fix.
+**409 was added 2 September 2026, with gifting, and it has exactly one caller: a gift code that has already been spent.** Live since 3 September 2026, on `POST /gifts/redeem`, keyed to `code`. It carries a 422's body so your existing error handling reads it unchanged, and it is a separate status because a 422 says "fix what you sent and send it again" and there is nothing here to fix.
 
 **Backend validation is authoritative.** Validating with Zod as well is right, but assume every rule is enforced again here and that ours wins. If the two disagree, say so rather than working around it.
 

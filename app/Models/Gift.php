@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Database\Factories\GiftFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -119,6 +120,76 @@ class Gift extends Model
         }
 
         return $code;
+    }
+
+    /**
+     * The three glyphs a code is read back through, and why there are three.
+     *
+     * **`I` and `L` are read as `1`, `O` as `0`.** They are the mistakes
+     * somebody makes copying twelve characters off one screen and typing them
+     * into another, and `CODE_ALPHABET` above leaves all three out precisely so
+     * that reading them this way cannot be wrong: no minted code contains one,
+     * so nothing here can turn a real code into a different real code.
+     *
+     * **`U` is left out of the alphabet and is deliberately not here.** It is
+     * dropped so that a draw cannot spell an obscenity, not because anybody
+     * mistypes it, so there is nothing to read it as.
+     *
+     * @var array<string, string>
+     */
+    public const CODE_SUBSTITUTIONS = ['I' => '1', 'L' => '1', 'O' => '0'];
+
+    /**
+     * What somebody typed, read as the code they were given.
+     *
+     * **Here rather than in the endpoints, because the reading is only
+     * unambiguous next to the alphabet it is read against.** `API_CONTRACT.md`
+     * specifies it under "Gifts" and both endpoints owe the same answer: a code
+     * that resolves on the page has to resolve on submit, or somebody watches
+     * their present stop existing between one screen and the next.
+     *
+     * Uppercase first, so a lowercase `l` is read the same as an upper one.
+     * Then everything that is not a letter or a digit goes, which covers the
+     * hyphens this application printed, the spaces a mail client wrapped in,
+     * and the quotation marks that come with a paste. Then the three
+     * substitutions.
+     *
+     * **A byte class rather than a Unicode one, and that is the safe way
+     * round.** Anything outside ASCII is not in the alphabet, so stripping it
+     * byte by byte removes exactly what could never have been part of a code.
+     *
+     * **Nonsense normalises to nonsense rather than to an error.** A string
+     * with nothing readable in it comes back empty, is looked up, and misses,
+     * because telling "malformed" apart from "unknown" is a way of asking
+     * whether a guess got closer.
+     */
+    public static function normaliseCode(string $typed): string
+    {
+        $letters = preg_replace('/[^A-Z0-9]/', '', strtoupper($typed));
+
+        return strtr((string) $letters, self::CODE_SUBSTITUTIONS);
+    }
+
+    /**
+     * The present somebody typed the code for, if there is one.
+     *
+     * **A scope rather than a finder, because redemption needs the row under a
+     * lock** and a method that handed back a model could not give it one. Both
+     * endpoints reach the same normalising this way, which is what stops a code
+     * resolving on the page and missing on submit.
+     *
+     * **An unminted gift is unreachable through this and needs no clause
+     * saying so.** Its `code` is null, null is not equal to any string in SQL,
+     * and a string that normalises to nothing matches no row either, because
+     * every code is twelve characters. That is the whole of why an abandoned
+     * checkout leaves no live credential.
+     *
+     * @param  Builder<Gift>  $query
+     * @return Builder<Gift>
+     */
+    public function scopeWithTypedCode(Builder $query, string $typed): Builder
+    {
+        return $query->where('code', self::normaliseCode($typed));
     }
 
     /**

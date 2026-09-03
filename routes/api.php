@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\CardController;
 use App\Http\Controllers\Api\V1\CardVideoController;
 use App\Http\Controllers\Api\V1\CurrencyController;
 use App\Http\Controllers\Api\V1\ForgotPasswordController;
+use App\Http\Controllers\Api\V1\GiftController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\NewsletterController;
@@ -246,6 +247,45 @@ Route::prefix('v1')->group(function () {
         Route::get('/cards/{card}', [CardController::class, 'show'])
             ->whereNumber('card')
             ->name('cards.show');
+
+        /*
+        | Looking a gift code up, and spending it. B7, issue #73.
+        |
+        | **Two routes on purpose**, and the reason is the recipient's inbox:
+        | email scanners and link prefetchers follow links, so a page that spent
+        | the code on arrival would hand a present to whatever opened the mail
+        | first. Resolving is one call and spending is another.
+        |
+        | **POST for the read as well**, because the code is a bearer credential
+        | and a path segment lands in every access log between the browser and
+        | this application. `POST /orders/status` takes the pay token the same
+        | way and for the same reason.
+        |
+        | **Behind the language segment, unlike orders and payment.** These do
+        | answer content: the lookup carries the reading's name and copy, in the
+        | language the visitor opened the link in, because a code for a
+        | withdrawn product still redeems and `/products/{key}` 404s on one.
+        |
+        | **Two limits, and the lookup is the tighter of them.** It is the
+        | endpoint somebody would guess against, it costs nothing to call, and
+        | ten a minute is far more than anybody retyping a code off a screen
+        | needs. Redemption is looser because a person fighting with a
+        | validation error must not be locked out of the present they were
+        | given, and the guessing budget that appears to buy is not one:
+        | **neither number is what closes the oracle**, which is the sixty bits
+        | in the code. `App\Models\Gift::CODE_LENGTH` carries that arithmetic.
+        |
+        | **Their own throttle key prefixes**, per the note at the top of this
+        | file, and separately from each other: somebody who mistyped their code
+        | ten times must still be able to redeem it.
+        */
+        Route::post('/gifts/lookup', [GiftController::class, 'lookup'])
+            ->middleware('throttle:10,1,gifts-lookup')
+            ->name('gifts.lookup');
+
+        Route::post('/gifts/redeem', [GiftController::class, 'redeem'])
+            ->middleware('throttle:20,1,gifts-redeem')
+            ->name('gifts.redeem');
 
         // The Viewing Room, and no longer the only route answering with a
         // credential. It is still the only one that charges for it.

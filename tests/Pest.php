@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\ProductKey;
 use App\Models\Customer;
+use App\Models\Gift;
 use App\Models\Order;
 use App\Models\Product;
 use App\Payments\StripePayment;
@@ -253,4 +255,38 @@ function paymentFor(Order $order, string $intentId = 'pi_hosted'): StripePayment
         currency: $order->currency,
         status: 'succeeded',
     );
+}
+
+/**
+ * A present somebody has been sent, on a real order line for a real product.
+ *
+ * **Here rather than in one test file**, because looking a code up, spending
+ * it, and racing two requests at it are three files that need the identical
+ * fixture and differ only in what they then do to it. It was written in
+ * `LookUpAGiftTest` first.
+ *
+ * **Minted by default**, since `GiftFactory` is: a gift with no code is the
+ * window between placement and settlement, and neither endpoint can reach one.
+ * Hand `['code' => null]` where that window is the point.
+ *
+ * `month-ahead` because it is giftable and `one-card` is not. Which products
+ * may be gifted is B5's and is enforced at checkout, so nothing here re-asks
+ * it: by the time a gift row exists the question has been answered.
+ *
+ * @param  array<string, mixed>  $gift  Overrides for the present itself
+ * @param  array<string, mixed>  $product  Overrides for what was bought
+ */
+function aGiftOf(array $gift = [], array $product = []): Gift
+{
+    $order = Order::factory()
+        ->forProduct(Product::factory()->create([
+            'key' => ProductKey::MonthAhead,
+            ...$product,
+        ]))
+        ->create();
+
+    return Gift::factory()->create([
+        'order_line_id' => $order->lines->sole()->id,
+        ...$gift,
+    ]);
 }
