@@ -58,7 +58,12 @@ class OrderPaid extends QueuedMail
             text: 'mail.order-paid',
             with: [
                 'name' => $this->order->customer->name,
-                'lines' => $this->order->lines,
+
+                // **The present on each line, loaded rather than reached for.**
+                // Both bodies branch on it since B6 (#72), so a lazy load here
+                // would be one query per line of every receipt this application
+                // sends.
+                'lines' => $this->order->lines->loadMissing('gift'),
                 'currency' => $this->order->currency,
                 'total' => $this->order->total_amount,
 
@@ -72,9 +77,25 @@ class OrderPaid extends QueuedMail
                 // also confirms a Viewing Room pass, which is open the moment it
                 // is paid for. A boolean rather than the heading itself, so the
                 // copy stays in the view with the styling that sets it.
+                //
+                // **A gifted reading is not being written either**, added with
+                // B6 (#72). Nobody has asked it a question yet and the answer
+                // will not be sent to this buyer when they do, so "Your Reading
+                // Is On Its Way" is the same defect the pass already had one
+                // row further up: a heading that names something this person
+                // is not waiting for. The fallback is the subject line the
+                // message already carries, which is signed off copy.
                 'awaitsReading' => $this->order->lines->contains(
-                    fn (OrderLine $line): bool => $line->product_key->type() === ProductType::Reading,
+                    fn (OrderLine $line): bool => $line->product_key->type() === ProductType::Reading
+                        && $line->gift === null,
                 ),
+
+                // **Whether anything on this order was bought for somebody
+                // else**, which is what earns the paragraph naming the address.
+                // A boolean for the same reason as the one above: the copy
+                // belongs in the view, and a text body is no place for a
+                // closure over the lines.
+                'holdsAGift' => $this->order->gifts()->isNotEmpty(),
 
                 // The same lookup the panel's product table does. Falling back
                 // to the code means an order in a currency somebody adds to

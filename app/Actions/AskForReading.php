@@ -81,8 +81,12 @@ class AskForReading
         // where it lands.
         $order = $lines->first()->loadMissing('order')->order;
 
-        DB::afterCommit(function () use ($order): void {
-            Mail::to(config('mail.notify.orders'))->send(new ReadingToWrite($order));
+        DB::afterCommit(function () use ($order, $readings): void {
+            // **The readings go with it, not the order.** A basket may hold a
+            // present and a self purchase together and only one of them is
+            // work, so what she is told about is what was actually asked. B6
+            // (#72) is where that stopped being the same list.
+            Mail::to(config('mail.notify.orders'))->send(new ReadingToWrite($order, $readings));
         });
 
         return $readings;

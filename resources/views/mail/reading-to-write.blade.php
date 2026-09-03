@@ -4,10 +4,10 @@ Order #{!! $order->id !!} has been paid.
 From: {!! $from !!}
 Total: {!! $order->currency !!} {!! \App\Support\Money::toMajor($order->total_amount) !!}
 
-@foreach ($order->lines as $line)
-- {!! $line->product?->name ?? $line->product_key->value !!}{!! $line->quantity > 1 ? ' x'.$line->quantity : '' !!}
-@if ($line->question)
-  Their question: {!! $line->question !!}
+@foreach ($readings as $reading)
+- {!! $reading->orderLine->product?->name ?? $reading->orderLine->product_key->value !!}{!! $reading->orderLine->quantity > 1 ? ' x'.$reading->orderLine->quantity : '' !!}
+@if ($reading->question)
+  Their question: {!! $reading->question !!}
 @else
   No question was asked.
 @endif

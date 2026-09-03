@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 /**
@@ -107,6 +108,33 @@ class Order extends Model
     public function totalOfLines(): int
     {
         return $this->lines->sum(fn (OrderLine $line): int => $line->subtotal());
+    }
+
+    /**
+     * Every present on this order, in line order.
+     *
+     * **Written once because it was being written four times.** B6 (#72) added
+     * two walks to `MarkOrderPaid`, one to mint and one to mail, and two more
+     * closures to `OrderPaid`, all of them `foreach` over the lines asking
+     * whether each carried a gift. Four copies of one predicate is four places
+     * to be wrong about what a present is on the day one line can hold two, or
+     * a gift can exist without a line.
+     *
+     * **Not a `HasManyThrough`.** It would be the same rows and would look
+     * tidier, and it would also be a fifth definition living in a relation that
+     * `everythingItOwesHasGone` below does not use, because that one has the
+     * lines in hand already. This walks what is loaded.
+     *
+     * @return Collection<int, Gift>
+     */
+    public function gifts(): Collection
+    {
+        $this->loadMissing('lines.gift');
+
+        return $this->lines
+            ->map(fn (OrderLine $line): ?Gift => $line->gift)
+            ->filter()
+            ->values();
     }
 
     /**

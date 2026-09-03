@@ -5,8 +5,11 @@ use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\OrderLine;
 use App\Models\Product;
+use App\Models\Reading;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 
 uses(RefreshDatabase::class);
@@ -104,6 +107,28 @@ function orderFrom(?string $name, string $email): Order
         ->create();
 }
 
+/**
+ * What was asked on an order, as `ReadingToWrite` is handed it.
+ *
+ * **The mail carries the readings rather than the order's lines since B6
+ * (#72)**, because a basket may hold a present and a self purchase together and
+ * only one of them is work. The rows are made directly here for the reason this
+ * file gives at the top: which order causes which reading is
+ * `MarkOrderPaidTest`'s question, and what is asked here is what a message says
+ * once something has decided to send it.
+ *
+ * @return Collection<int, Reading>
+ */
+function askedOn(Order $order): Collection
+{
+    return $order->lines->map(fn (OrderLine $line): Reading => Reading::factory()->create([
+        'order_line_id' => $line->id,
+        'question' => $line->question,
+        'querent_email' => $order->customer->email,
+        'querent_name' => $order->customer->name,
+    ]));
+}
+
 it('sends a claim link a browser can read the address out of', function () {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');
 
@@ -183,7 +208,7 @@ it('opens without a name rather than inventing one, for a buyer who gave none', 
 it('gives Jennifer the address alone when the buyer gave no name', function () {
     $order = orderFrom(null, 'jennifer@example.com');
 
-    Mail::to(config('mail.notify.fulfillment'))->send(new ReadingToWrite($order));
+    Mail::to(config('mail.notify.fulfillment'))->send(new ReadingToWrite($order, askedOn($order)));
 
     // **She still has to be able to write back**, so the address is the part
     // that cannot go missing. `From: <jennifer@example.com>` reads as a bug in
@@ -196,7 +221,7 @@ it('gives Jennifer the address alone when the buyer gave no name', function () {
 it('gives Jennifer the buyer name exactly as the buyer typed it', function () {
     $order = orderFrom("Miss Jodie O'Reilly", 'jodie@example.com');
 
-    Mail::to(config('mail.notify.fulfillment'))->send(new ReadingToWrite($order));
+    Mail::to(config('mail.notify.fulfillment'))->send(new ReadingToWrite($order, askedOn($order)));
 
     // The question is the customer's own prose and the most likely place in any
     // of these messages to hold a character Blade would have escaped.

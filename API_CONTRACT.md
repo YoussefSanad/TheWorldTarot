@@ -793,6 +793,8 @@ A wallet PaymentIntent has no Checkout Session, so there is no `customer_details
 
 1. A buyer on a giftable reading's page fills in the recipient's address, a signature and an optional message, and buys the reading exactly as they buy one for themselves. **The order and the payment are unchanged**, and a basket may hold a gift and a self-purchase together
 2. The payment settles. **The code is minted at settlement and never at placement**, so an abandoned checkout mints nothing. Two mails go out: the recipient's, carrying the link and the code, and the buyer's ordinary receipt, carrying the address it went to. **The buyer never receives the code**
+   - **The link we send is `{your site}/redeem/?code=XXXX-XXXX-XXXX`**, built 3 September 2026, and the same characters are printed underneath it for somebody typing them in. The path is configurable on our side, so tell us if it is not `/redeem/`, and the trailing slash is part of the address for the reason the two password pages carry one
+   - **The code is twelve characters of `0-9A-Z` less `I`, `L`, `O` and `U`**, printed in three groups of four. Those four glyphs never appear in one, which is why the normalising in section 2 can read `I` and `L` as `1` and `O` as `0` without ambiguity
 3. Nothing is on anybody's work queue yet. A gift that is never redeemed asks for no reading, and there is nothing to write
 4. The recipient opens the link. `/redeem/` **looks the code up without spending it**, because email scanners and link prefetchers follow links, and a gift spent by a scanner is unrecoverable
 5. They ask their question and give an address. **That is the moment the reading exists**, the moment the delivery window starts, and the moment this side learns anybody is waiting
