@@ -4,10 +4,13 @@ namespace App\Actions;
 
 use App\Enums\OrderStatus;
 use App\Models\Customer;
+use App\Models\Gift;
 use App\Models\Order;
+use App\Models\OrderLine;
 use App\Purchasability\Basket;
 use App\Purchasability\Line;
 use App\Purchasability\Purchasability;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 class PlaceOrder
 {
     /**
-     * @param  array<int, array{product: string, quantity?: int, question?: string|null}>  $lines
+     * @param  array<int, array{product: string, quantity?: int, question?: string|null, gift?: array<string, mixed>|null}>  $lines
      */
     public function __invoke(?Customer $customer, string $currency, array $lines): Order
     {
@@ -69,14 +72,21 @@ class PlaceOrder
             'product_key' => $line->product->key,
             'unit_amount' => $line->product->priceIn($currency),
             'quantity' => $line->quantity,
-            'question' => $line->question,
+
+            // **Null on a gift line, and nothing composes prose into it any
+            // more.** The person who will ask has not seen the present yet, and
+            // asking is what redemption is for. The stopgap that wrote a note
+            // in here was always documented as having an end date.
+            'question' => $line->gift === null ? $line->question : null,
         ]);
 
         $total = $priced->sum(fn (array $line): int => $line['unit_amount'] * $line['quantity']);
 
         // One transaction, because an order without its lines is a charge for
-        // nothing and lines without their order are unreachable.
-        return DB::transaction(function () use ($customer, $currency, $total, $priced): Order {
+        // nothing and lines without their order are unreachable. **The gifts go
+        // inside it too**: a gift row surviving a rolled back order is a
+        // present hanging off a line nobody was ever charged for.
+        return DB::transaction(function () use ($customer, $currency, $total, $priced, $basket): Order {
             $order = Order::create([
                 'customer_id' => $customer?->id,
                 'status' => OrderStatus::Pending,
@@ -84,9 +94,58 @@ class PlaceOrder
                 'total_amount' => $total,
             ]);
 
-            $order->lines()->createMany($priced->all());
+            $written = $order->lines()->createMany($priced->all());
 
-            return $order->load('lines');
+            $this->recordTheGifts($basket, $written);
+
+            // The gifts as well as the lines, because the response echoes the
+            // address each present is going to and a lazy load here would be
+            // one query per gifted line.
+            return $order->load('lines.gift');
         });
+    }
+
+    /**
+     * A row for each line somebody bought for another person.
+     *
+     * **Written at placement, with no code.** The buyer's four fields are typed
+     * at checkout, before the money arrives, and have to survive until it does,
+     * exactly as `order_lines.question` does and for the reason ADR 0004 gives
+     * about it. The code is the half that cannot come this early: minted here
+     * it would be a live bearer credential backed by a payment that may never
+     * arrive, one per abandoned checkout. `MarkOrderPaid` mints it at
+     * settlement, and until then the row is inert.
+     *
+     * **Paired by position, not by product.** `createMany` writes in the order
+     * it is given and the priced lines came off `$basket->lines()` in that same
+     * order, so index for index is the only pairing that holds when one basket
+     * carries the same reading twice, once as a gift and once for the buyer.
+     *
+     * @param  Collection<int, OrderLine>  $written
+     */
+    private function recordTheGifts(Basket $basket, Collection $written): void
+    {
+        foreach ($basket->lines() as $position => $line) {
+            if ($line->gift === null) {
+                continue;
+            }
+
+            Gift::create([
+                'order_line_id' => $written[$position]->id,
+                'recipient_email' => $line->gift['recipient_email'],
+                'signature' => $line->gift['signature'],
+                'message' => $line->gift['message'] ?? null,
+
+                // **Defaulted here as well as in the form request, the way the
+                // guard above is.** This is the shared seam and nothing
+                // reaching it can be assumed to have come through that request,
+                // so a caller that never filled the language in would otherwise
+                // write a gift with no language to render its mail in. The
+                // address and the signature are deliberately not defaulted:
+                // there is nothing to guess, and a caller that omitted them has
+                // a fault the database says loudly.
+                'locale' => $line->gift['locale'] ?? app()->getLocale(),
+            ]);
+        }
     }
 }

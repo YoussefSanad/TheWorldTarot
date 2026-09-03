@@ -85,6 +85,14 @@ class ProductSeeder extends Seeder
                 // A question is always optional. Every reading accepts one, no
                 // reading demands one, and a pass has nothing to ask about.
                 'allows_question' => $key->allowsQuestion(),
+
+                // And whether it may be bought for somebody else. Structure for
+                // the same reason the line above is: the frontend draws its
+                // gift control off this, so turning a reading into a present is
+                // a seeder run rather than a frontend release. The two are
+                // independent, and `one-card` answers true above and false
+                // here.
+                'is_giftable' => $key->isGiftable(),
             ]);
 
             // Position is a value, not structure: the client arranges the shop.

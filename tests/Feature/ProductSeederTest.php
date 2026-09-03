@@ -183,8 +183,21 @@ it('takes each product\'s structure from the catalogue', function () {
     Product::all()->each(function (Product $product) {
         expect($product->type)->toBe($product->key->type())
             ->and($product->fulfillment)->toBe($product->key->fulfillment())
-            ->and($product->allows_question)->toBe($product->key->allowsQuestion());
+            ->and($product->allows_question)->toBe($product->key->allowsQuestion())
+            ->and($product->is_giftable)->toBe($product->key->isGiftable());
     });
+});
+
+it('writes which products may be given away, from the catalogue', function () {
+    seedProducts();
+
+    // The list written out rather than derived, so the seeder and the enum
+    // cannot agree with each other about a value neither of them holds.
+    expect(Product::firstWhere('key', ProductKey::ThreeCard)->is_giftable)->toBeTrue()
+        ->and(Product::firstWhere('key', ProductKey::MonthAhead)->is_giftable)->toBeTrue()
+        ->and(Product::firstWhere('key', ProductKey::InDepth)->is_giftable)->toBeTrue()
+        ->and(Product::firstWhere('key', ProductKey::OneCard)->is_giftable)->toBeFalse()
+        ->and(Product::firstWhere('key', ProductKey::ViewingRoomPass)->is_giftable)->toBeFalse();
 });
 
 it('makes the pass a pass, and nothing to ask a question about', function () {
@@ -246,6 +259,7 @@ it('re-applies structure that a developer has corrected', function () {
     Product::firstWhere('key', ProductKey::OneCard)->update([
         'fulfillment' => Fulfillment::AccessGrant,
         'allows_question' => false,
+        'is_giftable' => true,
     ]);
 
     seedProducts();
@@ -254,7 +268,8 @@ it('re-applies structure that a developer has corrected', function () {
     $product = Product::firstWhere('key', ProductKey::OneCard);
 
     expect($product->fulfillment)->toBe(Fulfillment::ManualPdf)
-        ->and($product->allows_question)->toBeTrue();
+        ->and($product->allows_question)->toBeTrue()
+        ->and($product->is_giftable)->toBeFalse();
 });
 
 it('does not resurrect a reading that was soft deleted', function () {

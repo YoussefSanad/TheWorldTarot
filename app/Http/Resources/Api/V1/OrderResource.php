@@ -36,6 +36,29 @@ class OrderResource extends JsonResource
                 'unit_amount' => $line->unit_amount,
                 'quantity' => $line->quantity,
                 'question' => $line->question,
+
+                // **What the buyer typed, echoed back, and never the code.**
+                //
+                // The address is the only part of a gift the buyer can check.
+                // They never receive the code, and nothing on this side can
+                // tell that a gift mail arrived nowhere, so a wrong address is
+                // unrecoverable and this response is the one place it is ever
+                // shown back to the person who typed it.
+                //
+                // **The code is deliberately absent, and not merely missing
+                // yet.** It does not exist at placement, since minting one
+                // before the money arrives leaves a live bearer credential
+                // behind every abandoned checkout, and it does not appear here
+                // afterwards either: the buyer is not the person who spends it.
+                //
+                // Null rather than omitted on a line nobody gifted, so the
+                // frontend is never telling an absent key from an empty one.
+                'gift' => $line->gift === null ? null : [
+                    'recipient_email' => $line->gift->recipient_email,
+                    'signature' => $line->gift->signature,
+                    'message' => $line->gift->message,
+                    'locale' => $line->gift->locale,
+                ],
             ])->all(),
 
             // **How the customer pays for this, and how they come back to it.**

@@ -28,7 +28,7 @@ use Spatie\Translatable\HasTranslations;
  * price is never derived from another price. See .claude/database.md.
  */
 #[Fillable([
-    'key', 'type', 'fulfillment', 'allows_question', 'name',
+    'key', 'type', 'fulfillment', 'allows_question', 'is_giftable', 'name',
     'short_description', 'long_description', 'price_usd', 'price_eur',
     'price_gbp', 'is_published', 'sort_order', 'defaults_seeded_at',
 ])]
@@ -69,6 +69,7 @@ class Product extends Model
             'type' => ProductType::class,
             'fulfillment' => Fulfillment::class,
             'allows_question' => 'boolean',
+            'is_giftable' => 'boolean',
             'is_published' => 'boolean',
             'price_usd' => 'integer',
             'price_eur' => 'integer',

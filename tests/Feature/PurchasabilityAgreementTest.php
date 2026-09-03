@@ -108,6 +108,18 @@ function aBasketThatIs(string $state): array
         'asking a question of something that takes none' => ['USD', [
             ['product' => 'viewing-room-pass', 'question' => 'Why?'],
         ]],
+
+        // **The catalogue has no giftable product that is also buyable**, since
+        // the three that may be gifted are the three this catalogue breaks in
+        // other ways. So the state a gift can be in here is the refused one,
+        // and the control that a gift is not refused everywhere is the test at
+        // the foot of this file rather than a row in this matrix.
+        'gifting something that cannot be given away' => ['USD', [
+            ['product' => 'one-card', 'gift' => ['recipient_email' => 'sam@example.com', 'signature' => 'Mum']],
+        ]],
+        'gifting a pass' => ['USD', [
+            ['product' => 'viewing-room-pass', 'gift' => ['recipient_email' => 'sam@example.com', 'signature' => 'Mum']],
+        ]],
         'holding a pass the buyer already has' => ['USD', [['product' => 'viewing-room-pass']]],
         'holding two passes on one line' => ['USD', [['product' => 'viewing-room-pass', 'quantity' => 2]]],
         'holding two passes across the basket' => ['USD', [
@@ -128,6 +140,8 @@ dataset('basket states', [
     'naming something retired',
     'charged in a currency nothing is priced in',
     'asking a question of something that takes none',
+    'gifting something that cannot be given away',
+    'gifting a pass',
     'holding a pass the buyer already has',
     'holding two passes on one line',
     'holding two passes across the basket',
@@ -264,3 +278,31 @@ it('writes an order for exactly the baskets the declaration permits', function (
         "an order was written for a basket the declaration refuses, {$state}, for {$who}",
     );
 })->with('basket states')->with('buyers');
+
+/**
+ * The control the matrix above cannot hold.
+ *
+ * Every giftable product in `aCatalogue` is broken on purpose for some other
+ * state, so a gift there is only ever refused, and a rule that refused every
+ * gift would pass the whole matrix. This is the basket that says otherwise.
+ */
+it('takes a gift at the seam on a line that may carry one', function () {
+    $customer = Customer::factory()->create();
+
+    Product::factory()->create([
+        'key' => 'month-ahead',
+        'is_published' => true,
+        'price_usd' => 7500,
+    ]);
+
+    $lines = [['product' => 'month-ahead', 'gift' => [
+        'recipient_email' => 'sam@example.com',
+        'signature' => 'Mum',
+    ]]];
+
+    expect(Purchasability::declared()->permits(Basket::forCustomer($customer, 'USD', $lines)))->toBeTrue();
+
+    app(PlaceOrder::class)($customer, 'USD', $lines);
+
+    expect(Order::count())->toBe(1);
+});

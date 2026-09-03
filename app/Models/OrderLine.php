@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * One thing on an order, at the price it was that day.
@@ -45,6 +46,21 @@ class OrderLine extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class)->withTrashed();
+    }
+
+    /**
+     * The present this line was bought as, if it was bought as one.
+     *
+     * **Null is a line somebody bought for themselves**, which is most of them.
+     * One line is one thing bought once, so there is at most one, and the
+     * unique index on `gifts.order_line_id` is what holds that rather than this
+     * relation.
+     *
+     * @return HasOne<Gift, $this>
+     */
+    public function gift(): HasOne
+    {
+        return $this->hasOne(Gift::class);
     }
 
     /**

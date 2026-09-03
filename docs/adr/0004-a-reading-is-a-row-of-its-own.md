@@ -69,6 +69,37 @@ gifts
 > a separate question and is still open**, on #69: answering it means changing
 > the contract and the website, not the column.
 
+> **When a gift row comes into existence, added 3 September 2026** building B5
+> (#71). This ADR sketches the `gifts` table and never says when a row appears,
+> and B5 could not land the columns without answering it. **The row is written
+> at placement and its `code` is minted at settlement**, so `code` is nullable
+> and null means "the money has not arrived yet".
+>
+> The buyer types four things at checkout, before the money exists, and they
+> have to survive until it does. That is the same problem `order_lines.question`
+> has and it is answered the same way: the values live on a row written when
+> they were typed. The code cannot travel with them, because a code minted at
+> placement is a live bearer credential backed by a payment that may never
+> arrive, one per abandoned checkout. A codeless row is inert: nothing can be
+> looked up with it and nothing redeemed.
+>
+> The alternative was four more columns on `order_lines` and the whole row
+> written at settlement, which is the same four values in two places for the
+> life of the schema.
+>
+> **`gifts.locale` joined the table in the same unit** and is not in the sketch
+> above. The recipient's mail is rendered from it and there is nothing else to
+> render it from, since an order carries no language of its own. It is a
+> property of the gift rather than of the buyer, because the person it is sent
+> to never chose it.
+>
+> **`is_giftable` is a column on `products`, seeded from `ProductKey`**, rather
+> than derived from the key at read time. It sits beside `allows_question`,
+> which is structure in a column for the same reasons: code owns it, the seeder
+> re-applies it every run, and neither is editable in the panel. The two are
+> independent and `one-card` is what proves it, taking a question and refusing
+> to be gifted.
+
 Two moments create a reading and they are the same moment in different clothes:
 settlement, for a line nobody gifted, and redemption, for a line somebody did.
 

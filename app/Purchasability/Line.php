@@ -25,5 +25,22 @@ final class Line
         public readonly ?Product $product,
         public readonly int $quantity,
         public readonly ?string $question,
+
+        /**
+         * What the buyer typed to send this line to somebody else, or null for
+         * a line they bought for themselves.
+         *
+         * **The whole object rather than a flag**, because the rule that
+         * refuses it only needs to know it is there, and the seam that writes
+         * it needs every field. A boolean here would mean reading the request
+         * twice, once to decide and once to store, which is how the two come
+         * to disagree about which lines were gifts.
+         *
+         * Untrusted and unvalidated, the same as everything else on a line. A
+         * basket is built while a request is still being validated.
+         *
+         * @var array<string, mixed>|null
+         */
+        public readonly ?array $gift = null,
     ) {}
 }
