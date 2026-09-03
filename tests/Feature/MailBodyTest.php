@@ -328,6 +328,156 @@ it('promises the querent a reading, counted from the day she asked', function ()
 });
 
 /*
+| And the same message as a document, issue #85.
+|
+| It was a text part and nothing else until 4 September 2026, which left the
+| querent holding the least designed message in a flow whose other two are
+| drawn: the buyer's receipt since #53 and the recipient's present since #81.
+| She is also the reader with the least standing to check it, having no
+| account, no order and no lookup, so the frame the other two are drawn in is
+| the same argument here that it was there.
+|
+| The two tests below are the halves of what changed: that the designed part
+| exists, is drawn in that frame and escapes her own typing on the way in, and
+| that it withholds the two things this message must not carry.
+*/
+
+/**
+ * A present, spent, with a question typed in the querent's own words.
+ *
+ * **The gift fixture from the section below, deliberately.** Every
+ * `ReadingOnItsWay` in this application is a redeemed present, per
+ * `AskForReading::forGift()`, so what the denial test below has to prove is
+ * that this document carries nothing of *that* gift but the reading it names.
+ * A fixture of its own would be asserting the absence of words no test ever
+ * put anywhere near it.
+ *
+ * **`asked_at` is written rather than travelled to**, because the promise is
+ * counted from it and nothing else here depends on today. The test above,
+ * which is about the parting a gift makes between buying and asking, travels.
+ *
+ * **The present is an argument where one has already been sent**, since two
+ * fixtures would mean two products keyed `in-depth` and the column is unique.
+ * The frame test hands over the gift it has just drawn, which is also the
+ * truer arrangement: one present, and the two messages it causes.
+ */
+function aReadingAskedInAwkwardWords(?Gift $gift = null): Reading
+{
+    $gift ??= aGiftWithAwkwardWords();
+
+    return Reading::factory()->create([
+        'order_line_id' => $gift->order_line_id,
+        'gift_id' => $gift->id,
+        'question' => "What of Jodie's move & the <plan>?",
+        'querent_name' => 'Sam',
+        'querent_email' => 'sam@example.com',
+        'asked_at' => '2026-09-04 10:03:00',
+    ]);
+}
+
+it('sends the querent her reading as a document and as text, and escapes only the document', function () {
+    $reading = aReadingAskedInAwkwardWords();
+
+    Mail::to($reading->querent_email)->send(new ReadingOnItsWay($reading));
+
+    $html = theHtmlSent();
+
+    // **Her own typing, in a document that has tags to close.** It is the
+    // longest free text in this message and the only value in it she wrote
+    // herself, which is why the escaping this directory enforces is not
+    // theoretical on this document either.
+    expect($html)->toContain('&ldquo;What of Jodie&#039;s move &amp; the &lt;plan&gt;?&rdquo;')
+        ->and($html)->not->toContain('<plan>');
+
+    // Who she is, what she asked for, and the catalogue's second line under it.
+    expect($html)->toContain('Hello Sam,')
+        ->and($html)->toContain('THE IN-DEPTH READING')
+        ->and($html)->toContain('The Full Picture')
+        // The title, which is the one place an unescaped value looks harmless
+        // right up until it is not.
+        ->and($html)->toContain('<title>Your THE IN-DEPTH READING is on its way</title>');
+
+    // **The promise, written out rather than computed the way the code does.**
+    // A `$reading->dueAt()->format(...)` here would pass by construction and
+    // could never disagree with a wrong sum. THE IN-DEPTH READING promises 48
+    // hours, so an asking at 10:03 on 4 September is due at 10:03 on the 6th.
+    expect($html)->toContain('It will be with you within 48 hours, by 6 September 2026 at 10:03 UTC.');
+
+    // **And the text part is untouched, which is the half that is easy to lose
+    // by adding the other one.** It escapes nothing, per #45, and it is what a
+    // client that will not render markup reads.
+    $text = bodyMentioning('There is nothing more to do');
+
+    expect($text)->toContain('You have asked for THE IN-DEPTH READING.')
+        ->and($text)->toContain("What of Jodie's move & the <plan>?")
+        ->and($text)->toContain('It will be with you within 48 hours, by 6 September 2026 at 10:03 UTC.')
+        ->and($text)->not->toContain('&lt;')
+        ->and($text)->not->toContain('&#039;')
+        ->and($text)->not->toContain('&amp;');
+});
+
+/**
+ * The two things this document must not carry, and one is a social injury.
+ *
+ * **A denial test, for the same reason the present's is.** This message is
+ * drawn in the receipt's own frame, and the receipt carries a price in gold at
+ * 24px, a total, and the name a present was signed with is one row along in
+ * the message beside it. Bringing any of them across is exactly what sharing a
+ * frame makes easy, and none of the three fails visibly.
+ *
+ * **She did not pay and may never learn what was paid**, which is the whole
+ * point of a present. **And the signature is not repeated** because
+ * `GiftToRedeem` already told her who it came from: saying it twice is a second
+ * place to get a stranger's business wrong, on the message furthest from the
+ * person who typed it.
+ */
+it('tells the querent nothing of the price, and nothing of who paid for it', function () {
+    $reading = aReadingAskedInAwkwardWords();
+
+    $line = $reading->orderLine;
+    $order = $line->order;
+
+    Mail::to($reading->querent_email)->send(new ReadingOnItsWay($reading));
+
+    $html = theHtmlSent();
+
+    // **What was paid**, in the two forms the receipt prints it: the line and
+    // the order total. Read off the row rather than written out, so a change to
+    // what the factory charges cannot quietly make this assert nothing.
+    expect(Money::toMajor($line->subtotal()))->not->toBeEmpty();
+
+    expect($html)->not->toContain(Money::toMajor($line->subtotal()))
+        ->and($html)->not->toContain(Money::toMajor($order->total_amount))
+        ->and($html)->not->toContain('Total')
+        // The receipt's price row, which is the thing that would have been
+        // carried across with the card it sits in.
+        ->and($html)->not->toContain('class="price"');
+
+    // **The signature, which is the recipient's mail's opening line and has no
+    // second home.** Both its forms, since this document escapes and that one
+    // does too.
+    expect($reading->gift->signature)->toBe('Mum <3');
+
+    expect($html)->not->toContain('Mum <3')
+        ->and($html)->not->toContain('Mum &lt;3')
+        ->and($html)->not->toContain('has bought you a gift')
+        // And the buyer's note, which was written to the recipient and not to
+        // whoever the code was passed on to.
+        ->and($html)->not->toContain('Thinking of you');
+
+    // **The buyer themselves**, who is not being introduced. The recipient was
+    // never told their address or the name on their card, per `GiftToRedeem`,
+    // and the querent has even less claim on either.
+    expect($order->customer->email)->not->toBeEmpty();
+
+    expect($html)->not->toContain($order->customer->email)
+        ->and($html)->not->toContain((string) $order->customer->name)
+        // The receipt's own row naming where a present went, which belongs to
+        // the buyer's copy alone.
+        ->and($html)->not->toContain('Sent to');
+});
+
+/*
 | The present, as the person who was given it receives it. Issue #81.
 |
 | `GiftToRedeem` was a text part and nothing else until 3 September 2026, which
@@ -526,8 +676,9 @@ it('tells the recipient nothing of the price, the buyer, or any clock', function
  * four corner ornaments, the logo, the divider, the compass, the domain, the
  * sentence saying nothing here can be replied to, and the two legal links.
  *
- * Asserted of both documents at once, because the whole point of the frame is
- * that neither can have a different answer.
+ * ~~Asserted of both documents at once~~ **of all three, from 4 September 2026**
+ * (#85), because the whole point of the frame is that none of them can have a
+ * different answer.
  */
 it('draws every designed message in one frame', function () {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');
@@ -541,12 +692,15 @@ it('draws every designed message in one frame', function () {
         ->forProduct(Product::factory()->create(['key' => ProductKey::MonthAhead]), 1)
         ->create();
 
+    $gift = aGiftWithAwkwardWords();
+
     Mail::to('jodie@example.com')->send(new OrderPaid($order));
-    Mail::to('sam@example.com')->send(new GiftToRedeem(aGiftWithAwkwardWords()));
+    Mail::to('sam@example.com')->send(new GiftToRedeem($gift));
+    Mail::to('sam@example.com')->send(new ReadingOnItsWay(aReadingAskedInAwkwardWords($gift)));
 
     $bodies = htmlBodiesSent();
 
-    expect($bodies)->toHaveCount(2);
+    expect($bodies)->toHaveCount(3);
 
     foreach ($bodies as $index => $body) {
         expect($body)->not->toBeNull("Message {$index} was sent without a markup part");

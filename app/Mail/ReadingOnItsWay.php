@@ -50,6 +50,15 @@ use Illuminate\Mail\Mailables\Content;
  * anywhere. An unlabelled hour is a promise that quietly means something
  * different in every country it lands in.
  *
+ * ## A document rather than a text part, since issue #85
+ *
+ * It was text and nothing else until 4 September 2026, which left the querent
+ * holding the last plain-text message in a flow whose other two are drawn: the
+ * buyer's receipt since #53 and the recipient's present since #81. She is also
+ * the reader with the least standing to check any of it, for the reasons above.
+ * It is drawn in the receipt's own frame now, `mail.html.frame`, and the text
+ * part still sends beside it.
+ *
  * ## From noreply@
  *
  * As `GiftToRedeem` is, and for the reason CLAUDE.md section 8 gives: nothing
@@ -83,6 +92,29 @@ class ReadingOnItsWay extends QueuedMail
         return 'Your reading is on its way';
     }
 
+    /**
+     * **Multipart since issue #85, and the text part is not a leftover.**
+     *
+     * This was a text part and nothing else until then, which left the least
+     * designed message in the gifting flow with the reader least able to check
+     * it. The designed body is the HTML one now, drawn in `mail.html.frame`,
+     * the same document the receipt and the present are drawn in. **The text
+     * one is what shipped before it, unchanged**, and it stays for the two
+     * reasons `OrderPaid::content()` gives: a client that will not render
+     * markup still has to be able to read this, and a message offering no
+     * alternative part scores worse with the filters that decide whether any of
+     * it arrives at all.
+     *
+     * **The promise is built once and handed to both parts.** It is the one
+     * value here the two documents could come to disagree about, and a delivery
+     * promise that differs between the two halves of one message is the half
+     * nobody renders being the wrong one.
+     *
+     * **The two views obey opposite escaping rules and that is enforced by
+     * path.** `mail.reading-on-its-way` is text and echoes raw.
+     * `mail.html.reading-on-its-way` is markup and escapes, and her name and
+     * her own typed question both reach it. `MailBodyTest` holds both.
+     */
     public function content(): Content
     {
         // Loaded rather than reached for, the discipline both mailables beside
@@ -91,7 +123,7 @@ class ReadingOnItsWay extends QueuedMail
         // however fully the sender had it loaded.
         $line = $this->reading->loadMissing('orderLine.product')->orderLine;
 
-        return new Content(text: 'mail.reading-on-its-way', with: [
+        return new Content(html: 'mail.html.reading-on-its-way', text: 'mail.reading-on-its-way', with: [
             'querentName' => $this->reading->querent_name,
 
             // **`readingName` and not `reading`, which is not a preference.**
@@ -124,6 +156,19 @@ class ReadingOnItsWay extends QueuedMail
             'question' => $this->reading->question,
 
             'promise' => $this->promise(),
+
+            // The three the HTML part alone reads, and the text part is
+            // deliberately left exactly as it was.
+            //
+            // **The subtitle is the catalogue's second line and not a
+            // description of the reading**, the same one the receipt's card and
+            // the present's card carry. Off the key rather than the product,
+            // for the reason the name above falls back to it: a reading
+            // withdrawn since it was bought is still owed, and the row naming
+            // it may be gone.
+            'subtitle' => $line->product_key->emailSubtitle(),
+            'assets' => config('mail.assets.url'),
+            'site' => rtrim((string) config('frontend.url'), '/'),
         ]);
     }
 
