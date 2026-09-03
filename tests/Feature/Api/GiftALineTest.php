@@ -263,6 +263,50 @@ it('refuses a locale nothing is published in', function () {
         ->assertJsonValidationErrors('lines.0.gift.locale');
 });
 
+it('refuses an empty gift object on a reading that may be given away', function () {
+    aGiftableCatalogue();
+
+    // **`{}` names nobody.** A form that posts the key it has, with every
+    // field inside it left alone, sends this. Letting it past means a giftable
+    // product mints a gift row carrying no recipient address, and the buyer
+    // never receives the code, so an unaddressed gift is unrecoverable.
+    //
+    // **What refuses it is not the rule it looks like.** `required_with` counts
+    // an empty array as an absent sibling, so this passes both required fields
+    // on its own. `StoreOrderRequest::fillInTheGiftLanguage` has put a locale
+    // in the object by the time either is read, which is the whole of the
+    // defence. These two tests are what say so out loud, and they go red the
+    // day somebody moves that defaulting to the seam.
+    $this->postJson('/api/v1/orders', aBasketHolding([
+        ['product' => 'month-ahead', 'gift' => []],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['lines.0.gift.recipient_email', 'lines.0.gift.signature']);
+
+    expect(Order::count())->toBe(0)
+        ->and(Gift::count())->toBe(0);
+});
+
+it('refuses an empty gift object on a reading that may not', function () {
+    aGiftableCatalogue();
+
+    // The same body on `one-card`, which is the product the refusal above is
+    // proved on. An empty object is still a gift somebody asked for, so the
+    // line is refused for the product as well as for the two fields it never
+    // named.
+    $this->postJson('/api/v1/orders', aBasketHolding([
+        ['product' => 'one-card', 'gift' => []],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([
+            'lines.0.gift' => 'This one cannot be given as a gift.',
+            'lines.0.gift.recipient_email',
+            'lines.0.gift.signature',
+        ]);
+
+    expect(Order::count())->toBe(0);
+});
+
 /*
 | What comes back, which is the only confirmation the buyer gets.
 */
