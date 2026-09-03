@@ -31,9 +31,12 @@ class PaymentMethods
      * production code calls it yet.** The frontend has to know which buttons to
      * draw, and it cannot infer that: whether Stripe is offered depends on
      * whether that environment is configured, which is exactly the thing the
-     * registry decides and nobody outside can see. Gifting adds a fourth method
-     * to the same list. The endpoint that reads this is the caller, and it is
-     * not built here because the frontend has not asked for it yet.
+     * registry decides and nobody outside can see. ~~Gifting adds a fourth
+     * method to the same list.~~ **Struck 2 September 2026: it adds none.**
+     * Redemption collects nothing, so there is no payment for a method to make,
+     * and it gets two endpoints of its own instead. The endpoint that reads
+     * this is the caller, and it is not built here because the frontend has not
+     * asked for it yet.
      *
      * `offers()` is the same answer for one name, and both are used by
      * PaymentMethodsTest to pin that the registry is what config says it is.
@@ -55,8 +58,10 @@ class PaymentMethods
      * **`manual` is genuinely offered and is genuinely not a button.** Support
      * needs it after launch, in the panel, everywhere and permanently, so
      * `offered()` is right to list it. What a reading page draws is the
-     * narrower question, and a wallet or a card is the whole of the answer
-     * until gifting adds `gift_code`.
+     * narrower question, and a wallet or a card is the whole of the answer.
+     * ~~Until gifting adds `gift_code`.~~ **Struck 2 September 2026: gifting
+     * adds nothing here**, so this list is the whole answer rather than a
+     * waypoint.
      *
      * **The exclusion lives here rather than in the controller**, so the
      * comment explaining why hand settlement is offered everywhere and drawn

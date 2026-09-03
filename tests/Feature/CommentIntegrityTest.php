@@ -122,7 +122,7 @@ it('reports a citation of a CLAUDE.md section or hard rule that does not exist',
     expect(unresolvedClaims('tests/Fixtures/Claims/Unresolved/RenumberedCitation.php'))->toBe([
         'tests/Fixtures/Claims/Unresolved/RenumberedCitation.php:8  cites CLAUDE.md section 0.9, which does not exist',
         'tests/Fixtures/Claims/Unresolved/RenumberedCitation.php:8  cites CLAUDE.md section 42, which does not exist',
-        'tests/Fixtures/Claims/Unresolved/RenumberedCitation.php:9  cites hard rule 99, and CLAUDE.md has 14',
+        'tests/Fixtures/Claims/Unresolved/RenumberedCitation.php:9  cites hard rule 99, and CLAUDE.md has 15',
     ]);
 });
 

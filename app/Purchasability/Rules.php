@@ -205,6 +205,34 @@ final class Rules
     }
 
     /**
+     * A gift only on something that may be given away.
+     *
+     * **Refused rather than ignored, which is the whole point of the rule.**
+     * Taking the order and dropping the gift charges somebody for a present
+     * that was never sent, and nothing afterwards can tell that it happened:
+     * the buyer never receives the code, so the only person who would notice is
+     * the one who was never written to.
+     *
+     * `is_giftable` is where it is recorded, the same way `allows_question` is
+     * for the rule above, and the two are independent. `one-card` takes a
+     * question and cannot be gifted, so a rule deriving either from the other
+     * is wrong on the product most people buy first.
+     *
+     * The second rule here hanging on a field other than the product, and for
+     * the same reason as the first: the thing the customer can change is the
+     * gift rather than what they are buying.
+     */
+    public static function aGiftOnlyWhereOneIsAccepted(): Rule
+    {
+        return Rule::aboutTheProduct(
+            met: fn (Product $product, Line $line): bool => $line->gift === null || $product->is_giftable,
+            field: 'gift',
+            words: 'This one cannot be given as a gift.',
+            fault: fn (Line $line): string => "Product [{$line->key}] cannot be given as a gift.",
+        );
+    }
+
+    /**
      * Whether buying this delivers access rather than a thing.
      *
      * Fulfillment rather than the product key, in one place, so the three rules

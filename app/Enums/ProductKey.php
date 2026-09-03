@@ -90,6 +90,30 @@ enum ProductKey: string
     }
 
     /**
+     * Whether this may be bought for somebody else.
+     *
+     * **Three of the four readings, and not `one-card`.** Decided 2 September
+     * 2026 and recorded in `docs/CHECKPOINT.md`. A one card reading is the
+     * cheapest thing here and a present is not what it is for; the pass and the
+     * rush are not readings at all, so there is nothing to give and nobody to
+     * redeem it.
+     *
+     * **Independent of `allowsQuestion()`, and `one-card` is what proves it.**
+     * It takes a question and cannot be gifted, so anything deriving either
+     * from the other is wrong on the product most people buy first.
+     *
+     * A gift is refused rather than ignored on a line that answers false here.
+     * Quietly dropping it charges somebody for a present that was never sent.
+     */
+    public function isGiftable(): bool
+    {
+        return match ($this) {
+            self::ThreeCard, self::MonthAhead, self::InDepth => true,
+            self::OneCard, self::ViewingRoomPass, self::Rush24h => false,
+        };
+    }
+
+    /**
      * The English name a product starts life with.
      *
      * **Taken verbatim from the homepage tiles**, which are the copy the client

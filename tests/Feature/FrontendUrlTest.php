@@ -13,7 +13,9 @@ it('sends somebody to the website and never to this API', function () {
     expect(FrontendUrl::resetPassword('jane@example.com', 'a-token'))
         ->toStartWith('https://staging.theworldtarot.com/reset-password/?')
         ->and(FrontendUrl::setPassword('jane@example.com', 'a-token'))
-        ->toStartWith('https://staging.theworldtarot.com/set-password/?');
+        ->toStartWith('https://staging.theworldtarot.com/set-password/?')
+        ->and(FrontendUrl::redeem('K7M4-9PQR-2XYZ'))
+        ->toStartWith('https://staging.theworldtarot.com/redeem/?');
 });
 
 it('carries the token and the address the reset is verified against', function () {
@@ -33,6 +35,32 @@ it('ends a page in a slash however the environment spelled it', function (string
     '/set-password',
     '/set-password/',
     'set-password',
+]);
+
+/*
+| Where a recipient spends the code they were given. B6, issue #72.
+*/
+
+it('carries the code in the query string, in the form it is printed in', function () {
+    // **A query parameter and not a path segment**, because the website is a
+    // static export and a path per code would have to be pre-rendered at build
+    // time. The printed form goes in, hyphens and all, because the same
+    // characters are printed underneath the link for somebody typing them: two
+    // spellings of one credential in one message is a person wondering which is
+    // real. `/gifts/lookup` strips the separators before it looks anything up.
+    expect(FrontendUrl::redeem('K7M4-9PQR-2XYZ'))
+        ->toBe('https://staging.theworldtarot.com/redeem/?code=K7M4-9PQR-2XYZ');
+});
+
+it('ends the redemption page in a slash however the environment spelled it', function (string $configured) {
+    config()->set('frontend.paths.redeem', $configured);
+
+    expect(FrontendUrl::redeem('K7M4-9PQR-2XYZ'))
+        ->toStartWith('https://staging.theworldtarot.com/redeem/?');
+})->with([
+    '/redeem',
+    '/redeem/',
+    'redeem',
 ]);
 
 /*

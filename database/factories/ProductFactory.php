@@ -42,15 +42,67 @@ class ProductFactory extends Factory
             'type' => ProductType::Reading,
             'fulfillment' => Fulfillment::ManualPdf,
             'allows_question' => true,
-            'name' => ['en' => $key->defaultName()],
+
+            // From the catalogue rather than a flat true, because the four
+            // readings do not agree: `one-card` takes a question and cannot be
+            // gifted. A factory that flattened this would make the one product
+            // that proves the two fields are independent behave like the three
+            // that do not.
+            //
+            // **Off the final key and not `$key`.** Almost every caller
+            // overrides the key, and the rotation above has already chosen a
+            // different one by then, so reading `$key` here would answer for a
+            // product nobody asked for: `one-card` would come out giftable
+            // whenever the rotation happened to land on a reading that is. A
+            // closure is handed the attributes after overrides are merged,
+            // which is the only place the real key is known.
+            'is_giftable' => fn (array $attributes): bool => self::keyOf($attributes)->isGiftable(),
+
+            // **Off the final key too, and for the reason `is_giftable` above
+            // gives.** ~~`['en' => $key->defaultName()]`~~ read the rotation's
+            // key rather than the overridden one, so a product asked for by key
+            // came out wearing another reading's name: `three-card` was named
+            // THE MONTH AHEAD whenever the rotation happened to sit there.
+            //
+            // **It was invisible until a test created one more product.** The
+            // rotation is static and process-wide, so which name a product gets
+            // depends on how many were made before it anywhere in the run. B8
+            // (#74) added a test that makes one, every product after it shifted
+            // by one, and `SettleAGiftOrderTest`'s assertion that Jennifer is
+            // not shown the gifted line started failing on a name it never
+            // meant to match. Corrected 3 September 2026.
+            'name' => fn (array $attributes): array => ['en' => self::keyOf($attributes)->defaultName()],
             'short_description' => ['en' => fake()->sentence()],
             'long_description' => ['en' => fake()->paragraph()],
             'price_usd' => 2500,
             'price_eur' => 2300,
             'price_gbp' => 1900,
             'is_published' => true,
-            'sort_order' => $key->defaultSortOrder(),
+
+            // **The third of the three, and the last one still reading `$key`.**
+            // Same defect as the two above: a product asked for by key came out
+            // with another reading's position, and `->pass()` came out at a
+            // reading's 1 to 4 rather than at 5. Two tests already pass
+            // `sort_order` by hand where it would have bitten, which is what
+            // kept it quiet. Corrected 3 September 2026, with the `name` fix
+            // that found it.
+            'sort_order' => fn (array $attributes): int => self::keyOf($attributes)->defaultSortOrder(),
         ];
+    }
+
+    /**
+     * The product a set of attributes is for, however the key was given.
+     *
+     * An override may arrive as the enum or as the string behind it, since both
+     * are accepted everywhere else a key is.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private static function keyOf(array $attributes): ProductKey
+    {
+        $key = $attributes['key'];
+
+        return $key instanceof ProductKey ? $key : ProductKey::from((string) $key);
     }
 
     public function unpublished(): static
@@ -65,6 +117,7 @@ class ProductFactory extends Factory
             'type' => ProductType::Pass,
             'fulfillment' => Fulfillment::AccessGrant,
             'allows_question' => false,
+            'is_giftable' => false,
             'name' => ['en' => ProductKey::ViewingRoomPass->defaultName()],
         ]);
     }
@@ -75,6 +128,7 @@ class ProductFactory extends Factory
             'key' => ProductKey::Rush24h,
             'type' => ProductType::Addon,
             'allows_question' => false,
+            'is_giftable' => false,
             'name' => ['en' => ProductKey::Rush24h->defaultName()],
         ]);
     }

@@ -103,6 +103,7 @@ final class Basket
         foreach ($lines as $index => $line) {
             $key = self::keyOf($line);
             $question = is_array($line) ? ($line['question'] ?? null) : null;
+            $gift = is_array($line) ? ($line['gift'] ?? null) : null;
 
             $built[] = new Line(
                 index: (int) $index,
@@ -110,6 +111,13 @@ final class Basket
                 product: $key === '' ? null : $products->get($key),
                 quantity: (int) (is_array($line) ? ($line['quantity'] ?? 1) : 1),
                 question: is_string($question) ? $question : null,
+
+                // Anything that is not an object is not a gift. A line sending
+                // `"gift": true` has said nothing this can send to anybody, and
+                // the rule refuses the line rather than this dropping it, for
+                // the same reason a nonsense product key survives to be refused
+                // by name.
+                gift: is_array($gift) && $gift !== [] ? $gift : null,
             );
         }
 

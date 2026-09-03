@@ -4,12 +4,14 @@ namespace App\Actions;
 
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
+use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
-use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\OrderLine;
 use App\Payments\OrderBelongsToNobody;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
@@ -41,7 +43,10 @@ use Illuminate\Support\Facades\Password;
  */
 class MarkOrderPaid
 {
-    public function __construct(private readonly MarkOrderFulfilled $markFulfilled) {}
+    public function __construct(
+        private readonly MarkOrderFulfilled $markFulfilled,
+        private readonly AskForReading $askForReading,
+    ) {}
 
     /**
      * @return bool Whether this call is the one that changed anything. False
@@ -82,7 +87,7 @@ class MarkOrderPaid
         });
 
         if ($paid) {
-            $this->tell($order->refresh()->load('lines.product', 'customer'));
+            $this->tell($order->refresh()->load('lines.product', 'lines.gift', 'customer'));
         }
 
         return $paid;
@@ -96,7 +101,7 @@ class MarkOrderPaid
      */
     private function fulfill(Order $order): void
     {
-        $order->load('lines.product', 'customer');
+        $order->load('lines.product', 'lines.gift', 'customer');
 
         if ($this->grantsAccess($order)) {
             // Granting twice keeps the first date on purpose, so a duplicate
@@ -104,20 +109,92 @@ class MarkOrderPaid
             $order->customer->grantViewingRoomAccess();
         }
 
-        // **An order nobody has to do anything about is already fulfilled.**
-        // A pass is delivered by the grant just above, in the same instant the
-        // money lands, so leaving it waiting would put work on Jennifer's list
-        // that does not exist and cannot be done.
+        // **This is the moment a gift code comes into existence**, and the
+        // only one. B6 (#72).
+        $this->mintTheGiftCodes($order);
+
+        // **Somebody has asked, and that is now a row.** Since 2 September 2026
+        // and `docs/adr/0004-a-reading-is-a-row-of-its-own.md`: a paid order
+        // used to be the only record that a person was waiting, and a gift
+        // redeemed three months after it was bought makes that untrue. What is
+        // handed over is the lines that are waiting, so `AskForReading` never
+        // has to ask the question this line has just answered.
         //
-        // Anything written by hand is the opposite: it is fulfilled when she
-        // says it is, and an order holding one reading and one pass waits for
-        // the reading, because half delivered is not delivered.
+        // **Inside the transaction on purpose.** A reading is part of what
+        // settling an order does, and an order that is paid with nothing on
+        // Jennifer's list to show for it is the failure this row exists to
+        // prevent. The mail it queues waits for the commit, which is
+        // `AskForReading`'s to arrange and is why the telling is no longer in
+        // `tell()` below.
+        if ($this->needsAPerson($order)) {
+            ($this->askForReading)(
+                $this->linesNeedingAPerson($order),
+                $order->customer->email,
+                $order->customer->name,
+            );
+        }
+
+        // **Delivered is asked of the order rather than decided a second time
+        // here**, since 3 September 2026 and B6.
         //
-        // The stamping itself is MarkOrderFulfilled's, which is the same writer
-        // her "Mark as fulfilled" button reaches. What is decided here is only
-        // whether this order is one of the ones that needs nobody.
-        if (! $this->needsAPerson($order)) {
+        // This was `if (! $this->needsAPerson($order))` and an early return,
+        // which was the same question as `everythingItOwesHasGone` for as long
+        // as the only two shapes were a pass and a reading. **A gift is the
+        // shape that parts them.** Nobody has to do anything about a gifted
+        // line at settlement, and the order is very much not delivered: it owes
+        // a present nobody has redeemed. Left as it was, a gift order was
+        // stamped fulfilled in the instant it was paid for.
+        //
+        // Asking the order is what stops that becoming the third pair of
+        // answers that have to agree by hand. `Order::everythingItOwesHasGone`
+        // is where "every reading delivered, every gift redeemed and delivered"
+        // is written down, ADR 0004 and ADR 0006 both put it that way, and B4
+        // built it for the panel's caller. This is the payment path learning to
+        // ask the same one.
+        //
+        // **After the asking, not before.** The readings this settlement
+        // creates are part of what the order owes, so a question asked ahead of
+        // them would answer about an order that momentarily owed nothing.
+        //
+        // The stamping itself is `MarkOrderFulfilled`'s, which is the same
+        // writer her panel action reaches.
+        if ($order->everythingItOwesHasGone()) {
             ($this->markFulfilled)($order);
+        }
+    }
+
+    /**
+     * A code for every present on this order, and the one place they are made.
+     *
+     * **At settlement and never at placement**, decided in
+     * `database/migrations/2026_09_03_000000_a_gift_is_a_line_bought_for_somebody_else.php`
+     * and built here. A code minted when the buyer typed the address would be a
+     * live bearer credential backed by a payment that may never arrive, one per
+     * abandoned checkout. Minting inside this action inherits the row lock, the
+     * single transition and the redelivery behaviour that everything else here
+     * already rests on, and "what happens to an abandoned gift" stops being a
+     * question: the row is inert and nothing can be redeemed with it.
+     *
+     * **The row already exists and this fills a column in.** B5 writes it at
+     * placement holding the four things the buyer typed, so there is nothing to
+     * insert and `gifts.order_line_id` being unique is what says there is
+     * exactly one present per line.
+     *
+     * **Only the ones with no code yet.** Redelivery is answered by the
+     * transition guard in `__invoke` rather than by this, so a second
+     * `payment_intent.succeeded` never reaches this method at all. Writing it
+     * this way round anyway means the method is correct because of what it
+     * does rather than because of what cannot reach it, and a code somebody has
+     * already been emailed is the worst thing in this file to overwrite.
+     */
+    private function mintTheGiftCodes(Order $order): void
+    {
+        foreach ($order->gifts() as $gift) {
+            if ($gift->isMinted()) {
+                continue;
+            }
+
+            $gift->mint();
         }
     }
 
@@ -129,12 +206,60 @@ class MarkOrderPaid
      * fulfilled at payment that she is also told about is work on her list that
      * is already done, and one left waiting that she never hears about is a
      * customer who paid and receives nothing.
+     *
+     * **The two callers became the two branches of one `if` on 2 September
+     * 2026**, when the telling moved out to `AskForReading`. The pair this
+     * guards against can no longer be written, since there is one place that
+     * decides and no second derivation to drift from it. The reasoning is kept
+     * rather than deleted: it is why the shape is a branch and not two
+     * questions, and the next person to separate them needs to find out why
+     * they were joined.
+     *
+     * **~~The branch is an `if`/`else` and the two halves are exact
+     * opposites.~~ Struck 3 September 2026**, building B6 (#72). They were
+     * opposites while an order held only readings and passes. A gift is neither:
+     * nothing is waiting for a person and the order still owes a present, so
+     * "is anybody waiting" and "has everything gone" became two genuinely
+     * different questions asked of the same order. This one still answers the
+     * first, and `Order::everythingItOwesHasGone` answers the second. Nothing
+     * here derives one from the other any more, which is what keeps them from
+     * drifting.
      */
     private function needsAPerson(Order $order): bool
     {
-        return $order->lines->contains(
-            fn ($line): bool => $line->product?->fulfillment === Fulfillment::ManualPdf,
-        );
+        return $this->linesNeedingAPerson($order)->isNotEmpty();
+    }
+
+    /**
+     * Which lines on this order are waiting for her, rather than whether any is.
+     *
+     * A reading is a row per line now, so the answer that used to be a boolean
+     * has to name them. `needsAPerson` above is this question with its answer
+     * thrown away, and keeping it that way round is what stops a second
+     * definition of "waiting for a person" existing.
+     *
+     * **A gifted line is not one of them, and this is the trap B6 (#72) exists
+     * to close.** A gifted `month-ahead` line is `Fulfillment::ManualPdf` like
+     * any other, so on `fulfillment` alone a settled gift order reached
+     * `AskForReading` and created a reading with **the buyer as querent**,
+     * carrying whatever question the buyer had not typed. A gift tells Jennifer
+     * nothing until it is redeemed: the person who will ask has not seen the
+     * present yet, and asking is what redemption is for.
+     *
+     * **The clause is here rather than on `fulfillment`**, because a gift is
+     * not a different kind of fulfillment. The same reading, written by the
+     * same person, arrives by the same road once somebody asks for it. What is
+     * different is only when that happens, which is a fact about the line and
+     * not about the product.
+     *
+     * @return Collection<int, OrderLine>
+     */
+    private function linesNeedingAPerson(Order $order): Collection
+    {
+        return $order->lines->filter(
+            fn ($line): bool => $line->product?->fulfillment === Fulfillment::ManualPdf
+                && $line->gift === null,
+        )->values();
     }
 
     /**
@@ -226,15 +351,34 @@ class MarkOrderPaid
             ));
         }
 
-        // One message for the whole order rather than one per line, so Jennifer
-        // gets a single thing to work from instead of three that arrive
-        // together and have to be reassembled.
+        // **And whoever was given a present.** B6 (#72), and it is the second
+        // of the two mails a settled gift order sends. **The buyer never
+        // receives the code**, decided 2 September 2026, so these two messages
+        // carry different things to different people out of one payment: the
+        // recipient gets the credential, and the buyer gets a receipt naming
+        // the address it went to.
         //
-        // To orders@ since 30 August 2026, its own key rather than the one the
-        // dispute mail reads. It still leaves from fulfillment@: what changed
-        // is where it lands.
-        if ($this->needsAPerson($order)) {
-            Mail::to(config('mail.notify.orders'))->send(new ReadingToWrite($order));
+        // **After the commit, like everything else here.** A code emailed out
+        // of a transaction that then rolls back is a live credential for a
+        // present that does not exist, and no amount of rolling back unsends
+        // it.
+        //
+        // One mail per gift rather than one per order. Two presents bought
+        // together are two different people, and a shared message would hand
+        // each of them the other's code.
+        foreach ($order->gifts() as $gift) {
+            Mail::to($gift->recipient_email)->send(new GiftToRedeem($gift));
         }
+
+        // **Telling Jennifer a reading is waiting left here on 2 September
+        // 2026**, for `AskForReading`, which now owns the moment a reading
+        // starts existing and the message that follows from it. It is reached
+        // from `fulfill()` above rather than from here, because the row belongs
+        // in the transaction and the mail belongs after it, and one action can
+        // arrange both. Redemption reaches the same action months later, which
+        // is the whole reason it is no longer payment's.
+        //
+        // What stays here is what payment itself has to say: the receipt, and
+        // the invitation to a password when a pass is what was bought.
     }
 }

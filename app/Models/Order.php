@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 /**
@@ -109,6 +110,71 @@ class Order extends Model
         return $this->lines->sum(fn (OrderLine $line): int => $line->subtotal());
     }
 
+    /**
+     * Every present on this order, in line order.
+     *
+     * **Written once because it was being written four times.** B6 (#72) added
+     * two walks to `MarkOrderPaid`, one to mint and one to mail, and two more
+     * closures to `OrderPaid`, all of them `foreach` over the lines asking
+     * whether each carried a gift. Four copies of one predicate is four places
+     * to be wrong about what a present is on the day one line can hold two, or
+     * a gift can exist without a line.
+     *
+     * **Not a `HasManyThrough`.** It would be the same rows and would look
+     * tidier, and it would also be a fifth definition living in a relation that
+     * `everythingItOwesHasGone` below does not use, because that one has the
+     * lines in hand already. This walks what is loaded.
+     *
+     * @return Collection<int, Gift>
+     */
+    public function gifts(): Collection
+    {
+        $this->loadMissing('lines.gift');
+
+        return $this->lines
+            ->map(fn (OrderLine $line): ?Gift => $line->gift)
+            ->filter()
+            ->values();
+    }
+
+    /**
+     * Whether everything this order promised has gone.
+     *
+     * **The definition of fulfilled, asked rather than remembered.** ADR 0004
+     * and `CONTEXT.md` both put it the same way: every reading delivered, every
+     * gift redeemed and delivered. `MarkOrderFulfilled` owns what that is
+     * recorded as and deliberately does not decide it, so this is where the
+     * deciding lives for the panel's caller.
+     *
+     * **The gift half is not decoration.** An order holding a gift nobody has
+     * redeemed is not delivered, because it plainly is not, and without this
+     * clause delivering the self purchase beside it would close the order while
+     * a present is still outstanding. A redeemed gift has a reading of its own,
+     * which the first clause then covers.
+     *
+     * A line that owes nothing, a pass, is delivered by the money landing and
+     * has no reading here at all, so it does not hold anything open. That is
+     * `MarkOrderPaid`'s question and it is answered there.
+     */
+    public function everythingItOwesHasGone(): bool
+    {
+        $this->loadMissing('lines.readings', 'lines.gift');
+
+        foreach ($this->lines as $line) {
+            if ($line->gift !== null && ! $line->gift->isRedeemed()) {
+                return false;
+            }
+
+            foreach ($line->readings as $reading) {
+                if (! $reading->isDelivered()) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     public function scopePending(Builder $query): Builder
     {
         return $query->where('status', OrderStatus::Pending);
@@ -120,7 +186,23 @@ class Order extends Model
     }
 
     /**
-     * Paid for and not yet delivered, which is Jennifer's working list.
+     * Paid for and not yet delivered.
+     *
+     * **~~Jennifer's working list.~~ Struck 3 September 2026**, building B4
+     * (#70). It is still a true question about orders and it is no longer the
+     * queue anybody works from: that is readings that have not been delivered,
+     * on `ReadingResource`, and the navigation badge went with it.
+     *
+     * **The distinction is the whole of ADR 0006's argument.** Left as the work
+     * queue this would have needed a clause about gifts, because an order
+     * holding one is paid and owes nothing anybody can do yet, and
+     * `MarkOrderPaid::needsAPerson` would have needed the matching clause. The
+     * two would then have had to agree forever by hand. Moving the queue is
+     * what means nobody has to remember a third such pair.
+     *
+     * It has no production caller now. Kept because it says something true and
+     * `MarkOrderPaidTest` asks it, and named as no longer the queue so nobody
+     * builds a screen on it again.
      */
     public function scopeAwaitingFulfillment(Builder $query): Builder
     {

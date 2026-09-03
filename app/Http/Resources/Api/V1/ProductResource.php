@@ -58,6 +58,15 @@ class ProductResource extends JsonResource
             // optional, never required.
             'allows_question' => $this->allows_question,
 
+            // Whether it may be bought for somebody else. **The frontend draws
+            // `GIFT A READING` from this and never from a list of its own**: a
+            // gift on a line that answers false is a 422, so a hardcoded toggle
+            // is a button that refuses on submit.
+            //
+            // Independent of the field above. `one-card` answers true to one
+            // and false to the other.
+            'is_giftable' => $this->is_giftable,
+
             // Exactly one price, in the currency this request resolved to, in
             // integer minor units. Never all three, and never converted.
             'price' => [

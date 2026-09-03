@@ -54,6 +54,7 @@ final class Purchasability
             Rules::pricedInTheCurrencyCharged(),
             Rules::pricedAtSomethingReal(),
             Rules::aQuestionOnlyWhereOneIsTaken(),
+            Rules::aGiftOnlyWhereOneIsAccepted(),
             Rules::oneAccessGrantPerLine(),
             Rules::oneAccessGrantPerBasket(),
             Rules::notAlreadyHeld(),

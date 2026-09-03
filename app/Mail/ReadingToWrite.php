@@ -4,6 +4,8 @@ namespace App\Mail;
 
 use App\Enums\Sender;
 use App\Models\Order;
+use App\Models\Reading;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Mail\Mailables\Content;
 
 /**
@@ -21,7 +23,36 @@ use Illuminate\Mail\Mailables\Content;
  */
 class ReadingToWrite extends QueuedMail
 {
-    public function __construct(public readonly Order $order) {}
+    /**
+     * **The readings are carried rather than read off the order**, since
+     * 3 September 2026 and B6 (#72).
+     *
+     * An order is not the asking any more. A basket may hold a present and a
+     * self purchase together, and only one of those is work: printing every
+     * line would put a gifted reading in front of Jennifer with "No question
+     * was asked" under it, which is a job she cannot do and nobody has asked
+     * for. It would also have been a second answer to "which of these is
+     * waiting for a person", derived in a view, disagreeing by hand with the
+     * one `MarkOrderPaid` already gives.
+     *
+     * **The order stays for the header**, which is genuinely about the order:
+     * its number, its total and who paid. Redemption in B7 is the caller that
+     * makes those two different things, months apart.
+     *
+     * **An Eloquent collection, corrected 3 September 2026 with B7 (#73).**
+     * ~~`Illuminate\Support\Collection`~~ was what this said, and `content()`
+     * below eager loads off it, which only an Eloquent collection can do. It
+     * held because settlement is the only caller and hands over one already.
+     * Redemption is the second caller, it builds its one line collection by
+     * hand, and the first attempt fatalled inside the mailable rather than at
+     * the call that got it wrong.
+     *
+     * @param  Collection<int, Reading>  $readings  What was asked in this one instant
+     */
+    public function __construct(
+        public readonly Order $order,
+        public readonly Collection $readings,
+    ) {}
 
     protected function sender(): Sender
     {
@@ -37,6 +68,7 @@ class ReadingToWrite extends QueuedMail
     {
         return new Content(text: 'mail.reading-to-write', with: [
             'order' => $this->order,
+            'readings' => $this->readings->loadMissing('orderLine.product'),
             'from' => $this->whoItIsFrom(),
         ]);
     }

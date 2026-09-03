@@ -18,6 +18,8 @@ Status: draft, not yet acknowledged. Until you confirm it, these shapes can stil
 - **A guest may place an order holding no name and no email.** Stripe's page collects the buyer's email, and it collects it after the order exists, so identity is filled here at settlement
 - **`POST /api/v1/orders/status` reads a payment's status back**, which answers the standing question in section 10 about whether your confirmation screen needs to re-read an order. It does
 
+**Updated 2 September 2026 with gifting, and the headline is a withdrawal.** ~~`gift_code` as a payment method~~ is gone from this document before anybody built a button for it: a redemption collects nothing, so there was never a payment for a third method to make. The sentences that promised one are struck where they stood, in sections 2 and 9. **What gifting is instead** is a `gift` object on an order line, `is_giftable` on `/products`, and two endpoints of its own under "Gifts" in section 2. ~~**None of it is live yet**~~ **struck 3 September 2026: the two endpoints under "Gifts" answer now**, and each piece says where it stands where it is documented. The reasoning is `docs/adr/0004-a-reading-is-a-row-of-its-own.md` on our side and `docs/adr/0003-redemption-is-a-page-of-its-own.md` on yours.
+
 **What has not changed is the order of the calls and the shape of everything else.** You still place an order, you still POST the token to `/pay`, and you still read `type` before you read anything else.
 
 ---
@@ -82,7 +84,7 @@ This endpoint has no language segment, since it is what tells you which language
 - **`stripe_wallet` is the wallet button**, Apple Pay and Google Pay in the Express Checkout Element on your own page. It answers `client_secret` from `/pay`
 - **These are the exact values you send as `method`** on `POST /api/v1/orders/{pay_token}/pay`. They are not labels and carry no copy. What a button says is yours
 - **Draw a button only for a method in this list.** Whether Stripe is offered at all depends on whether that environment is configured, and a local one legitimately offers nothing. **An empty list is a valid answer**, and it means there is nothing a customer can press here. It is not a fault to retry
-- **The list can grow.** `gift_code` joins it with gifting. Ignore a name you have no button for rather than treating it as an error
+- **The list can grow.** ~~`gift_code` joins it with gifting.~~ **Struck 2 September 2026: gifting adds no payment method, and this list stays at two.** A redemption collects nothing, so there is no payment for a third method to make. What gifting adds instead is two endpoints of its own, below. Ignoring a name you have no button for rather than treating it as an error is still the rule, and still the reason this is safe to grow
 - **Hand settlement is deliberately never in this list.** It exists, it is how support settles an order that went wrong, and it is a person in the admin panel rather than anything a customer presses
 - **The order is ours and is stable**, so you may render in it if you like
 - Safe to cache briefly. It varies by what the environment configured and by nothing about the visitor
@@ -99,6 +101,7 @@ Everything on sale, in the order the client arranged them.
     "name": "One Card Reading",
     "short_description": "A single card.",
     "allows_question": true,
+    "is_giftable": false,
     "price": { "currency": "GBP", "amount": 1900 }
   }
 ]
@@ -108,6 +111,7 @@ Everything on sale, in the order the client arranged them.
 - **`key` is the product's permanent identifier and its URL segment.** It is the same in every language, it is never edited, and it is a fixed set: `one-card`, `three-card`, `month-ahead`, `in-depth`, later `viewing-room-pass`, plus `rush-24h`, which **is cancelled and will never be sold** — see section 9. It remains in the enum only because it is unseeded, and our tests use it as their example of a key nobody seeded. The generated specification carries it as an enum, so you can build an exhaustive switch over it and let your compiler tell you when we add one
 - `type` is `reading`, `pass` or `addon`, so you can map presentation to it. **Changed 20 August 2026: this list now contains the viewing room pass as well as the readings**, so `type` is how you tell them apart rather than something you can currently ignore. See the note below
 - `allows_question` means the customer may attach a question when buying. It is never required of them
+- **`is_giftable` means this product may be bought for somebody else**, added 2 September 2026 with gifting and **not live until the gifting work lands**. It is `true` for `three-card`, `month-ahead` and `in-depth`, and `false` for `one-card` and the pass. **Draw `GIFT A READING` from this field and never from a list you hold**, exactly as you already draw the question field from `allows_question`: a gift object sent on a line that is not giftable is a 422, so a hardcoded toggle is a button that refuses on submit. The two fields are independent, and `one-card` is the product that proves it: it takes a question and cannot be gifted
 - `price` is exactly one price, in the currency this request resolved to. See section 5
 
 **A product appears only in the languages it is finished in.** If a reading is added after Spanish goes live, it is in the English list immediately and joins the Spanish list when its Spanish copy is written. So the two lists can legitimately differ in length, and a language switcher on a product page should hide any language that product is not available in.
@@ -372,7 +376,16 @@ No language segment: an order is the same order whatever language it was placed 
   "currency": "GBP",
   "lines": [
     { "product": "one-card", "quantity": 1, "question": "What should I focus on this month?" },
-    { "product": "viewing-room-pass" }
+    { "product": "viewing-room-pass" },
+    {
+      "product": "month-ahead",
+      "gift": {
+        "recipient_email": "sam@example.com",
+        "signature": "Mum",
+        "message": "Thought of you.",
+        "locale": "en"
+      }
+    }
   ]
 }
 ```
@@ -386,8 +399,15 @@ No language segment: an order is the same order whatever language it was placed 
   "currency": "GBP",
   "total_amount": 6400,
   "lines": [
-    { "product": "one-card", "unit_amount": 1900, "quantity": 1, "question": "What should I focus on this month?" },
-    { "product": "viewing-room-pass", "unit_amount": 4500, "quantity": 1, "question": null }
+    { "product": "one-card", "unit_amount": 1900, "quantity": 1, "question": "What should I focus on this month?", "gift": null },
+    { "product": "viewing-room-pass", "unit_amount": 4500, "quantity": 1, "question": null, "gift": null },
+    {
+      "product": "month-ahead",
+      "unit_amount": 5500,
+      "quantity": 1,
+      "question": null,
+      "gift": { "recipient_email": "sam@example.com", "signature": "Mum", "message": "Thought of you.", "locale": "en" }
+    }
   ],
   "pay_token": "kQ3rN8xvT1sLb0Zy..."
 }
@@ -399,6 +419,15 @@ No language segment: an order is the same order whatever language it was placed 
 - **`currency` is required and is taken exactly as sent.** No detection happens here. It is one currency for the whole order, because a basket priced in two has no total. An unsupported one is a 422 rather than a fallback
 - **`quantity` defaults to 1**, maximum 10 per line. At most 10 lines
 - **`question` is refused with a 422 on any product whose `allows_question` is false**, and is never required on one where it is true
+- **`gift` makes the line a present for somebody else**, added 2 September 2026 and **not live until the gifting work lands**. Four fields, and the whole of the buyer's side of gifting:
+  - **`recipient_email`** is where the code is sent, and it is required. **Collect it twice on your side**, because the buyer never receives the code and a typo'd address is otherwise unrecoverable: nothing on this side can tell that a gift mail arrived nowhere
+  - **`signature`** is who it is from, required, and it is not a name. It is what the recipient's mail is signed and subject-lined with, so "Mum" is a truer answer than what is on the card, and an order may carry no name at all. An unsolicited mail carrying a code and a link from a brand somebody has never bought from is shaped exactly like phishing, and **a named sender is the strongest signal it is real**
+  - **`message`** is optional, and it is the buyer's own words to the recipient
+  - **`locale`** is which language the recipient's mail is written in, and it defaults to the language the order was placed in. It is a language code from `/languages`
+- **A `gift` on a line whose `is_giftable` is false is a 422 keyed to that line**, `lines.2.gift`, and it is **refused rather than quietly ignored**. Silently dropping it would charge somebody for a present that was never sent
+- **A gift line carries no `question`.** The person who will ask has not seen it yet, and asking is what redemption is for. Sending both is a 422
+- **`gift` is present on every line and null on the ones nobody gifted**, corrected 3 September 2026 when this was built. The example above omitted the key on those two lines and the shape is present-and-null, the same as `question` on a line that takes none, so nothing has to tell an absent key from an empty one
+- **The code does not come back here and never appears in this response.** It does not exist yet: it is minted when the payment settles, so that an abandoned checkout leaves no live credential behind. What the buyer gets is a receipt naming the address it went to
 - **One bad line refuses the whole order**, with the error keyed to that line: `lines.0.product`. Nothing is silently dropped, because charging somebody for a basket they did not agree to is worse than making them try again
 - **Unpublished, unpriced and retired products are all refused** with the same message, `That is not something you can buy right now`
 - **The Viewing Room pass can only be bought once, and this is new on 24 August 2026.** It never expires, so it is the only thing in the catalogue somebody can already hold. Two of it in one basket, whether as `quantity: 2` or as two lines, is a 422, and so is buying it while holding it. A signed-in customer is told `You already have this, and it does not expire`. **A guest gets the same wording an unavailable product gets**, because naming the reason to somebody who has only typed an address would turn this endpoint into a way of asking whether that address holds a pass. Every other product can be bought as often as anybody likes. **Where you can, offer the pass as already owned rather than as something to buy**, using `has_viewing_room_access` from `me`, so nobody meets this refusal at the checkout
@@ -437,11 +466,11 @@ The body is optional and has two fields:
 - **`redirect` means send the browser to `redirect_url`**, and it is a Stripe hosted Checkout Session. **Back on 29 August 2026**, at your request and on your reasoning: a panel cannot be laid out around a control whose height depends on whether the visitor's device has a card in its wallet. It was published here, withdrawn on 26 August as a case with no caller, and now has one. Both ADRs carry the argument, `docs/adr/0002-checkout-happens-on-stripes-page.md` in your repo and `docs/adr/0002-the-redirect-case-comes-back.md` in ours
 - **Do not store the URL and do not treat it as the order's address.** A Session expires after 24 hours and an order never does, so a customer coming back calls `/pay` again and is handed a fresh one
 - **`client_secret` is what you confirm with Stripe** in the Express Checkout Element, on your own page, and **it has a caller again from 29 August 2026**: `stripe_wallet` answers it. It is a PaymentIntent's secret, so `stripe.confirmPayment` is what takes it, and **`return_url` for that call is your own page and you build it**. That is not the open redirect this document guards against elsewhere: nothing caller-supplied reaches us on this road, and the only redirect in play is 3D Secure returning to where it started
-- **`nothing_to_pay` means there is nothing to collect** and you should go straight to your confirmation. It is what an order already settled answers, what a hand settled order answers, and what a gift code redemption will answer
+- **`nothing_to_pay` means there is nothing to collect** and you should go straight to your confirmation. It is what an order already settled answers, and what a hand settled order answers. ~~And what a gift code redemption will answer.~~ **Struck 2 September 2026**: a redemption never reaches this endpoint. The case itself is unchanged and keeps both its callers
 - **`success_url` and `cancel_url` are built here, from a frontend origin configured on this side, and you never send them.** A caller-supplied return address is an open redirect available to anybody holding a pay token, and allowlisting the origin to fix it leaves us building the address anyway
 - **`return_to` is optional, and it is a product key**, one of `one-card`, `three-card`, `month-ahead` or `in-depth`. **Not a path and not a URL.** It says which reading page the checkout started from, so a cancelled one lands back on it. The keys are already your reading-page slugs, so nothing you send is ever concatenated into an address: **anything outside that set is a 422 on `return_to`**, never a fallback. Send nothing and a cancelled checkout lands on the readings index
 - **Where a paid customer comes back to is ours as well**, `/checkout/complete/` carrying the Checkout Session id. **Corrected 29 August 2026: that id is not what you hand to `POST /api/v1/orders/status`, and an earlier line here said it was.** A `cs_...` id is opaque, it cannot be resolved with a publishable key, and there is nothing on this side that maps one back to an order. **Keep the pay token yourself across the redirect**, in the customer's own browser storage, and hand that to the status endpoint. The session id in the query string is Stripe's, and you can ignore it
-- **`method` names which button was pressed, and from 29 August 2026 there are two.** ~~Everything a card processor handles, Apple Pay and Google Pay included, is one method~~: they are now `stripe`, the hosted page, and `stripe_wallet`, the wallet element on your own page. They are two because they are a hosted Session and a PaymentIntent, and no Stripe parameter reconciles those. **`GET /api/v1/payment-methods` is what says which exist here**, and gifting adds `gift_code` to the same list
+- **`method` names which button was pressed, and from 29 August 2026 there are two.** ~~Everything a card processor handles, Apple Pay and Google Pay included, is one method~~: they are now `stripe`, the hosted page, and `stripe_wallet`, the wallet element on your own page. They are two because they are a hosted Session and a PaymentIntent, and no Stripe parameter reconciles those. **`GET /api/v1/payment-methods` is what says which exist here.** ~~And gifting adds `gift_code` to the same list.~~ **Struck 2 September 2026: it does not, and there are two**
 - **It is still optional and you can still leave it out**, and leaving it out gets whichever method this environment defaults to, which is not a promise about which. Send one. **A method this environment does not offer is a 422 on `method`**, never a fallback to one that does
 - **Calling this twice on a pending order is safe** and gives you a fresh answer, a new secret or a new Session, which is what a declined card and an abandoned checkout should both do. It creates no second order
 - **Orders never expire.** A customer who closes the tab mid-payment still has theirs days later
@@ -470,13 +499,96 @@ The body is optional and has two fields:
 - **`status` is Stripe's PaymentIntent status, retrieved here, passed through unchanged.** It is not the order's status, and it is deliberately not `pending`/`paid`: your mapping from Stripe's statuses onto the outcomes you render is already written, and a customer who arrives before the webhook lands would otherwise read a screen hedging about a payment that plainly succeeded
 - **The values are Stripe's, and the set can grow.** Today: `requires_payment_method`, `requires_confirmation`, `requires_action`, `processing`, `requires_capture`, `canceled`, `succeeded`. **Treat an unrecognised one as "we do not know yet" and poll again**, never as a failure
 - **An order with no payment started yet answers `requires_payment_method`**, which is the same thing your polling does with it: nothing has been collected
-- **An order settled by hand, or by a gift code, answers `succeeded`**, so a confirmation screen has one path rather than two
+- **An order settled by hand answers `succeeded`**, ~~or by a gift code~~ **struck 2 September 2026**, so a confirmation screen has one path rather than two. A gift is paid for when it is bought, so the order behind a redeemed code answered `succeeded` months before anybody redeemed anything, and **a redemption never calls this endpoint at all**
 - **Nothing else about the order comes back.** Not the amount, not the email, not the id, exactly as on `/pay`
 - **An unknown token is a 404**, and so is somebody else's, and the two answer identically
 - **If Stripe cannot be reached, this answers 503** and says nothing about the payment. Guessing `processing` would be us inventing a status about somebody's money. **Treat it exactly as an unrecognised status: we do not know yet, ask again**, and let your backoff do its job
 - **This is a poll, so poll it politely.** A short interval for a few seconds after the return, then back off. The webhook is what settles the order; this only tells you what Stripe already thinks
 - `Cache-Control: no-store`
 - Rate limited to 60 a minute per address, since a confirmation screen polls
+
+### Gifts
+
+~~**Two endpoints, and neither is built yet.**~~ **Both are built, 3 September 2026.** Designed 2 September, documented here rather than in section 9 because their shapes are settled and the frontend's `/redeem/` page is built against them. They answer now, and every shape below is what they actually return. **Committed and not yet pushed or deployed**, so `/redeem/` cannot be pointed at a deployed environment until it is.
+
+Two things worth having in writing, because the frontend can neither see them nor infer them:
+
+- **Both answer 200 on success**, redemption included. It creates a reading and still does not answer 201, because a 201 offers the address of the thing it made and nothing on your side addresses a reading
+- **The two rate limits are separate counters**, so mistyping a code ten times on the lookup does not cost anybody the redemption they were about to make
+
+**Looking a code up and spending it are two calls on purpose.** A visitor who opens the link and closes the tab must still have their present.
+
+#### POST /api/v1/{locale}/gifts/lookup
+
+**What a code is worth, without spending it.**
+
+```json
+{ "code": "k7m4 9pqr 2xyz" }
+```
+
+**200:**
+
+```json
+{
+  "code": "K7M4-9PQR-2XYZ",
+  "product": "month-ahead",
+  "name": "THE MONTH AHEAD",
+  "short_description": "...",
+  "long_description": "...",
+  "redeemed": false,
+  "redeemed_at": null
+}
+```
+
+- **The code goes in the body, and this is not a `GET`.** It is a bearer credential, and a path segment or a query string lands in every access log and every proxy between the browser and this application. `POST /orders/status` takes its credential the same way and for the same reason
+- **Entry is normalised here before anything is looked up**: uppercased, everything that is not a letter or a digit stripped, `I` and `L` read as `1`, `O` read as `0`. So `k7m4 9pqr 2xyz`, `K7M4-9PQR-2XYZ` and `k7m49pqr2xyz` are one code. **Be forgiving on your side too**, but do not try to reproduce this: send what was typed
+- **`code` comes back in its printed form**, `XXXX-XXXX-XXXX`, so you can show the visitor what you resolved
+- **The reading's copy comes back with it**, in the language of the path. That is deliberate rather than an invitation to call `/products/{key}`: **a code for a withdrawn product still redeems**, and `/products/{key}` 404s on anything unpublished. The person paid. This is the one place in the system that reads a product past `is_published`
+- **Live since 3 September 2026.** Nothing about the shape above changed when it was built
+- **`redeemed` is the answer in full, and it does not hedge.** A code that has already been spent says so, and says when. That is a state the real recipient has to be told about, so it cannot hide behind the answer an unknown code gets. **What closes the oracle is the entropy in the code**, roughly 60 bits, plus the throttle below
+- **The words are yours.** This returns booleans and a date, never a sentence to display, because nothing here renders customer-facing copy
+- **An unknown code is a 404**, with no distinction between one that never existed and one that is malformed past normalising
+- **A product with no page of yours still resolves**, which is why `name` and the two descriptions are here: fall back to them rather than refusing to render. **Refusing to render is refusing to redeem**
+- `Cache-Control: no-store`. A response naming what a bearer credential is worth is not cacheable by anything
+- Rate limited per address, and it is the tighter of the two limits, because this is the endpoint somebody would guess against
+
+#### POST /api/v1/{locale}/gifts/redeem
+
+**Spending the code.** This is the only call that spends it, and it happens on submit, never on arrival.
+
+```json
+{
+  "code": "K7M4-9PQR-2XYZ",
+  "question": "What should I focus on this month?",
+  "querent_email": "sam@example.com",
+  "querent_name": "Sam"
+}
+```
+
+**200:**
+
+```json
+{
+  "product": "month-ahead",
+  "name": "THE MONTH AHEAD",
+  "question": "What should I focus on this month?",
+  "querent_email": "sam@example.com",
+  "asked_at": "2026-12-24T10:03:11+00:00"
+}
+```
+
+- **Live since 3 September 2026.** Nothing about the shape above changed when it was built
+- **`question` is required**, and every giftable product allows one. This is the moment the reading is asked for, and a reading without a question is not one. **Maximum 2000 characters**, the same limit a buyer's question gets at checkout, so two screens do not tell one person two different things
+- **`querent_email` is required, and it is asked for rather than inherited** from the address the gift was sent to. A forwarded gift is enough to part those two people, and inheriting silently would deliver the reading to whoever forwarded it. `querent_name` is optional, exactly as a buyer's name is
+- **The answer is the confirmation**, and it is rendered from this rather than from a second call. **Do not call `POST /api/v1/orders/status` after redeeming.** That endpoint reports a payment, and the payment here happened months ago to somebody else
+- **`asked_at` is when the clock starts.** State the reading's delivery window relative to it if you show one, as a property of the reading rather than as a promise this call makes. The promise is made once, in the mail this sends to the querent
+- **Spending is atomic and single use.** The row is locked, so two submits from two tabs produce exactly one reading, and the loser is refused rather than served
+- **A code already spent is a 409**, and the body names the field: `{ "message": "...", "errors": { "code": ["..."] } }`. It is not a 404, because the difference between "you mistyped it" and "this has already been used" is exactly what the real recipient needs to be told
+- **An unknown code is a 404**, as on lookup
+- **A code for a withdrawn product still redeems here too**, for the same reason
+- **The querent is sent a mail of her own**, which is what makes the delivery promise durable after the tab is closed. **Live since 3 September 2026**, B8. It states the window and the moment it runs to, counted from `asked_at`, so this response stays the one that reports rather than promises
+- `Cache-Control: no-store`
+- Rate limited per address
 
 ### POST /api/v1/newsletter
 
@@ -592,10 +704,13 @@ Everything under `/api/*` returns JSON, never an HTML error page.
 | 403 | Authenticated but not allowed | `{ "message": "..." }` |
 | 404 | No such route or record | `{ "message": "..." }` |
 | 419 | CSRF token missing or stale on a cookie-auth write | `{ "message": "..." }` |
+| 409 | The thing is in a state that refuses this, and trying again will not help | `{ "message": "...", "errors": { "field": ["reason"] } }` |
 | 422 | Validation failed | `{ "message": "...", "errors": { "field": ["reason"] } }` |
 | 429 | Rate limited | `{ "message": "..." }` plus `Retry-After` |
 
 On 422, `errors` is keyed by field name with an array of messages per field, and field names match what you sent.
+
+**409 was added 2 September 2026, with gifting, and it has exactly one caller: a gift code that has already been spent.** Live since 3 September 2026, on `POST /gifts/redeem`, keyed to `code`. It carries a 422's body so your existing error handling reads it unchanged, and it is a separate status because a 422 says "fix what you sent and send it again" and there is nothing here to fix.
 
 **Backend validation is authoritative.** Validating with Zod as well is right, but assume every rule is enforced again here and that ours wins. If the two disagree, say so rather than working around it.
 
@@ -628,7 +743,7 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 
 - **Card**: `stripe`, whatever the hosted Checkout Session offers, which is Stripe's problem rather than an element you mount
 - **Wallets**: `stripe_wallet`, Apple Pay and Google Pay in the Express Checkout Element on your page, confirming a client secret. **Added 29 August 2026**, at the client's request, and it is the reason `emailRequired: true` is a requirement again
-- **Redeem a code**: a payment method, arriving with gifting, and it answers `nothing_to_pay` rather than a redirect
+- ~~**Redeem a code**: a payment method, arriving with gifting, and it answers `nothing_to_pay` rather than a redirect~~ **Withdrawn 2 September 2026, before it ever had a caller.** There are two roads and there will not be a third. Gifting is the section below
 
 **The sequence, and the order of it matters.** Nothing exists on our side until the customer commits to buying:
 
@@ -649,7 +764,7 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 
 **That a nullable string could not carry these is the whole point**: `redirect` was published, withdrawn, and brought back inside five days, and the shape absorbed all of it without a breaking change.
 
-`nothing_to_pay` means the order is already settled and you should go straight to your confirmation. It is what a gift code redemption returns, and what a hand-settled order returns today.
+`nothing_to_pay` means the order is already settled and you should go straight to your confirmation. ~~It is what a gift code redemption returns, and~~ **struck 2 September 2026:** it is what a hand-settled order returns, and that is the whole of its caller list.
 
 **Calling `/pay` twice on a pending order is safe** and gives you a fresh answer. Orders do not expire and a Checkout Session expires after 24 hours, so calling again is exactly how a customer who abandoned a checkout resumes it.
 
@@ -665,9 +780,36 @@ A wallet PaymentIntent has no Checkout Session, so there is no `customer_details
 
 **And two things that are gone:** the **24 hour rush** was dropped by the client on 25 August, so remove it from the reading page if you have built it. **There are no refunds.**
 
-### Gift codes
+### Gifting, designed 2 September 2026, and it replaces the gift codes section of 25 August
 
-Designed 25 August 2026, built after payment and **before launch**. A code names a reading rather than an amount, so it is worth the right price in every currency. The recipient enters it as a **payment method** on that reading's page, alongside the wallets and the card, and pays nothing. The buyer's side is a recipient email and a message captured on the order line, the way `question` already is.
+~~**Gift codes, designed 25 August 2026.** A code names a reading rather than an amount, so it is worth the right price in every currency. The recipient enters it as a **payment method** on that reading's page, alongside the wallets and the card, and pays nothing. The buyer's side is a recipient email and a message captured on the order line, the way `question` already is.~~
+
+**Replaced wholesale on 2 September 2026, rather than struck line by line, because no sentence in it survived.** The first half is still true and the second half never becomes true. Kept above so that the next person to propose redemption as a payment method finds out it was already proposed and already answered. Ours is `docs/adr/0004-a-reading-is-a-row-of-its-own.md`, yours is `docs/adr/0003-redemption-is-a-page-of-its-own.md`.
+
+**What survives:** a code names a reading rather than an amount, so it is worth the right price in every currency, and it never expires. The buyer's side is a recipient email, a message and a signature captured on the order line, the way `question` already is.
+
+**What is withdrawn, and it is the whole mechanism:**
+
+- **Redemption is not a payment method.** `gift_code` never joins `/payment-methods`, and `/pay` never answers for a gift. A redemption collects nothing, because the buyer paid months earlier, so there is no payment for a method to make. **Every sentence in this document that promised otherwise is struck and dated where it stood**, six of them, in sections 2 and 9
+- **Redemption does not happen on the reading's page.** It is a page of its own, `/redeem/`, one page for every reading, reached from a link in the recipient's mail
+- **A redemption never calls `POST /api/v1/orders/status`.** That endpoint reports a payment, and the confirmation the recipient sees is rendered from the redemption's own answer
+
+**The shapes are in section 2**, with the built things, each marked as not live yet: the `gift` object on an order line, `is_giftable` on `/products`, and the two endpoints under "Gifts".
+
+**The flow, end to end:**
+
+1. A buyer on a giftable reading's page fills in the recipient's address, a signature and an optional message, and buys the reading exactly as they buy one for themselves. **The order and the payment are unchanged**, and a basket may hold a gift and a self-purchase together
+2. The payment settles. **The code is minted at settlement and never at placement**, so an abandoned checkout mints nothing. Two mails go out: the recipient's, carrying the link and the code, and the buyer's ordinary receipt, carrying the address it went to. **The buyer never receives the code**
+   - **The link we send is `{your site}/redeem/?code=XXXX-XXXX-XXXX`**, built 3 September 2026, and the same characters are printed underneath it for somebody typing them in. The path is configurable on our side, so tell us if it is not `/redeem/`, and the trailing slash is part of the address for the reason the two password pages carry one
+   - **The code is twelve characters of `0-9A-Z` less `I`, `L`, `O` and `U`**, printed in three groups of four. Those four glyphs never appear in one, which is why the normalising in section 2 can read `I` and `L` as `1` and `O` as `0` without ambiguity
+3. Nothing is on anybody's work queue yet. A gift that is never redeemed asks for no reading, and there is nothing to write
+4. The recipient opens the link. `/redeem/` **looks the code up without spending it**, because email scanners and link prefetchers follow links, and a gift spent by a scanner is unrecoverable
+5. They ask their question and give an address. **That is the moment the reading exists**, the moment the delivery window starts, and the moment this side learns anybody is waiting
+
+**Gifts do not expire**, decided in `docs/adr/0005-gift-codes-do-not-expire.md`. There is no expired state to build and no `expires_at` to read. **There are no refunds**, which is the other half of why a code spent by accident cannot be put right.
+
+### Still to design
+
 - **Reading an order back, and order history.** There is no `GET /orders` or `GET /orders/{id}`. **The confirmation half of this is answered**: it needed one, and `POST /api/v1/orders/status` in section 2 is it, added 29 August 2026. Tell us if an account area needs the orders themselves
 - FAQ and legal content. **Newsletter signup has moved out of this list**, built 15 August 2026 and documented in section 2
 - Editable page copy, delivered as named blocks per page

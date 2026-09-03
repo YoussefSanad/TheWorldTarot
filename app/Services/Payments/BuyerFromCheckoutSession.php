@@ -59,7 +59,9 @@ class BuyerFromCheckoutSession
             // 29 August 2026 is most of all: every wallet payment, since
             // `stripe_wallet` mints a bare PaymentIntent and nothing lists a
             // Session against it, plus every payment made before the hosted
-            // page and every one a gift code will settle. The caller knows
+            // page. ~~And every one a gift code will settle.~~ Struck
+            // 2 September 2026: a gift settles nothing, and the order it was
+            // bought on paid through one of the two roads above. The caller knows
             // whether it needed one, and for the wallet
             // `BuyerFromLatestCharge` is what answers after this.
             return null;

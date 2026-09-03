@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Purchasability\Basket;
 use App\Purchasability\Purchasability;
 use App\Support\CurrencyResolver;
+use App\Support\Locales;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -78,6 +79,33 @@ class StoreOrderRequest extends FormRequest
             'lines.*.product' => ['required', Rule::enum(ProductKey::class)],
             'lines.*.quantity' => ['sometimes', 'integer', 'min:1', 'max:10'],
             'lines.*.question' => ['sometimes', 'nullable', 'string', 'max:2000'],
+
+            // **The gift object, and whether the line may carry one at all is
+            // not decided here.** That is a fact about the product, so it is a
+            // purchasability rule like every other, declared once and asked by
+            // both the till and the seam. These four are only the shape.
+            'lines.*.gift' => ['sometimes', 'nullable', 'array'],
+
+            // Where the code is sent, and the one address in this transaction
+            // nothing can check. The buyer never receives the code, so a typo
+            // is unrecoverable and nothing here can tell that the mail arrived
+            // nowhere.
+            'lines.*.gift.recipient_email' => ['required_with:lines.*.gift', 'string', 'email', 'max:255'],
+
+            // Who it is from, and not a name. An unsolicited mail carrying a
+            // code and a link from an unknown brand is shaped exactly like
+            // phishing, and a named sender is the strongest signal it is real,
+            // which is why this is required and the message is not.
+            'lines.*.gift.signature' => ['required_with:lines.*.gift', 'string', 'max:255'],
+
+            'lines.*.gift.message' => ['sometimes', 'nullable', 'string', 'max:2000'],
+
+            // The language the recipient's mail is written in, defaulted to the
+            // one the order was placed in by `prepareForValidation`. **Live
+            // languages only**, the list `/languages` answers: a gift rendered
+            // in a half translated language is a mail nobody can read, sent to
+            // somebody who never asked for it.
+            'lines.*.gift.locale' => ['sometimes', 'nullable', 'string', Rule::in(self::giftableLocales())],
         ];
     }
 
@@ -119,6 +147,27 @@ class StoreOrderRequest extends FormRequest
                 }
             },
         ];
+    }
+
+    /**
+     * The languages a gift may be written in.
+     *
+     * **Live locales, which is what `/languages` answers**, rather than every
+     * code the panel can edit. A language still being translated is one the
+     * public site will not serve, and a gift mail is the one message in this
+     * system sent to somebody who never chose to hear from us.
+     *
+     * Falls back to the default alone when the registry has no live rows, the
+     * same shape `Locales::codes()` uses, so a system with an empty registry
+     * still accepts its own language rather than refusing every gift.
+     *
+     * @return array<int, string>
+     */
+    private static function giftableLocales(): array
+    {
+        $codes = Locales::live()->pluck('code')->all();
+
+        return $codes === [] ? [Locales::default()] : $codes;
     }
 
     /**
@@ -171,5 +220,43 @@ class StoreOrderRequest extends FormRequest
         if (is_string($this->input('currency'))) {
             $this->merge(['currency' => mb_strtoupper(trim($this->input('currency')))]);
         }
+
+        $this->fillInTheGiftLanguage();
+    }
+
+    /**
+     * A gift with no language stated is written in the one the order was placed
+     * in.
+     *
+     * **Defaulted here rather than at the seam**, so what the validator checks
+     * and what gets stored are the same value. A default applied after
+     * validation is a value nothing ever validated.
+     *
+     * The application locale is what the middleware resolved for this request,
+     * which is the language the buyer was reading when they bought. Nothing
+     * about the recipient is knowable at this point, and a forwarded gift is
+     * enough to part them, so the buyer's language is a starting point the
+     * frontend is expected to let them change rather than a fact about who
+     * receives it.
+     */
+    private function fillInTheGiftLanguage(): void
+    {
+        $lines = $this->input('lines');
+
+        if (! is_array($lines)) {
+            return;
+        }
+
+        foreach ($lines as $index => $line) {
+            if (! is_array($line) || ! is_array($line['gift'] ?? null)) {
+                continue;
+            }
+
+            if (blank($line['gift']['locale'] ?? null)) {
+                $lines[$index]['gift']['locale'] = app()->getLocale();
+            }
+        }
+
+        $this->merge(['lines' => $lines]);
     }
 }

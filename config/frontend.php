@@ -67,6 +67,21 @@ return [
         // cancelled checkout lands, on the page it started from when the caller
         // said which one that was.
         'readings' => env('FRONTEND_READINGS_PATH', '/readings/'),
+
+        // Where somebody spends a gift code. One page for every reading rather
+        // than one per reading, and **the code arrives as a query parameter and
+        // never as a path segment**: the website is a static export, so a path
+        // per code would need every code pre-rendered at build time, which is
+        // not a thing codes can be. The frontend's third ADR, "redemption is a
+        // page of its own", decides it, and API_CONTRACT.md records it under
+        // Gifting.
+        //
+        // **The query string is in browser history and can leave in a
+        // `Referer`, and that is accepted for this credential and not for the
+        // other one.** A pay token may never reach an address bar. A gift code
+        // is built to, because the recipient has to be able to click a link and
+        // to type the same characters off the mail when the link fails them.
+        'redeem' => env('FRONTEND_REDEEM_PATH', '/redeem/'),
     ],
 
 ];

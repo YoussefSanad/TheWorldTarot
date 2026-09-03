@@ -28,6 +28,7 @@ it('returns the agreed shape for a published reading', function () {
                 'name' => 'One Card Reading',
                 'short_description' => 'A single card.',
                 'allows_question' => true,
+                'is_giftable' => false,
                 'price' => ['currency' => 'GBP', 'amount' => 1900],
             ],
         ]);
@@ -326,4 +327,34 @@ it('serves the pass by its own key once it is finished', function () {
         ->assertOk()
         ->assertJsonPath('type', 'pass')
         ->assertJsonPath('allows_question', false);
+});
+
+it('says whether a product may be bought for somebody else', function () {
+    Product::factory()->create(['key' => ProductKey::MonthAhead]);
+
+    // **Drawn from this field and never from a list the frontend holds**,
+    // `API_CONTRACT.md:114`. A hardcoded `GIFT A READING` toggle is a button
+    // that 422s on submit, which is the failure this field exists to prevent.
+    $this->getJson('/api/v1/en/products/month-ahead')
+        ->assertOk()
+        ->assertJsonPath('is_giftable', true);
+});
+
+it('says a one card reading may not be given away, though it takes a question', function () {
+    Product::factory()->create(['key' => ProductKey::OneCard]);
+
+    // The product that proves the two fields are independent. A frontend
+    // reading either one off the other draws the wrong control here.
+    $this->getJson('/api/v1/en/products/one-card')
+        ->assertOk()
+        ->assertJsonPath('allows_question', true)
+        ->assertJsonPath('is_giftable', false);
+});
+
+it('says the pass may not be given away', function () {
+    Product::factory()->pass()->create();
+
+    $this->getJson('/api/v1/en/products/viewing-room-pass')
+        ->assertOk()
+        ->assertJsonPath('is_giftable', false);
 });

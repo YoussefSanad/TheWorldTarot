@@ -43,9 +43,16 @@ class PaymentStatus
      * The order is paid, whatever road the money came down.
      *
      * **One path on the confirmation screen rather than two.** An order settled
-     * by hand in the panel has no payment at Stripe behind it, and a gift code
-     * redemption will not have one either, so an intent that does not exist is
-     * not something the frontend should have to render around.
+     * by hand in the panel has no payment at Stripe behind it, so an intent
+     * that does not exist is not something the frontend should have to render
+     * around.
+     *
+     * ~~And a gift code redemption will not have one either.~~ **Struck
+     * 2 September 2026.** A redemption never reaches the status endpoint at
+     * all: the order behind a redeemed code was settled months earlier, by a
+     * different person, and the confirmation the recipient sees is rendered
+     * from the redemption's own answer. See
+     * docs/adr/0004-a-reading-is-a-row-of-its-own.md.
      */
     public static function settled(): self
     {

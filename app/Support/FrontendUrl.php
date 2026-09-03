@@ -73,6 +73,27 @@ class FrontendUrl
     }
 
     /**
+     * Where a recipient spends the code they were given.
+     *
+     * **The printed form goes in the link**, `XXXX-XXXX-XXXX`, because the same
+     * characters are printed underneath it in the mail for somebody typing them
+     * in by hand, and two spellings of one credential in one message is a
+     * person wondering which of them is the real one. `/gifts/lookup` strips
+     * the separators before it looks anything up, so the hyphens cost nothing
+     * on the way back.
+     *
+     * **A query parameter and not a path segment.** The website is a static
+     * export, so a path per code would have to be pre-rendered at build time,
+     * which is not a thing codes can be. The frontend's third ADR, "redemption
+     * is a page of its own", carries the reasoning and what it accepts about
+     * browser history; `API_CONTRACT.md` carries our half of it, under Gifting.
+     */
+    public static function redeem(string $printedCode): string
+    {
+        return self::to(config('frontend.paths.redeem'), ['code' => $printedCode]);
+    }
+
+    /**
      * @param  array<string, string>  $query
      */
     private static function to(string $path, array $query = []): string

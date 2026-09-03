@@ -78,6 +78,9 @@
   a { color:#F1EEE5; }
   /* Stop iOS/Gmail auto-linking dates, addresses and numbers in brand blue. */
   .appleLinks a, .appleLinks a span { color:#F1EEE5 !important; text-decoration:none !important; }
+  /* The same, for a row that is gold rather than cream: a gift's recipient
+     address, which every client of consequence turns into a mailto link. */
+  .goldLinks a, .goldLinks a span { color:#E4C46A !important; text-decoration:none !important; }
 
   @media only screen and (max-width:600px) {
     /* A phone gets the panel edge to edge: the frame is a desktop idea, and a
@@ -268,7 +271,31 @@
 --}}
 <tr><td align="center" class="soft" style="padding:15px 6px 0 6px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:14px;line-height:19px;letter-spacing:0.03em;font-style:italic;color:#F1EEE5;">&ldquo;{{ $line->question }}&rdquo;</td></tr>
 @endif
-@if ($line->product_key->deliveryWindow())
+@if ($line->gift)
+{{--
+  **The address a present went to, in the slot the delivery promise stands in.**
+  B6, issue #72.
+
+  A gift is not on its way to the person reading this, so the promise that says
+  it is has no business on their receipt: the reading is written when the
+  recipient asks for it, which may be months away or never. The same defect the
+  pass had, one product along.
+
+  **It is prominent rather than a footnote, and that is the whole reason it is
+  on the receipt at all.** The buyer never receives the code, decided
+  2 September 2026, so there is nothing else in this message they can check.
+  A typed address is unrecoverable if it is wrong: nothing on our side can tell
+  that the mail landed nowhere, there is no expiry to reclaim it and there are
+  no refunds. So it is set in the gold the prices are set in rather than in the
+  soft cream the delivery line uses, at the size a person reads without looking
+  for it.
+
+  Escaped, like everything else in this directory. It is an address somebody
+  typed into a form.
+--}}
+<tr><td align="center" class="deliv gold" style="padding:15px 0 0 0;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:20px;letter-spacing:0.03em;color:#E4C46A;text-transform:uppercase;">Sent to</td></tr>
+<tr><td align="center" class="deliv gold goldLinks" style="padding:3px 6px 0 6px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:20px;letter-spacing:0.03em;color:#E4C46A;">{{ $line->gift->recipient_email }}</td></tr>
+@elseif ($line->product_key->deliveryWindow())
 {{--
   **Omitted rather than blanked when there is no window.** A Viewing Room pass
   is bought and open in the same moment, so a delivery promise on it is not a
