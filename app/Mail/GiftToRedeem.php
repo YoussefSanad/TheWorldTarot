@@ -41,6 +41,13 @@ use Illuminate\Mail\Mailables\Content;
  * anyway because the day the copy is translated is not the day anybody should
  * be working out which locale a gift belonged to.
  *
+ * ## A document rather than a text part, since issue #81
+ *
+ * It was text and nothing else until 3 September 2026, which made this the
+ * least branded message the application sent and the one going to the person
+ * with the least reason to trust it. It is drawn in the receipt's own frame
+ * now, `mail.html.frame`, and the text part still sends beside it.
+ *
  * ## From noreply@
  *
  * The same address the receipt leaves from, and for the same reason: nothing
@@ -64,6 +71,25 @@ class GiftToRedeem extends QueuedMail
         return "{$this->gift->signature} has sent you a reading";
     }
 
+    /**
+     * **Multipart since issue #81, and the text part is not a leftover.**
+     *
+     * This was a text part and nothing else until then, which made the least
+     * branded message this application sends the one going to the only person
+     * in it who has never bought anything. The designed body is the HTML one
+     * now, drawn in `mail.html.frame`, the same document the receipt is drawn
+     * in. The text one is what shipped before it, **unchanged**, and it stays
+     * for the two reasons `OrderPaid::content()` gives: a client that will not
+     * render markup still has to be able to read this, and a message offering
+     * no alternative part scores worse with the filters that decide whether
+     * any of it arrives at all.
+     *
+     * **The two views obey opposite escaping rules and that is enforced by
+     * path.** `mail.gift-to-redeem` is text and echoes raw. `mail.html.
+     * gift-to-redeem` is markup and escapes, and the signature, the buyer's
+     * note and the reading's name are all typed by a customer and all three
+     * reach it. `MailBodyTest` holds both.
+     */
     public function content(): Content
     {
         // Loaded rather than reached for, the same discipline the receipt beside
@@ -72,7 +98,7 @@ class GiftToRedeem extends QueuedMail
         // fully the sender had it loaded.
         $line = $this->gift->loadMissing('orderLine.product')->orderLine;
 
-        return new Content(text: 'mail.gift-to-redeem', with: [
+        return new Content(html: 'mail.html.gift-to-redeem', text: 'mail.gift-to-redeem', with: [
             'signature' => $this->gift->signature,
 
             // **`note` and not `message`, which is not a preference.** Laravel
@@ -97,6 +123,18 @@ class GiftToRedeem extends QueuedMail
             // code and neither form is treated as the secret half.
             'link' => FrontendUrl::redeem((string) $this->gift->printedCode()),
             'code' => $this->gift->printedCode(),
+
+            // The four the HTML part alone reads, and the text part is
+            // deliberately left exactly as it was.
+            //
+            // **The subtitle is the catalogue's second line and not a
+            // description of the gift**, the same one the receipt's card
+            // carries. Off the key rather than the product, because a reading
+            // withdrawn since it was bought still redeems and the row naming
+            // it may be gone.
+            'subtitle' => $line->product_key->emailSubtitle(),
+            'assets' => config('mail.assets.url'),
+            'site' => rtrim((string) config('frontend.url'), '/'),
         ]);
     }
 }

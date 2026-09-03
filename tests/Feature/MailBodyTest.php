@@ -1,15 +1,18 @@
 <?php
 
 use App\Enums\ProductKey;
+use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
 use App\Mail\ReadingOnItsWay;
 use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
+use App\Models\Gift;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\Product;
 use App\Models\Reading;
+use App\Support\Money;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
@@ -52,6 +55,40 @@ function textBodiesSent(): array
         fn ($sent): string => $sent->getOriginalMessage()->getTextBody(),
         app('mailer')->getSymfonyTransport()->messages()->all(),
     );
+}
+
+/**
+ * The same, for the part a person actually looks at.
+ *
+ * **A separate reader rather than a flag on the one above**, because the two
+ * parts of one message are two different documents and every assertion here is
+ * about one of them. `getHtmlBody()` answers null for a message that has no
+ * markup part, which is what a mailable that lost its `html:` looks like.
+ *
+ * @return array<int, ?string>
+ */
+function htmlBodiesSent(): array
+{
+    return array_map(
+        fn ($sent): ?string => $sent->getOriginalMessage()->getHtmlBody(),
+        app('mailer')->getSymfonyTransport()->messages()->all(),
+    );
+}
+
+/**
+ * The markup part of the one message that was sent.
+ *
+ * Sole rather than first: every test using this sends exactly one message, and
+ * a second arriving would make an index quietly pick the wrong document.
+ */
+function theHtmlSent(): string
+{
+    $bodies = htmlBodiesSent();
+
+    expect($bodies)->toHaveCount(1)
+        ->and($bodies[0])->not->toBeNull('The message was sent without a markup part');
+
+    return (string) $bodies[0];
 }
 
 /**
@@ -288,6 +325,182 @@ it('promises the querent a reading, counted from the day she asked', function ()
     // unrelated failure printed the body.
     expect($body)->toContain('You have asked for THE MONTH AHEAD.')
         ->and($body)->not->toContain('order_line_id');
+});
+
+/*
+| The present, as the person who was given it receives it. Issue #81.
+|
+| `GiftToRedeem` was a text part and nothing else until 3 September 2026, which
+| made the least branded message this application sends the one going to the
+| only person in the system who has never bought anything and may never have
+| heard of the brand, carrying a code and a link. Its own docblock says that
+| message is shaped exactly like phishing.
+|
+| The three tests below are the three halves of what changed: that the designed
+| part exists and is drawn in the receipt's frame, that a customer's own words
+| are escaped on the way into it, and that it withholds the three things the
+| recipient must not be told.
+*/
+
+/**
+ * A present with a signature, a note and a name that all carry markup.
+ *
+ * **`Mum <3` is not a contrived fixture.** It is a signature, which is what
+ * somebody signs a present with rather than what is on their card, and a heart
+ * typed the way people type it opens a tag. The note is the buyer's own prose
+ * and the longest free text in the message.
+ */
+function aGiftWithAwkwardWords(): Gift
+{
+    return aGiftOf(
+        ['code' => 'ABCD2345EFGH', 'signature' => 'Mum <3', 'message' => 'Thinking of you & the <move>.'],
+        ['key' => ProductKey::InDepth, 'name' => ['en' => 'THE IN-DEPTH READING']],
+    );
+}
+
+it('sends the present as a document and as text, and escapes only the document', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+
+    $gift = aGiftWithAwkwardWords();
+
+    Mail::to($gift->recipient_email)->send(new GiftToRedeem($gift));
+
+    $html = theHtmlSent();
+
+    // The signature, the note and the reading's name, all typed by somebody and
+    // all three in a document that has tags to close.
+    expect($html)->toContain('Mum &lt;3 has bought you a reading.')
+        ->and($html)->toContain('&ldquo;Thinking of you &amp; the &lt;move&gt;.&rdquo;')
+        ->and($html)->toContain('THE IN-DEPTH READING')
+        // The title carries it too, and a title is the one place an unescaped
+        // value looks harmless right up until it is not.
+        ->and($html)->toContain('<title>A reading from Mum &lt;3</title>')
+        ->and($html)->not->toContain('Mum <3');
+
+    // The credential, in both of its forms, spaced the way it is meant to be
+    // typed. The link is shown as its address rather than behind a phrase: a
+    // mail carrying a bearer code and saying "click here" is the shape this
+    // whole document exists not to be.
+    expect($html)->toContain('https://staging.theworldtarot.com/redeem/?code=ABCD-2345-EFGH')
+        ->and($html)->toContain('>ABCD-2345-EFGH<');
+
+    // **And the text part is untouched, which is the half that is easy to lose
+    // by adding the other one.** It escapes nothing, per #45, and it is what a
+    // client that will not render markup reads.
+    $text = bodyMentioning('A gift code does not expire');
+
+    expect($text)->toContain('Mum <3 has bought you a reading: THE IN-DEPTH READING.')
+        ->and($text)->toContain('Thinking of you & the <move>.')
+        ->and($text)->toContain('https://staging.theworldtarot.com/redeem/?code=ABCD-2345-EFGH')
+        ->and($text)->not->toContain('&lt;')
+        ->and($text)->not->toContain('&amp;');
+});
+
+/**
+ * The three things the recipient is the one person who must not be told.
+ *
+ * **A denial test, and the reason the issue is worth its own ticket.** The
+ * receipt this document now shares a frame with carries all three: a price in
+ * gold at 24px, the buyer, and a delivery promise. Drawing the gift in that
+ * frame is exactly the change that could bring them across, and none of the
+ * three fails visibly. A price on a present is a social injury nobody reports
+ * as a bug.
+ */
+it('tells the recipient nothing of the price, the buyer, or any clock', function () {
+    $gift = aGiftWithAwkwardWords();
+
+    $line = $gift->orderLine;
+    $order = $line->order;
+
+    Mail::to($gift->recipient_email)->send(new GiftToRedeem($gift));
+
+    $html = theHtmlSent();
+
+    // **What was paid**, in the two forms the receipt prints it: the line and
+    // the order total. Read off the row rather than written out, so a change to
+    // what the factory charges cannot quietly make this assert nothing.
+    expect(Money::toMajor($line->subtotal()))->not->toBeEmpty();
+
+    expect($html)->not->toContain(Money::toMajor($line->subtotal()))
+        ->and($html)->not->toContain(Money::toMajor($order->total_amount))
+        ->and($html)->not->toContain('Total')
+        // The receipt's price row, which is the thing that would have been
+        // carried across with the card it sits in.
+        ->and($html)->not->toContain('class="price"');
+
+    // **The buyer, who is not being introduced.** A present is not an
+    // introduction between two people, and the buyer typed this address rather
+    // than the other way round. Nothing of theirs but the signature.
+    expect($order->customer->email)->not->toBeEmpty();
+
+    expect($html)->not->toContain($order->customer->email)
+        ->and($html)->not->toContain((string) $order->customer->name)
+        // The receipt's own row naming where a present went, which belongs to
+        // the buyer's copy alone.
+        ->and($html)->not->toContain('Sent to');
+
+    // **A clock nobody has started.** Nothing has been asked for, so nothing is
+    // owed by any hour. That promise is `ReadingOnItsWay`'s, counted from the
+    // day the querent asks, per B8 (#74).
+    expect($line->product_key->deliveryWindow())->not->toBeNull();
+
+    expect($html)->not->toContain('Delivery within')
+        ->and($html)->not->toContain((string) $line->product_key->deliveryWindow())
+        ->and($html)->not->toContain('On Its Way');
+});
+
+/**
+ * One frame, and every designed message drawn in it.
+ *
+ * **The receipt is the message the most customers see and it is signed off**,
+ * so the risk in extracting its chrome is that the extraction quietly drops a
+ * piece of it. The parts below are the frame: the top and bottom bands, the
+ * four corner ornaments, the logo, the divider, the compass, the domain, the
+ * sentence saying nothing here can be replied to, and the two legal links.
+ *
+ * Asserted of both documents at once, because the whole point of the frame is
+ * that neither can have a different answer.
+ */
+it('draws every designed message in one frame', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+    config()->set('mail.assets.url', 'https://assets.theworldtarot.com/email');
+
+    // Keyed rather than left to `orderFrom`, whose product takes whichever
+    // reading the factory's cycle is on next and would sooner or later be the
+    // one the gift below pins.
+    $order = Order::factory()
+        ->for(Customer::factory()->create(['name' => "Miss Jodie O'Reilly", 'email' => 'jodie@example.com']))
+        ->forProduct(Product::factory()->create(['key' => ProductKey::MonthAhead]), 1)
+        ->create();
+
+    Mail::to('jodie@example.com')->send(new OrderPaid($order));
+    Mail::to('sam@example.com')->send(new GiftToRedeem(aGiftWithAwkwardWords()));
+
+    $bodies = htmlBodiesSent();
+
+    expect($bodies)->toHaveCount(2);
+
+    foreach ($bodies as $index => $body) {
+        expect($body)->not->toBeNull("Message {$index} was sent without a markup part");
+
+        foreach ([
+            'band-top.png', 'band-bottom.png',
+            'orn-tl.png', 'orn-tr.png', 'orn-bl.png', 'orn-br.png',
+            'logo.png', 'divider.png', 'compass.png',
+        ] as $asset) {
+            // Absolute, from `mail.assets.url`. An email client has no document
+            // base to resolve a relative path against.
+            expect($body)->toContain("https://assets.theworldtarot.com/email/{$asset}");
+            expect($body)->toContain('https://assets.theworldtarot.com/email/'.str_replace('.png', '@2x.png', $asset));
+        }
+
+        expect($body)->toContain('This is an automated message. Please do not reply.')
+            ->and($body)->toContain('>staging.theworldtarot.com</a>')
+            ->and($body)->toContain('https://staging.theworldtarot.com/privacy-policy')
+            ->and($body)->toContain('https://staging.theworldtarot.com/terms-of-service')
+            // The heading slot, filled by both and by neither the same way.
+            ->and($body)->toMatch('/class="gold head"/');
+    }
 });
 
 /**
@@ -556,9 +769,11 @@ it('gives every message a text part, and takes markup only from the checked dire
  * view outside this directory is the one way left to escape #45, so it fails
  * here rather than passing quietly.
  *
- * **Residual, stated rather than left implied**: a view that `@include`s one
- * from outside `mail/` is still unchecked. Nothing does today, and the fix if
- * anything ever does is to move the partial in.
+ * **Residual, stated rather than left implied**: a view that `@include`s or
+ * `@extends` one from outside `mail/` is still unchecked. Nothing does today —
+ * `mail.html.frame`, which both designed messages extend since #81, is inside
+ * it and so is scanned like any other — and the fix if anything ever does is
+ * to move the partial in.
  */
 it('keeps every message its own view inside the directory that is checked', function () {
     foreach (glob(app_path('Mail/*.php')) as $file) {
