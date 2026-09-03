@@ -148,3 +148,50 @@ it('scopes to published products of a type', function () {
         ->and($keys)->not->toContain(ProductKey::ThreeCard)
         ->and($keys)->not->toContain(ProductKey::ViewingRoomPass);
 });
+
+/*
+| The factory answers for the key it was asked for, not the one it was on.
+|
+| `ProductFactory` rotates a static counter through the four readings so a test
+| can make several products without naming each one. Three fields are derived
+| from a key, and each of them read the rotation's key rather than the override
+| until it was corrected: `is_giftable` first, then `name` and `sort_order` with
+| B8 (#74).
+|
+| **The rotation is process-wide and is never reset**, which is what makes this
+| worth a test of its own. Which key a product is derived from depends on how
+| many were made before it anywhere in the run, so the defect surfaces as an
+| unrelated test failing in a later file when somebody adds one that creates a
+| product. That is exactly how `name` was found, and it cost a debugging session
+| that started in the wrong file.
+|
+| **A full rotation is made, and `make` rather than `create`.** Asserting one
+| product would only catch the defect when the counter happened to sit on
+| another key, which would make this test as order-dependent as the bug it
+| guards: the first draft of it was, and passed by luck. Four covers every
+| starting offset, since under the defect four consecutive draws are four
+| different keys and cannot all agree with the one asked for. `products.key` is
+| unique, so four of one key have to be made rather than created.
+*/
+
+it('derives every field from the key it was given, whatever the rotation was on', function () {
+    // The one product that proves the three fields are independent: it takes a
+    // question, it cannot be gifted, and it sorts first.
+    foreach (range(1, count(ProductKey::readings())) as $ignored) {
+        $product = Product::factory()->make(['key' => ProductKey::OneCard]);
+
+        expect($product->name)->toBe(ProductKey::OneCard->defaultName())
+            ->and($product->is_giftable)->toBeFalse()
+            ->and($product->sort_order)->toBe(ProductKey::OneCard->defaultSortOrder());
+    }
+
+    // And the states, which name their own key rather than being handed one.
+    // The pass sorting at a reading's position is what put `sort_order` by hand
+    // into two tests that were never about the factory.
+    foreach (range(1, count(ProductKey::readings())) as $ignored) {
+        $pass = Product::factory()->pass()->make();
+
+        expect($pass->sort_order)->toBe(ProductKey::ViewingRoomPass->defaultSortOrder())
+            ->and($pass->is_giftable)->toBeFalse();
+    }
+});

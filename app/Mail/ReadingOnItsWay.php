@@ -103,9 +103,19 @@ class ReadingOnItsWay extends QueuedMail
             // loudly: the message still sends and still reads as prose.
             //
             // The catalogue's name, in this gift's language, because the
-            // enclosing `withLocale` is open while this runs. `product_key` is
-            // the fallback for a reading withdrawn since it was bought: a code
-            // for one still redeems, so this message still has to name it.
+            // enclosing `withLocale` is open while this runs.
+            //
+            // **The fallback is defensive and not reachable**, which is worth
+            // saying because the obvious reason to write it is wrong. A reading
+            // withdrawn since it was bought still resolves here: products soft
+            // delete precisely so an order can go on naming them and
+            // `OrderLine::product()` carries `withTrashed()` for it, while
+            // `order_lines.product_id` is NOT NULL behind `restrictOnDelete`.
+            // An untranslated locale does not reach it either, since
+            // `spatie/laravel-translatable` answers the fallback locale. It is
+            // kept for the reason `Reading::dueAt()` keeps its own null branch:
+            // a message that cannot name what was asked for is worse than one
+            // naming it with a key.
             'readingName' => $line->product?->name ?? $line->product_key->value,
 
             // Hers, and never `order_lines.question`, which is null on a gift

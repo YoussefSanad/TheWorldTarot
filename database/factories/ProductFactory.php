@@ -78,7 +78,15 @@ class ProductFactory extends Factory
             'price_eur' => 2300,
             'price_gbp' => 1900,
             'is_published' => true,
-            'sort_order' => $key->defaultSortOrder(),
+
+            // **The third of the three, and the last one still reading `$key`.**
+            // Same defect as the two above: a product asked for by key came out
+            // with another reading's position, and `->pass()` came out at a
+            // reading's 1 to 4 rather than at 5. Two tests already pass
+            // `sort_order` by hand where it would have bitten, which is what
+            // kept it quiet. Corrected 3 September 2026, with the `name` fix
+            // that found it.
+            'sort_order' => fn (array $attributes): int => self::keyOf($attributes)->defaultSortOrder(),
         ];
     }
 
