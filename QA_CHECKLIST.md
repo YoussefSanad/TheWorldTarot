@@ -396,7 +396,7 @@ Run this section from a browser on the real frontend origin as well as from `cur
 | The customer's record | Viewing room access is stamped, if the order held the pass |
 | Mark as paid a second time by any route | Access is granted **once**, the first date is kept, and no second email goes out |
 | An order holding only the pass | **Already fulfilled**, with no work left on her list. It delivered itself the moment it was paid |
-| An order holding a reading | **Awaiting fulfillment**, and **Mark as fulfilled** appears |
+| An order holding a reading | ~~**Awaiting fulfillment**, and **Mark as fulfilled** appears~~ **Changed 3 September 2026, with gifting.** **Awaiting fulfillment**, and **nothing on this screen marks it off.** She delivers a reading and not an order, so the row to act on is on **Readings**, section 12b, and the order finishes itself once everything it owes has gone |
 | The wording throughout | Hers: "Awaiting payment", "Paid", "Fulfilled". Never "settled", "pending" or "access grant" |
 
 ### The mail that being paid sends
@@ -440,6 +440,105 @@ Do this in one sitting, in this order, and record where it breaks:
 
 ---
 
+## 12a. Giving a reading to somebody else
+
+Built 3 September 2026, B1 to B10. **Nothing here can be signed off from the panel alone.** The buyer never receives the code, so the recipient's address is the one address in the whole system nothing can check, and the only way to know a gift mail arrived is to open the inbox it was sent to. Use two real addresses you can read.
+
+`API_CONTRACT.md` section 2 for the four fields, and `docs/adr/0004` to `0006` for why a gift is a line bought for somebody else rather than a second order.
+
+### Buying the present
+
+| Check | Expected |
+|---|---|
+| `POST $API/api/v1/orders` with a `gift` on **The Month Ahead** | **201**. The gift comes back on the line it was bought on, holding the address, the signature, the message and the language |
+| The same call with a `gift` on **One Card** | **422** on `lines.0.gift`, "This one cannot be given as a gift". **No order is created**, because taking the money and dropping the present charges somebody for something that was never sent |
+| A gift with no `recipient_email`, and a `"gift": {}` with nothing in it at all | **422** naming `recipient_email` and `signature`. An empty object names nobody |
+| A gift in a language the site does not serve | **422** on `lines.0.gift.locale`. The recipient's mail is written in it |
+| A gift and a self purchase in one basket | **201**. Both lines stand, and only one of them is a present |
+| The response, anywhere in it | **No code.** It does not exist yet, and it never appears here even once it does |
+| Your inbox | **Nothing at all.** Placing an order still sends no mail |
+| The **Gifts** screen in the panel | **Nothing yet.** A present with no code is a checkout that may still be abandoned, and it owes nobody anything |
+
+### Settling it, and the code going out
+
+| Check | Expected |
+|---|---|
+| **Mark as paid** on that order | The buyer gets their receipt, and the recipient gets the code |
+| **The recipient's inbox.** Open it and read it | One message from `noreply@theworldtarot.com`, subject **"Mum has sent you a reading"**, naming the reading, carrying the buyer's words, the code and a link |
+| The code in the body against the code in the link | **The same credential, printed twice.** They cannot disagree |
+| **The buyer's receipt** | Names the address each present went to. It does **not** say a reading is being written for them, because nobody has asked one yet |
+| Jennifer's inbox | **Nothing for the gifted line.** She is told when the present is redeemed, not when it is bought |
+| The **Gifts** screen | The row is there now, **Outstanding for** counting from when it was bought |
+| Mark as paid a second time by any route | **One code, one mail.** A minted gift is never minted again |
+
+### Looking a code up, which spends nothing
+
+| Check | Expected |
+|---|---|
+| `POST $API/api/v1/en/gifts/lookup` with the code as printed | **200**, naming the reading and carrying its copy, `redeemed` false |
+| The same code typed badly: lower case, spaces, `l` for `1`, `O` for `0` | **The same 200.** It is one code |
+| A code nobody was ever given | **404**, with nothing to say whether it was mistyped or invented |
+| Eleven of those in a minute | **429**. This is the endpoint somebody would guess against |
+| Look the code up for a reading Jennifer has since unpublished | **Still 200.** The person paid, and refusing to name it would be refusing to hand it over |
+
+### Redeeming it
+
+| Check | Expected |
+|---|---|
+| `POST $API/api/v1/en/gifts/redeem` with the code, a question, and an address **different from the one it was sent to** | **200**. A forwarded present belongs to whoever is holding it |
+| Redeem with no question | **422**. Asking is what redemption is for |
+| **The querent's inbox** | One message from `noreply@theworldtarot.com`, "Your reading is on its way", stating the window and the moment it runs from |
+| The same code a second time | **409** on `code`, and **not a 404**. "Already used" and "you mistyped it" are different things to be told |
+| Submit twice from two tabs at once | **One reading.** The loser is refused rather than served |
+| Jennifer's inbox, `orders@theworldtarot.com` | One notification, now. **Open the mailbox and read it there**, per the row in section 12: sending from an address is not receiving at one |
+| The **Gifts** screen | The row says **Redeemed**, and **Resend** has gone from it |
+| The **Readings** screen | A new row, badged **Gift**, carrying the address the querent typed |
+
+### The Gifts screen
+
+Navigation is **Gifts**, below Readings and Orders.
+
+| Check | Expected |
+|---|---|
+| The badge beside it | Counts presents still outstanding, and it is **grey**. An unredeemed gift is not work, whatever its age |
+| The list on opening | **Still outstanding only.** Everything ever gifted is behind the filter |
+| The order rows come in | **Longest outstanding at the top.** The oldest unclaimed present is the row worth looking at |
+| Search by code, printed or spaced or in lower case | Finds the row every time |
+| Search for something that normalises to nothing | **Finds nothing**, rather than everything |
+| Look for Create, Delete, or any way to edit a row | **None of it exists.** Everything on a gift was typed by the buyer at checkout |
+| **Resend** on an outstanding row | Confirms first, naming the address, then says it has gone. **The same message, to the same address, carrying the same code** |
+| The recipient's inbox after that | The message again. **Nothing here can tell you whether it arrived**, which is why this button exists |
+| Look for a way to send it to a different address | **There is none.** Retyping the address is revoke and reissue, and it would hand somebody a second live credential |
+| **Resend** on a redeemed row | **The button is not there.** It would promise a present and then refuse it |
+| A gift for a reading Jennifer has since retired | Still named on the row. A code for a withdrawn product still redeems |
+
+### The mail gifting adds, and who is on the end of it
+
+| Message | Who receives it, and when |
+|---|---|
+| The gift code, from `noreply@theworldtarot.com` | **The recipient**, when the money settles, at the address the buyer typed. **Never the buyer** |
+| "Your reading is on its way", from `noreply@theworldtarot.com` | **The querent**, at redemption, at the address they typed themselves. It is the durable record that a clock started, since they have no account and no order to look at |
+| The buyer's receipt | **The buyer**, when the money settles, naming the address each present went to. It is the only confirmation they get |
+| The fulfillment notification, to `orders@theworldtarot.com` | **Jennifer, at redemption and not at settlement.** A present nobody has opened is not work |
+
+## 12b. The Readings screen, where a reading is written
+
+Navigation is **Readings**. It is not **Readings and passes**, which is the catalogue in section 3. This screen is the list of people waiting.
+
+| Check | Expected |
+|---|---|
+| The badge beside it | Counts readings still to write, in **orange**. These are work, and gifts are not |
+| The order rows come in | **Oldest ask first.** What has been waiting longest is at the top |
+| **Due** column | Relative, "in 6 hours" rather than a timestamp, and the colour says how close it is |
+| A reading somebody was given | Badged **Gift** under **From**. One they bought themselves says **Bought** |
+| **Querent** on a gift row | The address typed at redemption, which need not be the one the present was sent to, and there is no customer account behind it |
+| **What they asked** | The first line. The whole question is on the row's own page |
+| **Mark delivered** | Confirms, then the row drops off the list |
+| The same action afterwards | **Gone.** A reading is delivered once |
+| The order behind it, on **Orders** | **Fulfilled**, once every reading it owed has gone. Nothing on that screen marks it off by hand any more |
+| An order holding two readings, one delivered | **Still awaiting fulfillment.** It finishes when the last one goes |
+| Look for Create and Delete | **Neither exists.** A reading is the record that somebody is waiting |
+
 ## 13. Things that are not bugs
 
 - `CF-IPCountry` does nothing until Cloudflare fronts the domain. Everything falls back to USD
@@ -466,6 +565,8 @@ Do this in one sitting, in this order, and record where it breaks:
 
 ## 14. Not built yet
 
-Card payment and the checkout redirect, receipts, VAT, refunds, gift codes, reading an order back over the API, FAQ and legal content, the newsletter, and AI fulfillment.
+Card payment and the checkout redirect, receipts, VAT, refunds, ~~gift codes,~~ reading an order back over the API, FAQ and legal content, the newsletter, and AI fulfillment.
+
+**~~gift codes~~ struck 3 September 2026.** Gifting was built as B1 to B10 and is checked in section 12a. A present is bought on a line at checkout, its code is minted when the money settles, and it is looked up and redeemed at `/{locale}/gifts/lookup` and `/{locale}/gifts/redeem`. `API_CONTRACT.md` and `docs/CHECKPOINT.md` were struck and dated the same way when the track landed, and this list said there was nothing to check for a day after there was.
 
 **The 24 hour rush is not on this list and is not coming.** It was dropped from the design by the client on 25 August 2026, confirmed 1 September, so it is cancelled rather than pending. `ProductKey::Rush24h` still exists in the enum and is still deliberately unseeded, which several tests assert as their example of a key nobody seeded — that is the only reason it is still there, and nothing should be QA'd against it.
