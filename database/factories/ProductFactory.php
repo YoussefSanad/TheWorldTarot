@@ -58,7 +58,20 @@ class ProductFactory extends Factory
             // which is the only place the real key is known.
             'is_giftable' => fn (array $attributes): bool => self::keyOf($attributes)->isGiftable(),
 
-            'name' => ['en' => $key->defaultName()],
+            // **Off the final key too, and for the reason `is_giftable` above
+            // gives.** ~~`['en' => $key->defaultName()]`~~ read the rotation's
+            // key rather than the overridden one, so a product asked for by key
+            // came out wearing another reading's name: `three-card` was named
+            // THE MONTH AHEAD whenever the rotation happened to sit there.
+            //
+            // **It was invisible until a test created one more product.** The
+            // rotation is static and process-wide, so which name a product gets
+            // depends on how many were made before it anywhere in the run. B8
+            // (#74) added a test that makes one, every product after it shifted
+            // by one, and `SettleAGiftOrderTest`'s assertion that Jennifer is
+            // not shown the gifted line started failing on a name it never
+            // meant to match. Corrected 3 September 2026.
+            'name' => fn (array $attributes): array => ['en' => self::keyOf($attributes)->defaultName()],
             'short_description' => ['en' => fake()->sentence()],
             'long_description' => ['en' => fake()->paragraph()],
             'price_usd' => 2500,

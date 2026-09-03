@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Mail\ReadingOnItsWay;
 use App\Mail\ReadingToWrite;
 use App\Models\Gift;
 use App\Models\OrderLine;
@@ -96,13 +97,31 @@ class AskForReading
         // support collection here is a fatal error in the mail rather than at
         // the call, which is why the mailable's own hint was corrected with
         // this unit.
-        return $this->ask(
+        $reading = $this->ask(
             new Collection([$gift->orderLine]),
             $gift,
             $question,
             $querentEmail,
             $querentName,
         )->sole();
+
+        // **Redemption's road sends a second message, and settlement's does
+        // not.** B8 (#74). The querent of a gift has no account, no order and
+        // no lookup, so the delivery promise the confirmation makes dies with
+        // her tab, and `ReadingOnItsWay` is the durable record that a clock
+        // started. A buyer already has the receipt and reaches this action
+        // through `__invoke`, which is why the branch is a road rather than an
+        // `if` inside the writer both roads share.
+        //
+        // Queued after the commit like the one `ask()` arranges, and for the
+        // same reason: this runs inside `RedeemGift`'s transaction, and a
+        // message sent from inside one that then rolls back promises a reading
+        // to somebody whose gift is still unspent.
+        DB::afterCommit(function () use ($reading): void {
+            Mail::to($reading->querent_email)->send(new ReadingOnItsWay($reading));
+        });
+
+        return $reading;
     }
 
     /**

@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\ProductKey;
 use App\Mail\OrderPaid;
+use App\Mail\ReadingOnItsWay;
 use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
@@ -228,6 +230,64 @@ it('gives Jennifer the buyer name exactly as the buyer typed it', function () {
     expect(bodyMentioning('has been paid'))
         ->toContain("From: Miss Jodie O'Reilly <jodie@example.com>")
         ->toContain("What of Jodie's move & the <plan>?");
+});
+
+/*
+| The querent's own mail, and the one promise this system is allowed to make.
+|
+| B8, issue #74. She has no account, no order and no lookup, so the confirmation
+| the redemption page renders dies with her tab and this message is the only
+| durable record that a clock started. `ReadingOnItsWay` carries the argument.
+|
+| **The body is where the promise is observable at all.** That it was queued is
+| `RedeemAGiftTest`'s question; whether it actually says when the reading is due
+| can only be read off the text, which is what this file exists to read.
+*/
+
+it('promises the querent a reading, counted from the day she asked', function () {
+    // Bought in June and asked for in September, which is the parting a gift
+    // makes and the whole reason `asked_at` exists. The frontend's `CONTEXT.md`
+    // says it under **Ask**: "within 24 hours" of a gift bought three months
+    // earlier is a promise about nothing.
+    $this->travelTo('2026-06-01 09:00:00');
+    $gift = aGiftOf([], ['key' => ProductKey::MonthAhead, 'name' => ['en' => 'THE MONTH AHEAD']]);
+
+    $this->travelTo('2026-09-04 10:03:00');
+    $reading = Reading::factory()->create([
+        'order_line_id' => $gift->order_line_id,
+        'gift_id' => $gift->id,
+        'question' => "What of Jodie's move & the <plan>?",
+        'querent_name' => 'Sam',
+        'asked_at' => now(),
+    ]);
+
+    Mail::to($reading->querent_email)->send(new ReadingOnItsWay($reading));
+
+    $body = bodyMentioning('will be with you');
+
+    // **The moment, written out rather than computed the way the code does.**
+    // A `$reading->dueAt()->format(...)` here would pass by construction and
+    // could never disagree with a wrong sum. THE MONTH AHEAD promises 24 hours,
+    // so an asking at 10:03 on 4 September is due at 10:03 on the 5th.
+    expect($body)->toContain('It will be with you within 24 hours, by 5 September 2026 at 10:03 UTC.')
+        // Not the purchase, three months earlier, which is the promise about
+        // nothing that this whole unit exists to avoid making.
+        ->and($body)->not->toContain('2 June 2026');
+
+    // What she asked for, in her own words, unescaped like everything else in
+    // this directory.
+    expect($body)->toContain('Hello Sam,')
+        ->and($body)->toContain("What of Jodie's move & the <plan>?")
+        ->and($body)->not->toContain('&#039;');
+
+    // **The reading is named, and this assertion is here because it was not.**
+    // A mailable's public properties are merged over its `with:` array, so the
+    // `$reading` model won the view's `reading` key and the body read "You have
+    // asked for {"id":3,"order_line_id":5,...}". It sent, it rendered, and every
+    // other assertion in this test passed over it. Found only because an
+    // unrelated failure printed the body.
+    expect($body)->toContain('You have asked for THE MONTH AHEAD.')
+        ->and($body)->not->toContain('order_line_id');
 });
 
 /**

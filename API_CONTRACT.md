@@ -586,7 +586,7 @@ Two things worth having in writing, because the frontend can neither see them no
 - **A code already spent is a 409**, and the body names the field: `{ "message": "...", "errors": { "code": ["..."] } }`. It is not a 404, because the difference between "you mistyped it" and "this has already been used" is exactly what the real recipient needs to be told
 - **An unknown code is a 404**, as on lookup
 - **A code for a withdrawn product still redeems here too**, for the same reason
-- **The querent is sent a mail of her own**, which is what makes the delivery promise durable after the tab is closed
+- **The querent is sent a mail of her own**, which is what makes the delivery promise durable after the tab is closed. **Live since 3 September 2026**, B8. It states the window and the moment it runs to, counted from `asked_at`, so this response stays the one that reports rather than promises
 - `Cache-Control: no-store`
 - Rate limited per address
 

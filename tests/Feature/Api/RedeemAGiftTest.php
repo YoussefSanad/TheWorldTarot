@@ -2,6 +2,7 @@
 
 use App\Actions\AskForReading;
 use App\Actions\RedeemGift;
+use App\Mail\ReadingOnItsWay;
 use App\Mail\ReadingToWrite;
 use App\Models\Gift;
 use App\Models\Reading;
@@ -122,9 +123,33 @@ it('tells Jennifer a reading is waiting', function () {
     // since it happened on its own day.
     Mail::assertQueued(ReadingToWrite::class, 1);
 
-    // **The querent gets nothing yet.** Her own mail is B8 (#74), and until it
-    // lands the delivery promise is made on a screen she can close.
+    // ~~**The querent gets nothing yet.** Her own mail is B8 (#74), and until
+    // it lands the delivery promise is made on a screen she can close.~~ B8
+    // landed, and she gets one. What survives that correction is the half this
+    // test is about: hers is a second message and not this one, so the count
+    // above stays 1.
+    Mail::assertQueued(ReadingOnItsWay::class, 1);
+
+    // Neither of them leaves inside the request. Both wait for the commit, for
+    // the reason `AskForReading` gives: a message sent inside a transaction
+    // that then rolls back has still been sent.
     Mail::assertNothingSent();
+});
+
+it('tells the querent her reading is on its way', function () {
+    aGiftOf(['code' => SPENDABLE, 'recipient_email' => 'whoever-was-sent-it@example.com']);
+
+    redeeming(['querent_email' => 'sam@example.com'])->assertOk();
+
+    // **To the querent and never to the recipient.** A forwarded gift is enough
+    // to part those two people, and this is the message that carries the
+    // delivery promise: sending it to the address the buyer typed would promise
+    // a reading to somebody who is not getting one.
+    Mail::assertQueued(
+        ReadingOnItsWay::class,
+        fn (ReadingOnItsWay $mail): bool => $mail->hasTo('sam@example.com')
+            && ! $mail->hasTo('whoever-was-sent-it@example.com'),
+    );
 });
 
 it('takes an optional name, exactly as a buyer\'s is', function () {
