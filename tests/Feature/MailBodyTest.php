@@ -410,11 +410,12 @@ it('sends the present as a document and as text, and escapes only the document',
  * and a document withholding it would leave the reader unable to see what they
  * have been given.
  *
- * **And the way in is a button**, with the address still printed under it. Both
- * halves are asserted because the second is the one that looks redundant: a
- * mail carrying a bearer credential and saying only "click here" is the shape
- * this whole document exists not to be, and the reader who will not press an
- * unfamiliar control is exactly the reader this message is for.
+ * **And the way in is a button, and only a button.** ~~With the address still
+ * printed under it.~~ The printed URL came out: it was the button's own `href`
+ * set a second time, one line below it, wrapping across a phone. What the
+ * reader who will not press an unfamiliar control still has is the **code**,
+ * which is asserted with it — that is the second form of the credential, and
+ * the one that half was ever about.
  */
 it('says a gift rather than a reading, and opens it with a button', function () {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');
@@ -447,10 +448,13 @@ it('says a gift rather than a reading, and opens it with a button', function () 
         ->and($html)->toContain('bgcolor="#E4C46A"')
         ->and($html)->toContain('.btn a { color:#101B2E !important; }');
 
-    // **And the address is still printed**, under the button rather than
-    // instead of it. The reader who wants to look at a host before trusting it
-    // is the reader this message is written for.
-    expect($html)->toContain('>'.$link.'</a>');
+    // **And the address is drawn nowhere but that button.** It is a bearer
+    // credential the length of a phone screen, and printing it under the
+    // control that already carries it set the same string twice. The reader who
+    // will not press it is served by the code, which this document still
+    // prints for them to type into a page they navigated to themselves.
+    expect($html)->not->toContain('>'.$link.'</a>')
+        ->and($html)->toContain('>ABCD-2345-EFGH</td>');
 
     // The text part has no controls and prints the address, as it always has.
     $text = bodyMentioning('A gift code does not expire');

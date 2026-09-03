@@ -143,17 +143,25 @@
               <tr><td align="center" class="white body" style="padding:30px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">Open it here, and you can ask your own question:</td></tr>
 
               {{--
-                **The button, from 3 September 2026, and the address under it
-                rather than instead of it.**
+                **The button, from 3 September 2026, and from later that day the
+                only rendering of the link this document draws.**
 
-                ~~The address is shown rather than hidden behind a phrase.~~ A
-                mail that says "click here" and carries a bearer credential is
-                the shape this whole document exists to not be, and that
-                argument did not move — what moved is the assumption that a
-                shown address and a button are alternatives. The button is what
-                a reader who trusts the sender presses; the address below it is
-                what a reader who does not can read before deciding, and it is
-                the same string either way. Losing it was never the ask.
+                ~~The address is shown rather than hidden behind a phrase.~~
+                ~~The button, and the address under it rather than instead of
+                it.~~ **Struck: the printed address came out.** It was the same
+                string as the button's `href` set twice, one line apart, and a
+                redemption URL is longer than a phone is wide — so what it
+                bought a cautious reader cost every reader a wrapped, broken
+                line of machine text under the one control this document has.
+
+                **The credential is still printed in two forms**, which is the
+                part that was load-bearing and did not move: the code below is
+                what a reader who will not press an unfamiliar control types
+                into a page they navigated to themselves. That reader was never
+                served by a URL they would have had to retype either.
+
+                **The text part still prints the address**, because it has no
+                button to carry it.
 
                 **Gold on black inverted**, which makes this the one control in
                 the document that is dark on light. That is why `.btn` exists in
@@ -182,19 +190,6 @@
               </table>
               <!--<![endif]-->
               </td></tr>
-
-              {{--
-                The address the button goes to, printed. Cream and small rather
-                than gold and underlined, because it is evidence now rather than
-                the way in — two gold controls one above the other would be the
-                document asking twice. `appleLinks` stops the clients that
-                recolour a link from painting it in brand blue, the same job
-                `goldLinks` does for the recipient address on the receipt.
-
-                `break-all` because a redemption URL is longer than a phone is
-                wide and a client that will not break it scrolls the panel.
-              --}}
-              <tr><td align="center" class="soft appleLinks" style="padding:14px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:14px;line-height:19px;letter-spacing:0.03em;color:#F1EEE5;word-break:break-all;"><a href="{{ $link }}" style="color:#F1EEE5;text-decoration:none;">{{ $link }}</a></td></tr>
 
               <tr><td align="center" class="white body" style="padding:22px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">Or go to that page and type this in:</td></tr>
 
