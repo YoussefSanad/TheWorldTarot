@@ -124,7 +124,7 @@ class GiftToRedeem extends QueuedMail
             'link' => FrontendUrl::redeem((string) $this->gift->printedCode()),
             'code' => $this->gift->printedCode(),
 
-            // The four the HTML part alone reads, and the text part is
+            // The three the HTML part alone reads, and the text part is
             // deliberately left exactly as it was.
             //
             // **The subtitle is the catalogue's second line and not a

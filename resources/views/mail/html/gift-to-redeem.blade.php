@@ -30,8 +30,8 @@
   **No delivery promise.** Nobody has asked anything yet, so nothing is owed on
   any clock. `deliveryWindow()` is deliberately not read here. That promise is
   `ReadingOnItsWay`'s alone, counted from the day the querent asks, per B8
-  (#74) — and a gift bought in June and spent in September is the whole reason
-  it is counted from there.
+  (#74). A gift bought in June and spent in September is the whole reason it
+  is counted from there.
 
   **This directory is markup and escapes.** The signature, the buyer's note and
   the reading's name are all typed by a customer and all three are in here.

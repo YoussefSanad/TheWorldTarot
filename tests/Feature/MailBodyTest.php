@@ -770,10 +770,10 @@ it('gives every message a text part, and takes markup only from the checked dire
  * here rather than passing quietly.
  *
  * **Residual, stated rather than left implied**: a view that `@include`s or
- * `@extends` one from outside `mail/` is still unchecked. Nothing does today —
+ * `@extends` one from outside `mail/` is still unchecked. Nothing does today.
  * `mail.html.frame`, which both designed messages extend since #81, is inside
- * it and so is scanned like any other — and the fix if anything ever does is
- * to move the partial in.
+ * it and so is scanned like any other. The fix if anything ever does is to
+ * move the partial in.
  */
 it('keeps every message its own view inside the directory that is checked', function () {
     foreach (glob(app_path('Mail/*.php')) as $file) {
