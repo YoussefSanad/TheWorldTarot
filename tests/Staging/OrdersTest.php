@@ -183,7 +183,26 @@ it('refuses an order with no lines at all', function (): void {
     expect($response->getStatusCode())->toBe(422);
 });
 
-it('needs an email from somebody who is not signed in', function (): void {
+/**
+ * ~~`it needs an email from somebody who is not signed in`~~ **Struck
+ * 3 September 2026.** It asserted a 422 keyed to `email`, and that requirement
+ * was removed on 29 August 2026: `API_CONTRACT.md` says `name` and `email` are
+ * optional for a guest, and `docs/adr/0002-the-redirect-case-comes-back.md`
+ * says why. Checkout happens on Stripe's hosted page, which collects the
+ * address *after* the order exists, so requiring one here asks twice for the
+ * same address. Identity is filled at settlement from the Checkout Session.
+ *
+ * **It failed for five days without anybody seeing it**, because this suite was
+ * last run on 26 August and the requirement was relaxed on the 29th. That is
+ * the lesson `tests/Staging/README.md` already records twice, arriving a third
+ * time: a test nobody executes asserts whatever was true when it was written.
+ *
+ * The behaviour it used to guard is pinned in the feature suite, by
+ * `it takes an order from somebody who has given no name and no email` in
+ * `tests/Feature/Api/PlaceOrderTest.php`. What is left for out here is that a
+ * deployed environment agrees, which is what the test below asks.
+ */
+it('takes an order from somebody who has given no email', function (): void {
     $response = Target::client()->post('api/v1/orders', [
         'json' => [
             'name' => 'Order Walk',
@@ -194,6 +213,22 @@ it('needs an email from somebody who is not signed in', function (): void {
 
     Target::assertNotThrottled($response, 'orders');
 
-    expect($response->getStatusCode())->toBe(422)
-        ->and(Target::json($response)['errors'])->toHaveKey('email');
+    if ($response->getStatusCode() === 422) {
+        $errors = Target::json($response)['errors'] ?? [];
+
+        Assert::fail(
+            'A guest with no email was refused, and since 29 August 2026 they should not be. '
+            .'The order is placed first and the address is collected on Stripe\'s page afterwards. '
+            .'What the environment said: '.json_encode($errors)
+        );
+    }
+
+    $order = Target::json($response);
+
+    // **Pending and holding nobody**, which is the state ADR 0002 describes.
+    // An order abandoned here stays this way forever and that is safe, because
+    // placing one sends no mail, so there is nothing addressed to nobody.
+    expect($response->getStatusCode())->toBe(201)
+        ->and($order['status'])->toBe('pending')
+        ->and($order['pay_token'])->toBeString();
 });
