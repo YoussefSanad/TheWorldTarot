@@ -26,6 +26,20 @@ STAGING_STRIPE_PUBLISHABLE=pk_test_... \
 composer test:staging
 ```
 
+The gift walk is off for the same reason and one more: **it stops and waits for
+you.** Set `STAGING_EMAIL` to an address you can read, because the code is
+mailed to the recipient and never to the buyer, and reading it out of that inbox
+is the only way this walk can continue.
+
+```bash
+STAGING_URL=https://staging-api.theworldtarot.com \
+STAGING_ORIGIN=https://staging.theworldtarot.com \
+STAGING_EMAIL=you@example.com \
+STAGING_GIFT=1 \
+STAGING_STRIPE_PUBLISHABLE=pk_test_... \
+composer test:staging
+```
+
 Without `STAGING_URL` every test skips itself with the reason attached, so a run that says "skipped" is telling you it was never configured rather than that it passed.
 
 ## Settings
@@ -41,6 +55,10 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 | `STAGING_WALLET=1` | Runs the **wallet walk**, `tests/Staging/WalletPaymentWalkTest.php`, which confirms a real test-mode PaymentIntent minted by `stripe_wallet`. Needs the same key. **It proves nothing about identity**: no headless client opens a wallet sheet, so the order it places is signed in and settlement never has to ask who paid. Whether a real wallet fills `latest_charge.billing_details.email` is issue #44, and it needs a device |
 | `STAGING_STRIPE_PUBLISHABLE` | The **test mode** publishable key for the Stripe account this environment is configured with. A `pk_live_` key is refused outright |
 | `STAGING_THROTTLE_TESTS=1` | Runs the forgotten-password rate limit test, which locks your address out for a minute |
+| `STAGING_GIFT=1` | Runs the **gift walk**, `tests/Staging/GiftWalkTest.php`, B10. Three of its four tests move no money and need no Stripe key, so this alone will tell you whether an environment carries gifting at all. **The fourth needs a person**: the buyer never receives the code, so there is no response anywhere to read one out of, and the walk waits while you fetch it from the recipient's inbox |
+| `STAGING_GIFT_KEY` | Which reading is given away. Default `month-ahead`, because it is the giftable reading with a page on the website, so a code this walk mints is one somebody can follow through to a rendered `/redeem/`. Deliberately not `STAGING_READING_KEY`, which defaults to `one-card` and cannot be gifted |
+| `STAGING_UNGIFTABLE_KEY` | Which reading proves the refusal. Default `one-card`, which takes a question and cannot be gifted, and is the product `allows_question` and `is_giftable` are independent on |
+| `STAGING_GIFT_CODE` | A code you already hold, which skips the wait. **For one case only:** a run that failed after the payment settled and before the code was spent. Re-running the whole walk otherwise costs another real payment. A code that has already been redeemed is no use, because redeeming it again is a 409 by design |
 | `STAGING_LOCALE`, `STAGING_CURRENCY`, `STAGING_READING_KEY`, `STAGING_PASS_KEY` | Defaults are `en`, `GBP`, `one-card`, `viewing-room-pass` |
 
 ## Before it can pass
@@ -68,7 +86,11 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 
 - **A real card payment, end to end, with nobody in the panel**: an order placed, a client secret issued, a Stripe test card confirmed against it the way a browser confirms it, and the pass appearing by itself. A declined card leaves the order payable and a second card settles it. A card requiring 3D Secure is genuinely challenged rather than quietly charged
 
+- **A present, end to end, and it is the only walk where the money and the asking are two different people**: `is_giftable` answered for every product, a gift refused on a reading that cannot be given away rather than silently dropped, a gift line accepted carrying no code, a code minted by settlement, the same code looked up twice without being spent, and then redeemed in a second session by somebody holding no account, no cookie and no token, at an address that is deliberately not the one the present was posted to. A second submit of the same code is a 409, so the reading is asked for once
+
 The card walk is the only thing in this repository that proves payment works. The feature suite drives a substituted `StripeClient`, which agrees with our code whatever our code does, and the captured signature vector proves the format of one body and nothing about whether an endpoint is reachable. **A pass appearing within two minutes can only be the webhook**, because the reconcile sweep leaves an order alone for its first fifteen, so the wait itself proves the endpoint is registered, reachable, and carrying a matching signing secret.
+
+The gift walk is the only one that stops and asks for something. **The buyer never receives the code**, so nothing on the wire can hand one to a test, and a walk that could fetch it would be describing a different system. Reading it out of the recipient's inbox is a person's job and always will be. What the wait buys is that a code failing to arrive is itself the finding: either the payment did not settle on this environment, or it did and the gift mail went nowhere.
 
 That last one is deliberate. A 200 from the video endpoint is not evidence of anything: a token scoped to the manifest rather than the directory answers 200 for `playlist.m3u8` and 403 for everything it points at. That is what M4 shipped, and following the manifest down is the only way to tell the difference.
 
@@ -166,6 +188,8 @@ run it. Two of these three were written the day before and skipped every run.
 ## What it cannot prove, and who has to
 
 **A mailbox.** No assertion here can see whether a message arrived, came from the right address, escaped the spam folder, or carried a link pointing at the website rather than at this API. Set `STAGING_EMAIL_DOMAIN` to something you can read, run the suite, and go and look. On the environment console, `php artisan mail:check you@example.com --now` and then again without `--now`: the first tests the transport, the second tests the transport and the queue worker together, and those two failures are indistinguishable from the outside.
+
+**And on the gift walk, one message in particular.** `A reading is waiting to be written` is what tells Jennifer somebody is waiting, and gifting is the case where that must happen on the day the code is redeemed rather than on the day it was bought. The walk prints both instants when it finishes, so checking it is comparing two timestamps rather than making a judgement: **the message must carry the later one and there must be exactly one of it.** A copy at the earlier time is a gift that reached her working list at settlement with nothing to write and nobody having asked anything, which is the defect the whole `readings` table exists to prevent.
 
 **A browser.** curl believes whatever it is told about cookies. What is left for a real browser on the real origin is `SameSite` behaviour, third party cookie blocking, private-mode partitioning, and whether the frontend sends `credentials: "include"` on every request including the first. The server-side half is proved here; the client-side half waits for the frontend.
 
