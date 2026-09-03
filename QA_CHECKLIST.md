@@ -464,7 +464,7 @@ Built 3 September 2026, B1 to B10. **Nothing here can be signed off from the pan
 | Check | Expected |
 |---|---|
 | **Mark as paid** on that order | The buyer gets their receipt, and the recipient gets the code |
-| **The recipient's inbox.** Open it and read it | One message from `noreply@theworldtarot.com`, subject **"Mum has sent you a reading"**, naming the reading, carrying the buyer's words, the code and a link |
+| **The recipient's inbox.** Open it and read it | One message from `noreply@theworldtarot.com`, subject **"Mum has sent you a gift"**, naming the reading, carrying the buyer's words, the code and a link |
 | The code in the body against the code in the link | **The same credential, printed twice.** They cannot disagree |
 | **The buyer's receipt** | Names the address each present went to. It does **not** say a reading is being written for them, because nobody has asked one yet |
 | Jennifer's inbox | **Nothing for the gifted line.** She is told when the present is redeemed, not when it is bought |

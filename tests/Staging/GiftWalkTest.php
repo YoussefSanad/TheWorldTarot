@@ -297,7 +297,7 @@ function giftCodeFromWhoeverReceivedIt(string $recipient, int $seconds): string
     Target::say('');
     Target::say('    '.$recipient);
     Target::say('');
-    Target::say('Look for the message subject-lined "... has sent you a reading" and type the');
+    Target::say('Look for the message subject-lined "... has sent you a gift" and type the');
     Target::say('code below. It is twelve characters in three groups, and the hyphens, the');
     Target::say('spaces and the case do not matter: the endpoint normalises whatever you send.');
     Target::say('');
@@ -858,7 +858,7 @@ it('buys a present, hands over its code, and starts the clock on the day it is r
     Target::say('');
     Target::say('  1. "Your order is confirmed" to '.$buyer['email'].', at '.date('H:i:s', $paidAt));
     Target::say('     naming '.$recipient.' and carrying no code.');
-    Target::say('  2. "The Staging Walk has sent you a reading" to '.$recipient.',');
+    Target::say('  2. "The Staging Walk has sent you a gift" to '.$recipient.',');
     Target::say('     at '.date('H:i:s', $paidAt).', carrying the code you typed in.');
     Target::say('  3. "Your reading is on its way" to '.$querent.',');
     Target::say('     at '.date('H:i:s', $redeemedAt).', stating the delivery window.');

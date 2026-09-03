@@ -24,6 +24,20 @@ use Illuminate\Mail\Mailables\Content;
  * answer than "Jodie O'Reilly" and both are what the migration says that column
  * is for.
  *
+ * The name stays at the front for the same reason. A subject cut short in a
+ * phone's preview has to still carry it, which is what rules out "A gift from
+ * Mum".
+ *
+ * ## And it says a gift, not a reading, since issue #82
+ *
+ * It read "has sent you a reading" until 3 September 2026. **A reading is a
+ * document written by hand against a question somebody has asked**, and here
+ * nothing has been asked and nothing is being written: what has arrived is a
+ * code, and it stays one until the recipient spends it. The subject was
+ * promising the wrong thing to the one person in this system with nothing else
+ * to go on, and the word for what arrived is a gift. The line is pinned whole
+ * in `MailHeadersTest`.
+ *
  * ## The buyer's address is not in here
  *
  * Not the address, not the name, nothing but the signature they chose. A
@@ -68,7 +82,7 @@ class GiftToRedeem extends QueuedMail
 
     protected function subjectLine(): string
     {
-        return "{$this->gift->signature} has sent you a reading";
+        return "{$this->gift->signature} has sent you a gift";
     }
 
     /**
