@@ -436,6 +436,47 @@ it('makes every HTML mail view escape what it interpolates', function () {
 });
 
 /**
+ * And every directive in those views is somewhere Blade will actually read it.
+ *
+ * **Blade's directive pattern is anchored with `\B`**, which fails at the one
+ * position a word character sits immediately before the `@`. So `way@else`
+ * compiles to nothing at all: the text stays in the document as typed, and the
+ * `@if` it was meant to close runs on to the next `@endif` it can see.
+ *
+ * **Found on 3 September 2026, in the receipt's `<title>`, by rendering it.**
+ * `@if (...)Your ... is on its way@else Your order is confirmed @endif` had
+ * been sending `<title></title>` on every order of more than one line, and the
+ * literal string `@else Your order is confirmed` on every order of exactly
+ * one, since issue #53 shipped it. Nothing was red. The view compiled, the
+ * message sent, and both escaping rules above were satisfied by a line that
+ * put Blade source in front of a customer.
+ *
+ * Scanned rather than rendered, for the reason the two rules above are: a
+ * behavioural assertion only catches the branch its fixture happens to take,
+ * and this defect hid in the branch nobody rendered.
+ */
+it('never puts a Blade directive where Blade will not read it', function () {
+    $views = mailViews();
+
+    expect($views)->not->toBeEmpty();
+
+    // Named rather than `\w@\w+`, because a text view is entitled to carry an
+    // email address and `noreply@example.com` is the same shape. Control flow
+    // and inclusion only: those are what silently change a document's meaning.
+    $directives = 'if|else|elseif|endif|unless|endunless|isset|endisset|empty|endempty|'
+        .'foreach|endforeach|forelse|endforelse|for|endfor|while|endwhile|'
+        .'switch|case|default|endswitch|php|endphp|'
+        .'include|includeIf|extends|section|endsection|show|yield|parent|stop|append';
+
+    foreach ($views as $view) {
+        foreach (viewLinesWithoutComments($view) as $number => $line) {
+            expect(preg_match('/\w@('.$directives.')\b/', $line))
+                ->toBe(0, basename($view).':'.($number + 1).' writes a directive Blade will not compile: '.trim($line));
+        }
+    }
+});
+
+/**
  * Every message still carries a text part, which is what makes a raw echo safe.
  *
  * **This is the precondition the rule above rests on, and it was unenforced.**

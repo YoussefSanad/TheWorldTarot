@@ -37,8 +37,16 @@
   One of the five strings the three designs varied. It is per product where
   there is one product, and falls back to the subject line where an order
   carries several and no single reading names it.
+
+  **One expression rather than `@if`/`@else`, since 3 September 2026.** It was
+  written with directives and the `@else` never compiled: Blade's directive
+  pattern is anchored with `\B`, so a directive with a word character
+  immediately before its `@` is left in the document as typed. Every order of
+  more than one line had been sending `<title></title>`, and every order of
+  exactly one the literal string `@else Your order is confirmed`, since this
+  view shipped. `MailBodyTest` scans for the shape now.
 --}}
-<title>@if (count($lines) === 1)Your {{ $lines->first()->product?->name ?? $lines->first()->product_key->value }} is on its way@else Your order is confirmed @endif</title>
+<title>{{ count($lines) === 1 ? 'Your '.($lines->first()->product?->name ?? $lines->first()->product_key->value).' is on its way' : 'Your order is confirmed' }}</title>
 <!--[if mso]>
 <noscript><xml><o:OfficeDocumentSettings>
   <o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch>
