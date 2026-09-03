@@ -306,3 +306,35 @@ it('takes a gift at the seam on a line that may carry one', function () {
 
     expect(Order::count())->toBe(1);
 });
+
+/**
+ * The other control the matrix cannot hold, and for the same reason.
+ *
+ * Every giftable product in `aCatalogue` is broken on purpose for some other
+ * state, so a question on a present there would be refused whether the rule
+ * exists or not. This is the basket that asks it on its own.
+ */
+it('refuses a question on a present at the seam', function () {
+    $customer = Customer::factory()->create();
+
+    Product::factory()->create([
+        'key' => 'month-ahead',
+        'is_published' => true,
+        'price_usd' => 7500,
+    ]);
+
+    $lines = [['product' => 'month-ahead', 'question' => 'What should I focus on?', 'gift' => [
+        'recipient_email' => 'sam@example.com',
+        'signature' => 'Mum',
+    ]]];
+
+    expect(Purchasability::declared()->permits(Basket::forCustomer($customer, 'USD', $lines)))->toBeFalse();
+
+    // The seam is what phase B's payment path meets, and it does not route
+    // through the form request. A basket getting past it writes an order for
+    // money, so the refusal has to be here and not only at the till.
+    expect(fn () => app(PlaceOrder::class)($customer, 'USD', $lines))
+        ->toThrow(InvalidArgumentException::class);
+
+    expect(Order::count())->toBe(0);
+});

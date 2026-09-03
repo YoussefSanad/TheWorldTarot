@@ -84,6 +84,14 @@ class StoreOrderRequest extends FormRequest
             // not decided here.** That is a fact about the product, so it is a
             // purchasability rule like every other, declared once and asked by
             // both the till and the seam. These four are only the shape.
+            //
+            // **An empty object is refused, and the two rules below are what
+            // refuse it.** `required_with` counts an empty array as an absent
+            // sibling, so nothing here would fire on `"gift": {}` by itself.
+            // What makes it fire is `fillInTheGiftLanguage`, which has put a
+            // locale in the object before any rule reads it. That method is
+            // load-bearing for this and not only for the language, and its own
+            // docblock says so.
             'lines.*.gift' => ['sometimes', 'nullable', 'array'],
 
             // Where the code is sent, and the one address in this transaction
@@ -106,6 +114,39 @@ class StoreOrderRequest extends FormRequest
             // in a half translated language is a mail nobody can read, sent to
             // somebody who never asked for it.
             'lines.*.gift.locale' => ['sometimes', 'nullable', 'string', Rule::in(self::giftableLocales())],
+        ];
+    }
+
+    /**
+     * The two gift fields a buyer can be missing, in Jennifer's words.
+     *
+     * **The only refusals on this endpoint a customer could meet in Laravel's
+     * voice rather than hers.** Everything about the product is a
+     * purchasability rule and carries its own sentence, and the shape rules
+     * beside these two are fields a frontend composes rather than fields a
+     * person fills in. These are typed by a buyer, at a checkout, about
+     * somebody they are sending a present to.
+     *
+     * The default is worse than usually here, because `required_with` prints
+     * the sibling it fired on: "the lines.0.gift.recipient_email field is
+     * required when lines.0.gift is present" is a sentence about a request
+     * body, read by somebody who has just typed their mother's email address.
+     *
+     * `PayOrderRequest` and `RegisterRequest` are the two that already do this,
+     * and the wording follows theirs: a whole sentence, about the thing rather
+     * than about the field.
+     *
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            // Both are keyed on `required_with` rather than on the field, so a
+            // malformed address still meets the rule that knows it is an
+            // address. Saying "a present needs an address" to somebody who gave
+            // one would be answering a question they did not ask.
+            'lines.*.gift.recipient_email.required_with' => 'A present needs an address to send it to.',
+            'lines.*.gift.signature.required_with' => 'A present needs to say who it is from.',
         ];
     }
 
@@ -231,6 +272,18 @@ class StoreOrderRequest extends FormRequest
      * **Defaulted here rather than at the seam**, so what the validator checks
      * and what gets stored are the same value. A default applied after
      * validation is a value nothing ever validated.
+     *
+     * **Load-bearing beyond the language, and this is the part that is easy to
+     * take out by accident.** `required_with` treats an empty array as an
+     * absent sibling, so `"gift": {}` would meet neither required field, and
+     * `Basket` reads an empty object as no gift at all, so the rule refusing a
+     * present on something that may not be given away would not see one
+     * either. Both cases leave with a 201: a giftable product mints a row
+     * carrying no recipient address, and the buyer never receives the code, so
+     * an unaddressed gift is unrecoverable. Defaulting the locale is what makes
+     * the object non-empty before any rule is asked. Two tests in
+     * `GiftALineTest` go red if this stops running, and they are the only thing
+     * holding it.
      *
      * The application locale is what the middleware resolved for this request,
      * which is the language the buyer was reading when they bought. Nothing

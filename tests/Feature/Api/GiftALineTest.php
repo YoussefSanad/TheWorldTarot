@@ -263,6 +263,128 @@ it('refuses a locale nothing is published in', function () {
         ->assertJsonValidationErrors('lines.0.gift.locale');
 });
 
+it('refuses an empty gift object on a reading that may be given away', function () {
+    aGiftableCatalogue();
+
+    // **`{}` names nobody.** A form that posts the key it has, with every
+    // field inside it left alone, sends this. Letting it past means a giftable
+    // product mints a gift row carrying no recipient address, and the buyer
+    // never receives the code, so an unaddressed gift is unrecoverable.
+    //
+    // **What refuses it is not the rule it looks like.** `required_with` counts
+    // an empty array as an absent sibling, so this passes both required fields
+    // on its own. `StoreOrderRequest::fillInTheGiftLanguage` has put a locale
+    // in the object by the time either is read, which is the whole of the
+    // defence. These two tests are what say so out loud, and they go red the
+    // day somebody moves that defaulting to the seam.
+    $this->postJson('/api/v1/orders', aBasketHolding([
+        ['product' => 'month-ahead', 'gift' => []],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([
+            'lines.0.gift.recipient_email' => 'A present needs an address to send it to.',
+            'lines.0.gift.signature' => 'A present needs to say who it is from.',
+        ]);
+
+    expect(Order::count())->toBe(0)
+        ->and(Gift::count())->toBe(0);
+});
+
+it('refuses an empty gift object on a reading that may not', function () {
+    aGiftableCatalogue();
+
+    // The same body on `one-card`, the product `refuses a gift on a reading
+    // that cannot be given away` is proved on. An empty object is still a gift
+    // somebody asked for, so the line is refused for the product as well as
+    // for the two fields it never named.
+    $this->postJson('/api/v1/orders', aBasketHolding([
+        ['product' => 'one-card', 'gift' => []],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([
+            'lines.0.gift' => 'This one cannot be given as a gift.',
+            'lines.0.gift.recipient_email',
+            'lines.0.gift.signature',
+        ]);
+
+    expect(Order::count())->toBe(0);
+});
+
+/*
+| A question and a gift on one line, which is neither.
+*/
+
+it('refuses a question and a gift on one line', function () {
+    aGiftableCatalogue();
+
+    // `API_CONTRACT.md:428` has said so since 2 September 2026, and until
+    // 3 September nothing refused it: `PlaceOrder` wrote null instead, so a
+    // buyer's words were dropped and nobody was told. The person who will ask
+    // has not seen the present yet, and asking is what redemption is for.
+    $this->postJson('/api/v1/orders', aBasketHolding([
+        ['product' => 'month-ahead', 'question' => 'What should I focus on?', 'gift' => aGift()],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([
+            'lines.0.question' => 'A present carries no question. Whoever receives it asks their own.',
+        ]);
+
+    // **Refused rather than quietly dropped**, which is the whole of the
+    // decision. The line beside it in this contract, a gift on something that
+    // may not be given away, is refused, and two neighbouring fields behaving
+    // differently is what this closes.
+    expect(Order::count())->toBe(0)
+        ->and(Gift::count())->toBe(0);
+});
+
+it('names the line the question was wrong on, and not the order', function () {
+    aGiftableCatalogue();
+
+    // Third line, so the key cannot pass by holding a zero, and the two lines
+    // above it are untouched by a fault on this one.
+    $this->postJson('/api/v1/orders', aBasketHolding([
+        ['product' => 'one-card', 'question' => 'What should I focus on?'],
+        ['product' => 'month-ahead'],
+        ['product' => 'month-ahead', 'question' => 'And after that?', 'gift' => aGift()],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('lines.2.question')
+        ->assertJsonMissingValidationErrors(['lines.0.question', 'lines.1.question']);
+});
+
+it('still refuses a question on a product that takes none, before mentioning the gift', function () {
+    aGiftableCatalogue();
+
+    // Two rules hang on `question` and the pass trips both. **The product's own
+    // fact wins**, because a customer who cannot ask this thing anything at all
+    // does not need to hear a second reason keyed to the same field. That is
+    // the order they are declared in, and it is the only thing deciding it.
+    $this->postJson('/api/v1/orders', aBasketHolding([
+        ['product' => 'viewing-room-pass', 'question' => 'Why?', 'gift' => aGift()],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([
+            'lines.0.question' => 'This one does not take a question.',
+        ]);
+});
+
+it('takes a gift on a line whose question is an empty string', function () {
+    aGiftableCatalogue();
+
+    // **An empty string is nothing asked, not a question**, the same reading
+    // `prepareForValidation` already gives an empty email. A form that posts
+    // every field it has sends `""` for the one the buyer left alone, and
+    // refusing that would refuse an ordinary present for a field nobody filled
+    // in.
+    $this->postJson('/api/v1/orders', aBasketHolding([
+        ['product' => 'month-ahead', 'question' => '', 'gift' => aGift()],
+    ]))->assertCreated();
+
+    // Stored as nothing rather than as an empty string, which is what
+    // `PlaceOrder` drops on a gift line.
+    expect(Order::sole()->lines()->sole()->question)->toBeNull();
+});
+
 /*
 | What comes back, which is the only confirmation the buyer gets.
 */
