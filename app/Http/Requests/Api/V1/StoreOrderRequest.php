@@ -118,6 +118,39 @@ class StoreOrderRequest extends FormRequest
     }
 
     /**
+     * The two gift fields a buyer can be missing, in Jennifer's words.
+     *
+     * **The only refusals on this endpoint a customer could meet in Laravel's
+     * voice rather than hers.** Everything about the product is a
+     * purchasability rule and carries its own sentence, and the shape rules
+     * beside these two are fields a frontend composes rather than fields a
+     * person fills in. These are typed by a buyer, at a checkout, about
+     * somebody they are sending a present to.
+     *
+     * The default is worse than usually here, because `required_with` prints
+     * the sibling it fired on: "the lines.0.gift.recipient_email field is
+     * required when lines.0.gift is present" is a sentence about a request
+     * body, read by somebody who has just typed their mother's email address.
+     *
+     * `PayOrderRequest` and `RegisterRequest` are the two that already do this,
+     * and the wording follows theirs: a whole sentence, about the thing rather
+     * than about the field.
+     *
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            // Both are keyed on `required_with` rather than on the field, so a
+            // malformed address still meets the rule that knows it is an
+            // address. Saying "a present needs an address" to somebody who gave
+            // one would be answering a question they did not ask.
+            'lines.*.gift.recipient_email.required_with' => 'A present needs an address to send it to.',
+            'lines.*.gift.signature.required_with' => 'A present needs to say who it is from.',
+        ];
+    }
+
+    /**
      * The rules that need to look at the catalogue.
      *
      * Here rather than in the controller so a refusal comes back as a 422

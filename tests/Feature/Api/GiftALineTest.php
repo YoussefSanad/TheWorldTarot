@@ -281,7 +281,10 @@ it('refuses an empty gift object on a reading that may be given away', function 
         ['product' => 'month-ahead', 'gift' => []],
     ]))
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['lines.0.gift.recipient_email', 'lines.0.gift.signature']);
+        ->assertJsonValidationErrors([
+            'lines.0.gift.recipient_email' => 'A present needs an address to send it to.',
+            'lines.0.gift.signature' => 'A present needs to say who it is from.',
+        ]);
 
     expect(Order::count())->toBe(0)
         ->and(Gift::count())->toBe(0);
@@ -290,10 +293,10 @@ it('refuses an empty gift object on a reading that may be given away', function 
 it('refuses an empty gift object on a reading that may not', function () {
     aGiftableCatalogue();
 
-    // The same body on `one-card`, which is the product the refusal above is
-    // proved on. An empty object is still a gift somebody asked for, so the
-    // line is refused for the product as well as for the two fields it never
-    // named.
+    // The same body on `one-card`, the product `refuses a gift on a reading
+    // that cannot be given away` is proved on. An empty object is still a gift
+    // somebody asked for, so the line is refused for the product as well as
+    // for the two fields it never named.
     $this->postJson('/api/v1/orders', aBasketHolding([
         ['product' => 'one-card', 'gift' => []],
     ]))

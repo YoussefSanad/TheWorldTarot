@@ -521,6 +521,8 @@ Navigation is **Gifts**, below Readings and Orders.
 | The buyer's receipt | **The buyer**, when the money settles, naming the address each present went to. It is the only confirmation they get |
 | The fulfillment notification, to `orders@theworldtarot.com` | **Jennifer, at redemption and not at settlement.** A present nobody has opened is not work |
 
+---
+
 ## 12b. The Readings screen, where a reading is written
 
 Navigation is **Readings**. It is not **Readings and passes**, which is the catalogue in section 3. This screen is the list of people waiting.
@@ -538,6 +540,8 @@ Navigation is **Readings**. It is not **Readings and passes**, which is the cata
 | The order behind it, on **Orders** | **Fulfilled**, once every reading it owed has gone. Nothing on that screen marks it off by hand any more |
 | An order holding two readings, one delivered | **Still awaiting fulfillment.** It finishes when the last one goes |
 | Look for Create and Delete | **Neither exists.** A reading is the record that somebody is waiting |
+
+---
 
 ## 13. Things that are not bugs
 
