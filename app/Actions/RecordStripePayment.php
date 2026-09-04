@@ -121,6 +121,15 @@ class RecordStripePayment
         // added here is which of the two, said out loud, so a redelivery is
         // reported as work already done rather than as a payment nobody has
         // finished collecting.
+        //
+        // **`AlreadySettled` is the honest reading of that `false` from here
+        // and not from everywhere.** `MarkOrderPaid` answers it for any order
+        // that is no longer pending, which includes a cancelled one and a row
+        // that has gone. Neither can arrive here: nothing in this application
+        // writes `OrderStatus::Cancelled`, and both roads in reach an order
+        // they have just read. A caller that could cancel would have to ask
+        // the transition which of the three it meant rather than widen this
+        // line.
         return ($this->markPaid)($order)
             ? Recording::Settled
             : Recording::AlreadySettled;
