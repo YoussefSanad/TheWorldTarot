@@ -2,6 +2,7 @@
 
 use App\Actions\DeliverReading;
 use App\Actions\MarkOrderFulfilled;
+use App\Enums\Due;
 use App\Enums\ProductKey;
 use App\Filament\Resources\Readings\Pages\ListReadings;
 use App\Filament\Resources\Readings\Pages\ViewReading;
@@ -71,6 +72,37 @@ function aReading(
         'question' => $question,
         'asked_at' => $askedAt ?? now(),
     ]);
+}
+
+/**
+ * What the two screens actually colour the due badge, asked of the configured
+ * column and the configured entry rather than of the model behind them.
+ *
+ * **Read off the surfaces and not off `Due::colour()`**, because a test that
+ * asked the enum twice would agree with itself while the screens disagreed,
+ * which is precisely the state this unit found the panel in.
+ */
+function dueColourInTheList(Reading $reading): string|array|null
+{
+    $column = Livewire::test(ListReadings::class)
+        ->instance()
+        ->getTable()
+        ->getColumn('due')
+        ->record($reading);
+
+    return $column->getColor($column->getState());
+}
+
+function dueColourOnThePage(Reading $reading): string|array|null
+{
+    $entry = collect(
+        Livewire::test(ViewReading::class, ['record' => $reading->getRouteKey()])
+            ->instance()
+            ->getSchema('infolist')
+            ->getFlatComponents()
+    )->first(fn (object $component): bool => method_exists($component, 'getName') && $component->getName() === 'due');
+
+    return $entry->getColor($entry->getState());
 }
 
 /*
@@ -176,6 +208,65 @@ it('is never overdue once it has gone', function () {
     // Overdue is a question about work outstanding. A reading that has gone is
     // not late, however long it took.
     expect($reading->refresh()->isOverdue())->toBeFalse();
+});
+
+/*
+| Due is one state with four names, declared once.
+|
+| It had three declarations. The table knew delivered, overdue and everything
+| else; the detail page knew overdue and everything else; `dueInWords()` knew
+| all four and told nobody. A reading due in six hours was orange on the list
+| and neutral on the page that list opens, and nothing went red about it.
+*/
+
+it('names one of four states, and being delivered beats being late', function () {
+    $waiting = aReading(ProductKey::MonthAhead, askedAt: now());
+    $late = aReading(ProductKey::MonthAhead, askedAt: now()->subDays(2));
+    $gone = aReading(ProductKey::MonthAhead, askedAt: now()->subDays(2));
+
+    // Nothing with a null delivery window has a reading, so this is the state
+    // the surfaces were defensive about and no test had ever reached.
+    $noWindow = aReading(ProductKey::ViewingRoomPass, askedAt: now());
+
+    Livewire::test(ListReadings::class)->callTableAction('markDelivered', $gone);
+
+    expect($waiting->due())->toBe(Due::Waiting)
+        ->and($late->due())->toBe(Due::Overdue)
+
+        // Two days late and delivered anyway. Overdue is a question about work
+        // outstanding, not a grade on work already done, so delivered is the
+        // answer even though the clock ran out first.
+        ->and($gone->refresh()->due())->toBe(Due::Delivered)
+        ->and($noWindow->due())->toBe(Due::NoWindow);
+});
+
+it('colours due the same in the list and on the page that list opens', function () {
+    $waiting = aReading(ProductKey::MonthAhead, askedAt: now());
+    $late = aReading(ProductKey::MonthAhead, askedAt: now()->subDays(2));
+
+    // **The regression this unit exists to close.** Due but not yet late is
+    // the state the two screens disagreed about: the list warned and the page
+    // shrugged. The colours are written out rather than taken from `Due`, so
+    // this can disagree with the enum as well as with itself.
+    expect(dueColourInTheList($waiting))->toBe('warning')
+        ->and(dueColourOnThePage($waiting))->toBe('warning');
+
+    expect(dueColourInTheList($late))->toBe('danger')
+        ->and(dueColourOnThePage($late))->toBe('danger');
+});
+
+it('shows nothing owed on a reading whose product promises no turnaround', function () {
+    // Defensive rather than reachable: nothing with a null delivery window has
+    // a reading. **The list used to warn about it anyway**, because it had no
+    // case for the state and fell through to the one for a promise still
+    // running. There is no promise here to be early or late against.
+    $noWindow = aReading(ProductKey::ViewingRoomPass, askedAt: now());
+
+    expect(dueColourInTheList($noWindow))->toBe('gray')
+        ->and(dueColourOnThePage($noWindow))->toBe('gray');
+
+    Livewire::test(ListReadings::class)->assertSee('No window');
+    Livewire::test(ViewReading::class, ['record' => $noWindow->getRouteKey()])->assertSee('No window');
 });
 
 /*

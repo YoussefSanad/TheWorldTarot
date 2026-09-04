@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Enums\Due;
 use App\Enums\Sender;
 use App\Models\Reading;
 use Illuminate\Mail\Mailables\Content;
@@ -189,6 +190,13 @@ class ReadingOnItsWay extends QueuedMail
      * promise on something with no window is not a missing value, it is a
      * sentence that should not be in the document.
      *
+     * **Asked of `Due` rather than of two nulls.** `Due::NoWindow` is that
+     * state under the one name the panel also knows it by, and it is the only
+     * one of the four with nothing to say: a reading that has gone or gone late
+     * still had a promise made about it, and this message is written before
+     * either could be true. Past the guard the window and the moment are both
+     * there, because `NoWindow` is exactly the state in which they are not.
+     *
      * **Unreachable today and kept anyway.** Every giftable reading has a
      * window. `three-card` and `month-ahead` promise 24 hours and `in-depth`
      * promises 48, and the two keys with no window cannot be gifted, which
@@ -197,12 +205,12 @@ class ReadingOnItsWay extends QueuedMail
      */
     private function promise(): ?string
     {
-        $due = $this->reading->dueAt();
-        $window = $this->reading->orderLine->product_key->deliveryWindow();
-
-        if ($due === null || $window === null) {
+        if ($this->reading->due() === Due::NoWindow) {
             return null;
         }
+
+        $due = $this->reading->dueAt();
+        $window = $this->reading->orderLine->product_key->deliveryWindow();
 
         // `translatedFormat` and not `format`, so the locale set in the
         // constructor is a fact about this message rather than a decoration.

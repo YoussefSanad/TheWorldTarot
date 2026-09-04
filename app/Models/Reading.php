@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Due;
 use App\Enums\ProductKey;
 use Carbon\CarbonInterface;
 use Database\Factories\ReadingFactory;
@@ -74,6 +75,34 @@ class Reading extends Model
     }
 
     /**
+     * Where this stands against the promise, as one of four named states.
+     *
+     * **The only place the four are enumerated.** Every surface that shows due
+     * asks this rather than branching on `isOverdue()` and a null date for
+     * itself, which is how the list came to know three states and the detail
+     * page two. `Due` carries the argument for the set; this carries the sum.
+     *
+     * **Delivered is asked first and wins.** A reading that went out two days
+     * late is delivered, not overdue, for the reason `isOverdue()` gives below.
+     *
+     * Computed at read time and never stored, like everything else here.
+     */
+    public function due(): Due
+    {
+        if ($this->isDelivered()) {
+            return Due::Delivered;
+        }
+
+        $due = $this->dueAt();
+
+        if ($due === null) {
+            return Due::NoWindow;
+        }
+
+        return $due->isPast() ? Due::Overdue : Due::Waiting;
+    }
+
+    /**
      * Whether the promise has been missed and the reading is still owed.
      *
      * **A delivered reading is never overdue, however long it took.** This is a
@@ -81,13 +110,17 @@ class Reading extends Model
      * colouring a finished row red would put permanent noise on the one screen
      * that has to stay readable.
      *
+     * **Kept as the sentence it is, and answered by `due()`.** The panel
+     * stopped asking it, because a screen showing due has four answers to give
+     * and this has two, and answering the wrong one of those questions is what
+     * `Due` exists to have stopped. It stays because the rule above is worth a
+     * name, and because it is the form the model's own tests state it in.
+     *
      * No job asks this and nothing alerts on it. The screen is where she looks.
      */
     public function isOverdue(): bool
     {
-        $due = $this->dueAt();
-
-        return ! $this->isDelivered() && $due !== null && $due->isPast();
+        return $this->due() === Due::Overdue;
     }
 
     /**

@@ -76,10 +76,22 @@ class ReadingInfolist
 
                         // Computed, never stored. The same value the list
                         // colours and sorts by.
+                        //
+                        // **The moment here and the words there, and one
+                        // colour between them.** This page is worked from
+                        // rather than scanned, so it says when rather than how
+                        // long. The colour is `Due`'s to give: this entry knew
+                        // two states and the list knew three, so a reading due
+                        // in six hours was orange there and neutral here.
+                        //
+                        // A state with no moment to show falls back to the word
+                        // `Due` has for it, rather than to a second copy of it
+                        // written out here.
                         TextEntry::make('due')
                             ->label('Due')
-                            ->state(fn (Reading $record): string => $record->dueAt()?->format('j M Y, H:i') ?? 'No window')
-                            ->color(fn (Reading $record): string => $record->isOverdue() ? 'danger' : 'gray'),
+                            ->state(fn (Reading $record): string => $record->dueAt()?->format('j M Y, H:i')
+                                ?? $record->due()->words(null))
+                            ->color(fn (Reading $record): string => $record->due()->colour()),
 
                         TextEntry::make('delivered_at')
                             ->label('Delivered')
