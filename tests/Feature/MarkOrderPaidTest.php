@@ -5,14 +5,18 @@ use App\Actions\MarkOrderPaid;
 use App\Enums\ClaimOutcome;
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
+use App\Enums\ProductKey;
+use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
 use App\Mail\PasswordResetLink;
 use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
+use App\Models\Gift;
 use App\Models\Order;
 use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 
@@ -468,6 +472,74 @@ it('queues every message rather than sending it while the order is being settled
 
     Mail::assertNothingSent();
     Mail::assertQueued(OrderPaid::class);
+});
+
+/*
+| Mail waits for the commit because of the mechanism holding it, not because of
+| where the call sits.
+|
+| `tell()` was deferred by standing after `DB::transaction(...)` returned, which
+| is only deferral for a caller that opens no transaction of its own. A caller
+| that does gets a savepoint rather than a second transaction: the inner
+| `DB::transaction` returns, the settlement looks done, and the receipt, the
+| claim link and every gift code go out for an order that is about to roll back.
+| A gift code emailed out of a rolled-back transaction is a live credential for
+| a present that does not exist.
+|
+| So the rule is enforced by `DB::afterCommit`, which is what `AskForReading`
+| already uses on the same road. Nothing moves for a caller with nothing open,
+| which is both live callers today, because `afterCommit` runs the callback
+| immediately when there is no transaction to wait for.
+*/
+
+/**
+ * An order carrying a present and a pass, so one settlement owes all three of
+ * the messages payment sends: the receipt, the claim link the pass invites, and
+ * the code for whoever was given something.
+ *
+ * **The buyer holds no password**, because the claim link goes only to an
+ * account nobody has claimed, and the factory's customer arrives with one.
+ */
+function anOrderGivingAPassAndAPresent(): Order
+{
+    $order = Order::factory()
+        ->for(Customer::factory()->create(['password' => null]))
+        ->forProduct(Product::factory()->pass()->create())
+        ->forProduct(Product::factory()->create(['key' => ProductKey::MonthAhead]))
+        ->create();
+
+    Gift::factory()->unminted()->create([
+        'order_line_id' => $order->lines->firstWhere('product_key', ProductKey::MonthAhead)->id,
+    ]);
+
+    return $order;
+}
+
+it('queues the receipt, the claim link and the gift code when the settlement stands', function () {
+    settle(anOrderGivingAPassAndAPresent());
+
+    // The three the test below asserts the absence of. Without this, that one
+    // would pass just as well against an order that sends nothing.
+    Mail::assertQueued(OrderPaid::class);
+    Mail::assertQueued(SetPasswordLink::class);
+    Mail::assertQueued(GiftToRedeem::class);
+});
+
+it('sends nothing when the transaction wrapped around the settlement rolls back', function () {
+    $order = anOrderGivingAPassAndAPresent();
+
+    expect(fn () => DB::transaction(function () use ($order): void {
+        settle($order);
+
+        throw new RuntimeException('the caller changed its mind after settling');
+    }))->toThrow(RuntimeException::class);
+
+    // Nothing has gone and nothing is waiting to go. The gift code is the one
+    // that would matter most, since it is spendable the instant it lands.
+    Mail::assertNothingSent();
+    Mail::assertNothingQueued();
+
+    expect($order->refresh()->status)->toBe(OrderStatus::Pending);
 });
 
 /*

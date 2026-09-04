@@ -40,6 +40,17 @@ use Illuminate\Support\Facades\Password;
  * Mail is queued **after** it commits, for the opposite reason: a message sent
  * inside a transaction that then rolls back has still been sent, and no amount
  * of rolling back unsends it.
+ *
+ * **Which half of that is a mechanism and which is a position.** Both halves
+ * used to read as ordering, and only one of them was enforced by anything. The
+ * grant is inside the transaction because the statement is inside the closure,
+ * which is the whole of it. The mail waits because `tell()` hands its sends to
+ * `DB::afterCommit`, and that holds under a caller that has wrapped this action
+ * in a transaction of its own, where merely standing after
+ * `DB::transaction(...)` returned does not: the inner transaction is a
+ * savepoint, so it returns while the outer one is still open and the mail goes
+ * out for an order that is about to roll back. `AskForReading:43-47` says the
+ * same thing about the same road.
  */
 class MarkOrderPaid
 {
@@ -324,51 +335,63 @@ class MarkOrderPaid
     {
         $customer = $order->customer;
 
-        Mail::to($customer->email)->send(new OrderPaid($order));
+        // **Held back by the mechanism rather than by where this call sits.**
+        // Standing after `DB::transaction(...)` returned is only deferral for a
+        // caller that opens no transaction of its own. One that does gets a
+        // savepoint: the inner transaction returns, `__invoke` sees a real
+        // transition, and all of this goes out for an order that is about to
+        // roll back. `DB::afterCommit` is what `AskForReading:120` and `:166`
+        // already use on the same road, and it runs the callback immediately
+        // when nothing is open, so both live callers today are unchanged.
+        DB::afterCommit(function () use ($order, $customer): void {
+            Mail::to($customer->email)->send(new OrderPaid($order));
 
-        // **The claim link follows the Viewing Room, not the money.** A password
-        // is what gets somebody back to the films, so it is asked for on the
-        // order that grants them and on no other. A reading is written by hand
-        // and arrives as a PDF, and needs no account to read, so a reading
-        // buyer never hears the word. An order holding both does send it: it
-        // contains a pass, and the pass is what the password is for.
-        //
-        // Somebody who wants to sign in without ever having bought a pass asks
-        // for a reset link, which sets a first password just as well.
-        //
-        // **A claim link goes only to an account nobody has claimed.** Sending
-        // one to an address that already has an account would mean a stranger
-        // who knows your email can cause a set-a-password message to land in
-        // your inbox. It hands them nothing, and it is still a phishing shaped
-        // tool pointed at our own customers.
-        //
-        // **And only when there is not already one in their inbox**, for the
-        // reason in `holdsALiveClaimLink`.
-        if ($this->grantsAccess($order) && $customer->isUnclaimed() && ! $this->holdsALiveClaimLink($customer)) {
-            Mail::to($customer->email)->send(new SetPasswordLink(
-                $customer,
-                Password::broker('customers')->createToken($customer),
-            ));
-        }
+            // **The claim link follows the Viewing Room, not the money.** A
+            // password is what gets somebody back to the films, so it is asked
+            // for on the order that grants them and on no other. A reading is
+            // written by hand and arrives as a PDF, and needs no account to
+            // read, so a reading buyer never hears the word. An order holding
+            // both does send it: it contains a pass, and the pass is what the
+            // password is for.
+            //
+            // Somebody who wants to sign in without ever having bought a pass
+            // asks for a reset link, which sets a first password just as well.
+            //
+            // **A claim link goes only to an account nobody has claimed.**
+            // Sending one to an address that already has an account would mean
+            // a stranger who knows your email can cause a set-a-password
+            // message to land in your inbox. It hands them nothing, and it is
+            // still a phishing shaped tool pointed at our own customers.
+            //
+            // **And only when there is not already one in their inbox**, for
+            // the reason in `holdsALiveClaimLink`.
+            if ($this->grantsAccess($order) && $customer->isUnclaimed() && ! $this->holdsALiveClaimLink($customer)) {
+                Mail::to($customer->email)->send(new SetPasswordLink(
+                    $customer,
+                    Password::broker('customers')->createToken($customer),
+                ));
+            }
 
-        // **And whoever was given a present.** B6 (#72), and it is the second
-        // of the two mails a settled gift order sends. **The buyer never
-        // receives the code**, decided 2 September 2026, so these two messages
-        // carry different things to different people out of one payment: the
-        // recipient gets the credential, and the buyer gets a receipt naming
-        // the address it went to.
-        //
-        // **After the commit, like everything else here.** A code emailed out
-        // of a transaction that then rolls back is a live credential for a
-        // present that does not exist, and no amount of rolling back unsends
-        // it.
-        //
-        // One mail per gift rather than one per order. Two presents bought
-        // together are two different people, and a shared message would hand
-        // each of them the other's code.
-        foreach ($order->gifts() as $gift) {
-            Mail::to($gift->recipient_email)->send(new GiftToRedeem($gift));
-        }
+            // **And whoever was given a present.** B6 (#72), and it is the
+            // second of the two mails a settled gift order sends. **The buyer
+            // never receives the code**, decided 2 September 2026, so these two
+            // messages carry different things to different people out of one
+            // payment: the recipient gets the credential, and the buyer gets a
+            // receipt naming the address it went to.
+            //
+            // **After the commit, like everything else in this closure**, and
+            // the closure is what makes that true rather than the position of
+            // the call. A code emailed out of a transaction that then rolls
+            // back is a live credential for a present that does not exist, and
+            // no amount of rolling back unsends it.
+            //
+            // One mail per gift rather than one per order. Two presents bought
+            // together are two different people, and a shared message would
+            // hand each of them the other's code.
+            foreach ($order->gifts() as $gift) {
+                Mail::to($gift->recipient_email)->send(new GiftToRedeem($gift));
+            }
+        });
 
         // **Telling Jennifer a reading is waiting left here on 2 September
         // 2026**, for `AskForReading`, which now owns the moment a reading
