@@ -32,14 +32,15 @@ class ReadingsTable
                 // database has not sent yet, and `Reading::scopeOrderByDue`
                 // builds that from the same catalogue this reads.
                 //
-                // **The words and the colour come from `Due`, not from here.**
-                // This screen used to name the states itself, and knew three of
-                // the four while the page it opens knew two, which is the
-                // disagreement the enum was added to end. What is left here is
-                // the rendering, which is this screen's own.
+                // **Neither the words nor the colour are named here any
+                // more.** This screen used to name the states itself, and knew
+                // three of the four while the page it opens knew two, which is
+                // the disagreement `Due` was added to end. The colour is the
+                // state's; the words are the reading's, because rendering them
+                // needs the moment as well as the state.
                 TextColumn::make('due')
                     ->label('Due')
-                    ->state(fn (Reading $record): string => $record->due()->words($record->dueAt()))
+                    ->state(fn (Reading $record): string => $record->dueInWords())
                     ->badge()
                     ->color(fn (Reading $record): string => $record->due()->colour())
                     ->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByDue($direction)),

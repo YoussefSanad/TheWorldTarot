@@ -82,24 +82,58 @@ class Reading extends Model
      * itself, which is how the list came to know three states and the detail
      * page two. `Due` carries the argument for the set; this carries the sum.
      *
-     * **Delivered is asked first and wins.** A reading that went out two days
-     * late is delivered, not overdue, for the reason `isOverdue()` gives below.
+     * **The order the three questions are asked in is the design.** No window
+     * first, so the state means "no promise was ever made" whatever else is
+     * true of the row. Then delivered, so a reading that went out two days late
+     * is delivered rather than overdue, for the reason `isOverdue()` gives
+     * below. Only then the clock.
      *
      * Computed at read time and never stored, like everything else here.
      */
     public function due(): Due
     {
-        if ($this->isDelivered()) {
-            return Due::Delivered;
-        }
-
         $due = $this->dueAt();
 
+        // **Asked before delivery, so `NoWindow` is exactly "no promise was
+        // ever made".** The other way round, a delivered reading on a product
+        // with no window would answer `Delivered`, and a caller asking whether
+        // there is a promise to make would be told there is one.
         if ($due === null) {
             return Due::NoWindow;
         }
 
+        if ($this->isDelivered()) {
+            return Due::Delivered;
+        }
+
         return $due->isPast() ? Due::Overdue : Due::Waiting;
+    }
+
+    /**
+     * The promise, in the words somebody keeping it would use.
+     *
+     * ADR 0006 asks for it relatively, because "due in 6 hours" is a thing to
+     * act on and a timestamp is a thing to work out.
+     *
+     * **Here rather than on `Due`, because it renders two things and the enum
+     * only has one of them.** A state plus a moment handed to the enum
+     * separately is a pair that can be passed in disagreeing, which is the
+     * split this whole change exists to close, one layer up from where it was.
+     * This model holds both halves already.
+     *
+     * The list is the only screen that wants it this way. The detail page is
+     * worked from rather than scanned and says when instead.
+     */
+    public function dueInWords(): string
+    {
+        $due = $this->dueAt();
+
+        return match ($this->due()) {
+            Due::NoWindow => 'No window',
+            Due::Delivered => 'Delivered',
+            Due::Overdue => $due->diffForHumans(syntax: true, short: false).' overdue',
+            Due::Waiting => 'Due '.$due->diffForHumans(),
+        };
     }
 
     /**

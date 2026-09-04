@@ -2,8 +2,6 @@
 
 namespace App\Enums;
 
-use Carbon\CarbonInterface;
-
 /**
  * Where a reading stands against the promise made when it was asked for.
  *
@@ -33,6 +31,11 @@ enum Due
      * outstanding, not a grade on work already done, and a finished row
      * staying red is permanent noise on the one screen that has to stay
      * readable.
+     *
+     * **Beats `Overdue` and loses to `NoWindow`**, which is the order
+     * `Reading::due()` asks in and the only ordering that makes all four
+     * mean one thing. Delivered late is delivered; delivered against no
+     * promise at all was never due.
      */
     case Delivered;
 
@@ -44,6 +47,13 @@ enum Due
 
     /**
      * The product it was bought under promises no turnaround.
+     *
+     * **Asked first, and so exactly "there is no promise here".** It does not
+     * matter whether such a reading has gone: there was never a moment to be
+     * early or late against, and a state that meant "no window unless it was
+     * delivered" would be a state nobody could ask a straight question of.
+     * `ReadingOnItsWay::promise()` is the caller that needs the straight
+     * question, and it is why the order is this way round.
      *
      * **Defensive rather than reachable.** A pass grants access the moment it
      * is paid for and an add-on changes another line's wait, so neither has a
@@ -59,6 +69,12 @@ enum Due
      *
      * Neutral for the two states nothing is owed in, and the warning and
      * danger the panel uses everywhere else for the two it is.
+     *
+     * **Takes nothing and answers totally**, which is the shape
+     * `OrderStatus::colour()` and `ProductKey::fulfillment()` already have. The
+     * words a screen puts beside this need the moment as well as the state, so
+     * they are `Reading::dueInWords()`, where both halves are in one hand and
+     * cannot be passed in disagreeing with each other.
      */
     public function colour(): string
     {
@@ -66,27 +82,6 @@ enum Due
             self::Delivered, self::NoWindow => 'gray',
             self::Overdue => 'danger',
             self::Waiting => 'warning',
-        };
-    }
-
-    /**
-     * The promise in the words somebody keeping it would use.
-     *
-     * ADR 0006 asks for it relatively, because "due in 6 hours" is a thing to
-     * act on and a timestamp is a thing to work out.
-     *
-     * **The moment is passed in rather than held**, because two of these four
-     * states have no moment to count from and a state carrying a date would
-     * have to invent one for them. It is nullable for exactly that reason, and
-     * the two states that ignore it are the two that may be given null.
-     */
-    public function words(?CarbonInterface $due): string
-    {
-        return match ($this) {
-            self::Delivered => 'Delivered',
-            self::NoWindow => 'No window',
-            self::Overdue => $due->diffForHumans(syntax: true, short: false).' overdue',
-            self::Waiting => 'Due '.$due->diffForHumans(),
         };
     }
 }

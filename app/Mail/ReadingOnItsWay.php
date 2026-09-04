@@ -192,10 +192,15 @@ class ReadingOnItsWay extends QueuedMail
      *
      * **Asked of `Due` rather than of two nulls.** `Due::NoWindow` is that
      * state under the one name the panel also knows it by, and it is the only
-     * one of the four with nothing to say: a reading that has gone or gone late
-     * still had a promise made about it, and this message is written before
-     * either could be true. Past the guard the window and the moment are both
-     * there, because `NoWindow` is exactly the state in which they are not.
+     * one of the four with nothing to say: a reading that has gone, or gone
+     * late, still had a promise made about it.
+     *
+     * **This is the caller `Reading::due()` asks no-window first for.** The
+     * other order would answer `Delivered` for a delivered reading on a product
+     * with no window, and this guard would let it through to a null moment. The
+     * order there is what makes the sentence here true: past this line the
+     * window and the moment both exist, because `NoWindow` is precisely and
+     * only the state in which they do not.
      *
      * **Unreachable today and kept anyway.** Every giftable reading has a
      * window. `three-card` and `month-ahead` promise 24 hours and `in-depth`

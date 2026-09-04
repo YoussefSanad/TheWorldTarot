@@ -7,6 +7,7 @@ use App\Enums\ProductKey;
 use App\Filament\Resources\Readings\Pages\ListReadings;
 use App\Filament\Resources\Readings\Pages\ViewReading;
 use App\Filament\Resources\Readings\ReadingResource;
+use App\Mail\ReadingOnItsWay;
 use App\Models\Admin;
 use App\Models\Gift;
 use App\Models\Order;
@@ -101,6 +102,10 @@ function dueColourOnThePage(Reading $reading): string|array|null
             ->getSchema('infolist')
             ->getFlatComponents()
     )->first(fn (object $component): bool => method_exists($component, 'getName') && $component->getName() === 'due');
+
+    // Said out loud, so renaming the entry fails here with the reason rather
+    // than fataling on null somewhere further down.
+    expect($entry)->not->toBeNull('the detail page has no entry named due');
 
     return $entry->getColor($entry->getState());
 }
@@ -238,6 +243,25 @@ it('names one of four states, and being delivered beats being late', function ()
         // answer even though the clock ran out first.
         ->and($gone->refresh()->due())->toBe(Due::Delivered)
         ->and($noWindow->due())->toBe(Due::NoWindow);
+});
+
+it('says no window even on one that has gone, so a promise can be asked for straight', function () {
+    $noWindow = aReading(ProductKey::ViewingRoomPass, askedAt: now());
+
+    Livewire::test(ListReadings::class)->callTableAction('markDelivered', $noWindow);
+
+    // **The order `due()` asks its three questions in, pinned.** Delivered
+    // first would answer `Delivered` here, and `ReadingOnItsWay::promise()`
+    // reads this state as "there is a promise to make" and then reaches for a
+    // moment that does not exist. Nothing owed, nothing promised, either way
+    // round: no window is the answer whether or not it has gone.
+    expect($noWindow->refresh()->due())->toBe(Due::NoWindow);
+
+    // The consequence, rendered rather than reasoned about. It is the sentence
+    // that would have been built from a null moment.
+    $body = (new ReadingOnItsWay($noWindow))->render();
+
+    expect($body)->not->toContain('It will be with you within');
 });
 
 it('colours due the same in the list and on the page that list opens', function () {

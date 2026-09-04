@@ -84,13 +84,13 @@ class ReadingInfolist
                         // two states and the list knew three, so a reading due
                         // in six hours was orange there and neutral here.
                         //
-                        // A state with no moment to show falls back to the word
-                        // `Due` has for it, rather than to a second copy of it
-                        // written out here.
+                        // The one state with no moment to show falls back
+                        // to the words the list uses, rather than to a second
+                        // copy of them written out here.
                         TextEntry::make('due')
                             ->label('Due')
                             ->state(fn (Reading $record): string => $record->dueAt()?->format('j M Y, H:i')
-                                ?? $record->due()->words(null))
+                                ?? $record->dueInWords())
                             ->color(fn (Reading $record): string => $record->due()->colour()),
 
                         TextEntry::make('delivered_at')
