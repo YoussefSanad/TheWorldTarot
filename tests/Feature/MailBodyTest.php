@@ -244,6 +244,34 @@ it('opens without a name rather than inventing one, for a buyer who gave none', 
     }
 });
 
+it('names a product with nothing left in its name the way the panel names it', function () {
+    // The one state the receipt and the panel used to disagree about: the panel
+    // said `3 CARD READING` and this message said nothing at all where the
+    // product should be. `OrderLine::displayName()` holds why.
+    $order = Order::factory()
+        ->for(Customer::factory()->create(['email' => 'jodie@example.com', 'password' => null]))
+        ->forProduct(aProductWithNoNameLeft())
+        ->create();
+
+    Mail::to('jodie@example.com')->send(new OrderPaid($order));
+
+    $text = bodyMentioning('payment has gone through');
+    $html = theHtmlSent();
+
+    // **The same string `OrderResourceTest` pins the panel's own column to**,
+    // which is what "the same name everywhere" is worth asserting as. Neither
+    // side may name it `three-card`: that is the URL slug the `?:` sites fell
+    // back to, and it is what a customer was actually shown.
+    expect($text)->toContain('3 CARD READING')
+        ->and($text)->not->toContain('three-card')
+        ->and($html)->toContain('3 CARD READING')
+        ->and($html)->not->toContain('three-card')
+        // And the `<title>`, which is the one place a missing name renders as a
+        // blank a reader cannot see. `MailBodyTest` already guards the shape of
+        // this section; this guards what it says.
+        ->and($html)->toContain('<title>Your 3 CARD READING is on its way</title>');
+});
+
 it('gives Jennifer the address alone when the buyer gave no name', function () {
     $order = orderFrom(null, 'jennifer@example.com');
 

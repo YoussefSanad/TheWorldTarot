@@ -50,6 +50,13 @@ class GiftLookupResource extends JsonResource
             // Cast to string for the reason `ProductResource` gives: a
             // translatable attribute is an array of locales underneath, and the
             // cast is what stops the specification describing these as arrays.
+            //
+            // **The raw value, and not `OrderLine::displayName()`**, which every
+            // other caller moved to on 4 September 2026. All three fields here
+            // are the catalogue's own copy travelling with the answer, and the
+            // frontend partner reads them as such. Substituting a fallback into
+            // one of the three would change the API contract and leave the
+            // other two blank beside it.
             'name' => (string) $line->product->name,
             'short_description' => (string) $line->product->short_description,
             'long_description' => (string) $line->product->long_description,

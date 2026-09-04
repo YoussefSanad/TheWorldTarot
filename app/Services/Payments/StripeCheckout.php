@@ -112,11 +112,16 @@ class StripeCheckout implements PaymentGateway
     /**
      * What the hosted page calls this, which is the only thing on it a customer
      * reads.
+     *
+     * **The one caller that guards for no line at all**, because an order with
+     * nothing on it has nothing to name and `displayName()` is a line's answer.
+     * Nothing places an empty order today, and a payment page that says nothing
+     * would be worse than the sentence below.
      */
     private function whatTheyAreBuying(Order $order): string
     {
         $line = $order->lines->first();
 
-        return $line?->product?->name ?? $line?->product_key?->defaultName() ?? 'Your order';
+        return $line?->displayName() ?? 'Your order';
     }
 }

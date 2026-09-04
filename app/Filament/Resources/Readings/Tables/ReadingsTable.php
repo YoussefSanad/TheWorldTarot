@@ -47,7 +47,7 @@ class ReadingsTable
 
                 TextColumn::make('orderLine.product_key')
                     ->label('Reading')
-                    ->formatStateUsing(fn (Reading $record): string => self::nameOf($record)),
+                    ->formatStateUsing(fn (Reading $record): string => $record->orderLine->displayName()),
 
                 // **Captured, not joined.** A gift's querent may have no
                 // customers row at all and deliberately never gets one, so the
@@ -136,6 +136,45 @@ class ReadingsTable
             });
     }
 
+    /**
+     * The promise, in the words somebody keeping it would use.
+     *
+     * ADR 0006 asks for it relatively, because "due in 6 hours" is a thing to
+     * act on and a timestamp is a thing to work out.
+     */
+    private static function dueInWords(Reading $record): string
+    {
+        if ($record->isDelivered()) {
+            return 'Delivered';
+        }
+
+        $due = $record->dueAt();
+
+        // Nothing with a null delivery window has a reading, so this is
+        // defensive rather than reachable. It says so rather than guessing.
+        if ($due === null) {
+            return 'No window';
+        }
+
+        return $due->isPast()
+            ? $due->diffForHumans(syntax: true, short: false).' overdue'
+            : 'Due '.$due->diffForHumans();
+    }
+
+    /**
+     * **Neutral once it has gone.** Overdue is a question about work
+     * outstanding, not a grade on work already done, and a finished row staying
+     * red is permanent noise on the one screen that has to stay readable.
+     */
+    private static function dueColour(Reading $record): string
+    {
+        if ($record->isDelivered()) {
+            return 'gray';
+        }
+
+        return $record->isOverdue() ? 'danger' : 'warning';
+    }
+  
     /**
      * What the customer sees this reading called, falling back to the key it
      * was bought under if the row has since been retired.

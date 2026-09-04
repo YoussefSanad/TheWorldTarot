@@ -139,20 +139,10 @@ class ReadingOnItsWay extends QueuedMail
             // loudly: the message still sends and still reads as prose.
             //
             // The catalogue's name, in this gift's language, because the
-            // enclosing `withLocale` is open while this runs.
-            //
-            // **The fallback is defensive and not reachable**, which is worth
-            // saying because the obvious reason to write it is wrong. A reading
-            // withdrawn since it was bought still resolves here: products soft
-            // delete precisely so an order can go on naming them and
-            // `OrderLine::product()` carries `withTrashed()` for it, while
-            // `order_lines.product_id` is NOT NULL behind `restrictOnDelete`.
-            // An untranslated locale does not reach it either, since
-            // `spatie/laravel-translatable` answers the fallback locale. It is
-            // kept for the reason `Reading::dueAt()` keeps its own null branch:
-            // a message that cannot name what was asked for is worse than one
-            // naming it with a key.
-            'readingName' => $line->product?->name ?? $line->product_key->value,
+            // enclosing `withLocale` is open while this runs. What it falls
+            // back to when a product has no name left in it is
+            // `OrderLine::displayName()`'s to say, and is said there once.
+            'readingName' => $line->displayName(),
 
             // Hers, and never `order_lines.question`, which is null on a gift
             // line. `CONTEXT.md` keeps those two apart as the question of
@@ -167,9 +157,8 @@ class ReadingOnItsWay extends QueuedMail
             // **The subtitle is the catalogue's second line and not a
             // description of the reading**, the same one the receipt's card and
             // the present's card carry. Off the key rather than the product,
-            // for the reason the name above falls back to it: a reading
-            // withdrawn since it was bought is still owed, and the row naming
-            // it may be gone.
+            // because a reading withdrawn since it was bought is still owed and
+            // the row naming it may be gone.
             'subtitle' => $line->product_key->emailSubtitle(),
             'assets' => config('mail.assets.url'),
             'site' => rtrim((string) config('frontend.url'), '/'),

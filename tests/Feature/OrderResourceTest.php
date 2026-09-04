@@ -55,6 +55,20 @@ it('no longer shows what somebody asked, because that is the readings screen', f
         ->assertDontSee('Will the move be right for me?');
 });
 
+it('names a product with nothing left in its name, and names it the way the receipt does', function () {
+    $order = Order::factory()->forProduct(aProductWithNoNameLeft())->create();
+
+    // **The panel half of the assertion `MailBodyTest` makes about the same
+    // fixture.** Both sides call `OrderLine::displayName()` now, so they cannot
+    // drift, and both are pinned to the one string the client signed off rather
+    // than to each other. `three-card` is the URL slug this column used to fall
+    // back to, which is the disagreement that started this.
+    Livewire::test(ListOrders::class)
+        ->assertCanSeeTableRecords([$order])
+        ->assertSee('3 CARD READING')
+        ->assertDontSee('three-card');
+});
+
 /*
 | Marking an order paid by hand.
 |
