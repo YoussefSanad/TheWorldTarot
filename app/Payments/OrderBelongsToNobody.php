@@ -14,8 +14,8 @@ use RuntimeException;
  * open. What it may not do is become paid that way: a pass is granted to a
  * customer, a receipt is addressed to one, and a claim link invites one to set
  * a password. `RecordStripePayment` attaches the buyer before the transition
- * for exactly that reason, and answers false rather than settling if it
- * cannot.
+ * for exactly that reason, and answers `Recording::BuyerUnknown` rather than
+ * settling if it cannot.
  *
  * Reaching `MarkOrderPaid` regardless means a road into settlement was added
  * that skipped that step, which is worth an exception rather than a quiet
