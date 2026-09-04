@@ -11,22 +11,15 @@ uses(RefreshDatabase::class);
 /*
 | What a line is called, on every screen and in every message that names one.
 |
-| **Fourteen call sites said this three different ways.** Seven fell back with
-| `??`, four with `?:`, one reached for the catalogue's default and two had no
-| fallback at all, and the three chains disagreed about what to fall back to as
-| well as about when. `product_key->value` is `three-card` and
-| `ProductKey::defaultName()` is `3 CARD READING`, so one product was named two
-| different things to one customer on two different screens.
+| The rule and why it reads for emptiness rather than null are
+| `OrderLine::displayName()`'s to state, and `.claude/translation.md` section 6
+| is the standard behind it: a missing translation reads as an empty string, so
+| the seven sites that fell back with `??` never fell back at all.
 |
-| **`??` never fires, and that is the defect rather than the untidiness.**
-| `Product::$name` is translatable, and `spatie/laravel-translatable` answers
-| the empty string, never null, when the read locale and the `en` fallback are
-| both blank. So `?:` fell back and `??` did not: a product whose name is blank
-| was named in the panel and nameless in the customer's mail.
-|
-| The empty case below is what pins that down, and it is built by writing an
-| empty string into `en` rather than by clearing the column, because the column
-| is `jsonb NOT NULL` and a cleared one resolves to the same empty string.
+| **Here rather than in `tests/Unit`**, which is where `.claude/testing.md`
+| routes a translation fallback. This one cannot be isolated from the framework:
+| the empty state only exists once a `jsonb` column has been written and read
+| back, so it needs the database, as every other model test here does.
 */
 
 /**
@@ -34,11 +27,12 @@ uses(RefreshDatabase::class);
  *
  * Read back off the order rather than made directly, so the line under test
  * carries the key and the price captured from the catalogue the way a
- * purchased one does.
+ * purchased one does. Sole rather than first: these orders hold one line, and
+ * a second arriving should fail here rather than quietly name the wrong one.
  */
 function aLineFor(Product $product): OrderLine
 {
-    return Order::factory()->forProduct($product)->create()->lines->first();
+    return Order::factory()->forProduct($product)->create()->lines->sole();
 }
 
 it('calls a line what the client called the product', function () {
@@ -48,16 +42,22 @@ it('calls a line what the client called the product', function () {
 });
 
 it('falls back to the signed-off name when the product has none in any locale', function () {
-    $product = Product::factory()->create(['key' => ProductKey::ThreeCard]);
-    $product->setTranslation('name', 'en', '')->save();
-
-    $line = aLineFor($product)->fresh();
+    $line = aLineFor(aProductWithNoNameLeft())->fresh();
 
     // **The catalogue's default, and never the key.** `3 CARD READING` is copy
     // off the homepage tile that the client signed off. `three-card` is a URL
     // slug, and it reached a customer's inbox by accident.
     expect($line->displayName())->toBe('3 CARD READING')
         ->and($line->displayName())->not->toBe(ProductKey::ThreeCard->value);
+});
+
+it('treats a name somebody typed a space into as no name at all', function () {
+    // **Wider than the empty string, deliberately.** Jennifer types these by
+    // hand, and a name of one space renders as the same missing word as a name
+    // of nothing. `filled()` is what makes the two behave alike.
+    $line = aLineFor(Product::factory()->create(['key' => ProductKey::MonthAhead, 'name' => ['en' => '   ']]));
+
+    expect($line->fresh()->displayName())->toBe('MONTH AHEAD');
 });
 
 it('still names a reading that has since been retired', function () {

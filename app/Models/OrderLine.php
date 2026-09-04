@@ -64,8 +64,14 @@ class OrderLine extends Model
      * `spatie/laravel-translatable` answers the empty string rather than null
      * when the read locale and the `en` fallback are both blank. So a null
      * check never fired: a product whose name was blank was named in the panel
-     * and nameless in the customer's mail. Blank rather than empty, because a
-     * name somebody has typed a space into renders as the same missing word.
+     * and nameless in the customer's mail. **This was already written down.**
+     * `.claude/translation.md` section 6 says never to test for a missing
+     * translation with `=== null`, and seven call sites did it anyway, which is
+     * the argument for one method over a convention.
+     *
+     * Blank rather than empty, because a name somebody has typed a space into
+     * renders as the same missing word. Wider than the defect, and tested as
+     * its own case rather than left as a side effect of `filled()`.
      *
      * **The catalogue's default and never the key.** `3 CARD READING` is copy
      * off the homepage tile that the client signed off. `three-card` is a URL

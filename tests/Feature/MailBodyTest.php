@@ -245,17 +245,12 @@ it('opens without a name rather than inventing one, for a buyer who gave none', 
 });
 
 it('names a product with nothing left in its name the way the panel names it', function () {
-    // Blank in the read locale and blank in `en`, which is the one state the
-    // receipt and the panel used to disagree about. `??` never fired, because a
-    // translatable attribute resolves to the empty string rather than to null,
-    // so the panel said `3 CARD READING` and this message said nothing at all
-    // where the product should be.
-    $product = Product::factory()->create(['key' => ProductKey::ThreeCard]);
-    $product->setTranslation('name', 'en', '')->save();
-
+    // The one state the receipt and the panel used to disagree about: the panel
+    // said `3 CARD READING` and this message said nothing at all where the
+    // product should be. `OrderLine::displayName()` holds why.
     $order = Order::factory()
         ->for(Customer::factory()->create(['email' => 'jodie@example.com', 'password' => null]))
-        ->forProduct($product)
+        ->forProduct(aProductWithNoNameLeft())
         ->create();
 
     Mail::to('jodie@example.com')->send(new OrderPaid($order));
@@ -263,9 +258,10 @@ it('names a product with nothing left in its name the way the panel names it', f
     $text = bodyMentioning('payment has gone through');
     $html = theHtmlSent();
 
-    // **The same string `OrderLineTest` pins the panel to**, which is what
-    // "the same name everywhere" is worth asserting as. `three-card` is the URL
-    // slug the `?:` sites fell back to, and it is what a customer was shown.
+    // **The same string `OrderResourceTest` pins the panel's own column to**,
+    // which is what "the same name everywhere" is worth asserting as. Neither
+    // side may name it `three-card`: that is the URL slug the `?:` sites fell
+    // back to, and it is what a customer was actually shown.
     expect($text)->toContain('3 CARD READING')
         ->and($text)->not->toContain('three-card')
         ->and($html)->toContain('3 CARD READING')

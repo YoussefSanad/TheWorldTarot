@@ -185,6 +185,29 @@ function stripeCharge(?array $billing, ?array &$asked = null): PaymentIntentServ
 }
 
 /**
+ * A product with no name left in it, in the read locale or in `en`.
+ *
+ * **Here rather than in one test file**, because the panel, the receipt and the
+ * model all have to agree about what this is called, and a fixture built twice
+ * is a fixture two suites can drift apart on. It was written in `OrderLineTest`
+ * first.
+ *
+ * **Written as an empty string rather than cleared**, since `name` is
+ * `jsonb NOT NULL` and both spellings resolve the same way. `.claude/translation.md`
+ * section 6 has the rule this exists to exercise.
+ *
+ * `three-card` because its default name and its key are unmistakably different
+ * strings, which is the whole question: `3 CARD READING` against `three-card`.
+ */
+function aProductWithNoNameLeft(): Product
+{
+    $product = Product::factory()->create(['key' => ProductKey::ThreeCard]);
+    $product->setTranslation('name', 'en', '')->save();
+
+    return $product;
+}
+
+/**
  * An order for one product, priced the same in every currency.
  *
  * **Here rather than in one test file**, since both Stripe gateways are handed

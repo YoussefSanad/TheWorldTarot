@@ -156,9 +156,8 @@ class ReadingOnItsWay extends QueuedMail
             // **The subtitle is the catalogue's second line and not a
             // description of the reading**, the same one the receipt's card and
             // the present's card carry. Off the key rather than the product,
-            // for the reason `OrderLine::displayName()` gives: a reading
-            // withdrawn since it was bought is still owed, and the row naming
-            // it may be gone.
+            // because a reading withdrawn since it was bought is still owed and
+            // the row naming it may be gone.
             'subtitle' => $line->product_key->emailSubtitle(),
             'assets' => config('mail.assets.url'),
             'site' => rtrim((string) config('frontend.url'), '/'),
