@@ -31,11 +31,18 @@ class ReadingsTable
                 // cannot be done in PHP, since it has to order rows the
                 // database has not sent yet, and `Reading::scopeOrderByDue`
                 // builds that from the same catalogue this reads.
+                //
+                // **Neither the words nor the colour are named here any
+                // more.** This screen used to name the states itself, and knew
+                // three of the four while the page it opens knew two, which is
+                // the disagreement `Due` was added to end. The colour is the
+                // state's; the words are the reading's, because rendering them
+                // needs the moment as well as the state.
                 TextColumn::make('due')
                     ->label('Due')
-                    ->state(fn (Reading $record): string => self::dueInWords($record))
+                    ->state(fn (Reading $record): string => $record->dueInWords())
                     ->badge()
-                    ->color(fn (Reading $record): string => self::dueColour($record))
+                    ->color(fn (Reading $record): string => $record->due()->colour())
                     ->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByDue($direction)),
 
                 TextColumn::make('orderLine.product_key')
@@ -127,45 +134,6 @@ class ReadingsTable
                     ->title($changed ? 'Marked delivered' : 'That reading had already gone')
                     ->send();
             });
-    }
-
-    /**
-     * The promise, in the words somebody keeping it would use.
-     *
-     * ADR 0006 asks for it relatively, because "due in 6 hours" is a thing to
-     * act on and a timestamp is a thing to work out.
-     */
-    private static function dueInWords(Reading $record): string
-    {
-        if ($record->isDelivered()) {
-            return 'Delivered';
-        }
-
-        $due = $record->dueAt();
-
-        // Nothing with a null delivery window has a reading, so this is
-        // defensive rather than reachable. It says so rather than guessing.
-        if ($due === null) {
-            return 'No window';
-        }
-
-        return $due->isPast()
-            ? $due->diffForHumans(syntax: true, short: false).' overdue'
-            : 'Due '.$due->diffForHumans();
-    }
-
-    /**
-     * **Neutral once it has gone.** Overdue is a question about work
-     * outstanding, not a grade on work already done, and a finished row staying
-     * red is permanent noise on the one screen that has to stay readable.
-     */
-    private static function dueColour(Reading $record): string
-    {
-        if ($record->isDelivered()) {
-            return 'gray';
-        }
-
-        return $record->isOverdue() ? 'danger' : 'warning';
     }
 
     /**
