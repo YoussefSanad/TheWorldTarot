@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Enums\Recording;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Payments\BuyerIdentity;
@@ -34,11 +35,17 @@ class RecordStripePayment
     ) {}
 
     /**
-     * @return bool Whether this call is the one that changed anything. False
-     *              covers a payment that did not succeed, an order nobody here
-     *              has, a mismatch, and a redelivery of something already done.
+     * @return Recording Which of the six things happened.
+     *
+     * **~~A bool, whether this call is the one that changed anything.~~
+     * Replaced 4 September 2026.** Six outcomes answered one of two words, so
+     * the only place they could be told apart was `Log::error`, and
+     * `orders:reconcile` rendered every `false` as `Still {status} at Stripe`.
+     * On a refused mismatch that status **is** `succeeded`, so the one console
+     * a person actually watches reported a settlement this action had turned
+     * away as a payment quietly in flight. See `Recording`.
      */
-    public function __invoke(StripePayment $payment): bool
+    public function __invoke(StripePayment $payment): Recording
     {
         if (! $payment->succeeded()) {
             // The customer's card was refused, or the payment is still in
@@ -48,7 +55,7 @@ class RecordStripePayment
                 'status' => $payment->status,
             ]);
 
-            return false;
+            return Recording::NotSucceededYet;
         }
 
         $order = $payment->orderId === null ? null : Order::find($payment->orderId);
@@ -62,7 +69,7 @@ class RecordStripePayment
                 'order_id' => $payment->orderId,
             ]);
 
-            return false;
+            return Recording::NotOurs;
         }
 
         if (! $payment->matches($order->total_amount, $order->currency)) {
@@ -80,7 +87,11 @@ class RecordStripePayment
                 'order_currency' => $order->currency,
             ]);
 
-            return false;
+            // **Named rather than merely logged, and this is the line the
+            // outcome type exists for.** A refusal here used to answer the
+            // same `false` a card still being authorised answers with, and the
+            // sweep prints what it is handed.
+            return Recording::AmountMismatch;
         }
 
         // Recorded before the transition, so an order that is marked paid is
@@ -97,13 +108,22 @@ class RecordStripePayment
         // the transition addresses a customer, so this has to be settled
         // before it and not inside it.
         if (! $this->identify($order)) {
-            return false;
+            return Recording::BuyerUnknown;
         }
 
         // **The one transition.** It locks the row, moves only from pending,
         // grants access inside the transaction and queues mail after commit, so
         // a redelivery finds the work done and does nothing.
-        return ($this->markPaid)($order);
+        //
+        // **`MarkOrderPaid` keeps its bool and this is where it is read.**
+        // Theirs means one thing, "this call is the one that changed
+        // anything", and there are genuinely only two answers to it. What is
+        // added here is which of the two, said out loud, so a redelivery is
+        // reported as work already done rather than as a payment nobody has
+        // finished collecting.
+        return ($this->markPaid)($order)
+            ? Recording::Settled
+            : Recording::AlreadySettled;
     }
 
     /**

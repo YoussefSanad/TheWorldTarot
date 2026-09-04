@@ -356,3 +356,84 @@ it('is scheduled to run, without a second sweep beside it', function () {
     expect($event->expression)->toBe('*/5 * * * *')
         ->and($event->withoutOverlapping)->toBeTrue();
 });
+
+/**
+ * **The sentence this file exists to stop the sweep printing.** A mismatch is
+ * a settlement `RecordStripePayment` refused and wrote to `Log::error`, and the
+ * console said `Still succeeded at Stripe`, which is what an operator reads as
+ * a payment in flight. Nobody is watching the log, so the one place the fault
+ * was visible said the opposite of what happened.
+ *
+ * The assertion is on the word rather than on the whole sentence, because any
+ * rendering that puts Stripe's `succeeded` in front of somebody about an order
+ * that was refused is the same defect wearing different words.
+ */
+it('never calls a refused settlement a payment still in flight', function () {
+    $order = awaitingPayment('pi_wrong_amount');
+    stripeHolding(['pi_wrong_amount' => succeededIntent($order, amount: 100)]);
+
+    $this->artisan('orders:reconcile')
+        ->doesntExpectOutputToContain('succeeded')
+        ->assertSuccessful();
+});
+
+/**
+ * What it says instead. A mismatch is a settlement this application turned
+ * away, and the console is the only place an operator is looking.
+ */
+it('says an amount that disagrees was refused rather than left waiting', function () {
+    $order = awaitingPayment('pi_wrong_amount');
+    stripeHolding(['pi_wrong_amount' => succeededIntent($order, amount: 100)]);
+
+    $this->artisan('orders:reconcile')
+        ->expectsOutputToContain('Refused')
+        ->assertSuccessful();
+});
+
+/**
+ * **A fault is reported the way an unreachable Stripe already is**, and for the
+ * same reason: the two-column detail is a status line somebody skims, and this
+ * is a customer who has been charged and has not been served. It reached
+ * `Log::error` and nowhere else, which is a channel nobody is watching.
+ */
+it('reports a refused settlement as an error and not as a status line', function () {
+    $order = awaitingPayment('pi_wrong_amount');
+    stripeHolding(['pi_wrong_amount' => succeededIntent($order, amount: 100)]);
+
+    $this->artisan('orders:reconcile')
+        ->expectsOutputToContain('Order '.$order->id.' was not settled')
+        ->assertSuccessful();
+});
+
+/**
+ * **The race, which is the rarest of the six and the one that reads worst.**
+ * The sweep loads a pending order, a webhook settles it a moment later, and
+ * `MarkOrderPaid` refuses the second transition. Nothing is wrong and nobody
+ * needs to do anything, but the console used to answer `Still succeeded at
+ * Stripe` about an order that had been paid for seconds earlier.
+ *
+ * Driven by settling the order inside the Stripe call, which is exactly where
+ * the real race lands: after the query that selected it and before the
+ * settlement that finds the work done.
+ */
+it('says an order was settled by something else rather than still waiting', function () {
+    $order = awaitingPayment('pi_raced');
+
+    $service = Mockery::mock(PaymentIntentService::class);
+    $service->shouldReceive('retrieve')->andReturnUsing(
+        function (string $id) use ($order): PaymentIntent {
+            $order->forceFill(['status' => OrderStatus::Paid, 'paid_at' => now()])->save();
+
+            return PaymentIntent::constructFrom(array_merge(
+                ['id' => $id, 'object' => 'payment_intent'],
+                succeededIntent($order),
+            ));
+        },
+    );
+
+    substitutedStripe($service);
+
+    $this->artisan('orders:reconcile')
+        ->expectsOutputToContain('Already settled')
+        ->assertSuccessful();
+});
