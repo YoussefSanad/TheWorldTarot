@@ -158,6 +158,33 @@ class Reading extends Model
     }
 
     /**
+     * The readings still to be written.
+     *
+     * **Asked here rather than spelled out at each call site**, exactly as
+     * `Gift::scopeOutstanding()` is, and for the reason `CONTEXT.md` gives
+     * about `Customer::isUnclaimed()`. The readings screen asks this twice,
+     * from its badge and from the filter that badge opens on. Neither used to
+     * say it here: the badge wrote the column out and the filter let Filament
+     * derive it from the column name, which is not raw SQL and was still a
+     * second place the predicate lived. A sidebar number disagreeing with the
+     * list under it is the one failure on this screen that goes wrong
+     * silently, since both halves look right on their own.
+     *
+     * **Everything undelivered, overdue included.** Named off the filter's
+     * own `Still to write` rather than as `waiting`, because `Due::Waiting`
+     * already means something narrower on this model: owed and not yet late.
+     * The badge counts work outstanding, and a count that dropped a reading the
+     * moment it went past its window would fall as the situation got worse.
+     *
+     * @param  Builder<Reading>  $query
+     * @return Builder<Reading>
+     */
+    public function scopeStillToWrite(Builder $query): Builder
+    {
+        return $query->whereNull('delivered_at');
+    }
+
+    /**
      * Oldest promise first, or last.
      *
      * **Due has to be computed in SQL as well as in PHP, and the two are one

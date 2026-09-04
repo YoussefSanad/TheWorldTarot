@@ -94,7 +94,19 @@ class ReadingsTable
                     ->placeholder('All readings')
                     ->trueLabel('Already delivered')
                     ->falseLabel('Still to write')
-                    ->nullable(),
+
+                    // **Still to write is `Reading::scopeStillToWrite`**, and
+                    // not a second spelling of it here, exactly as Gifts wires
+                    // `scopeOutstanding`. Filament would build the null query
+                    // itself off the column name, which is not raw SQL and is
+                    // still a second place the predicate lives. The badge
+                    // counts this scope, and a number in the sidebar that
+                    // could disagree with the list it opens is worse than no
+                    // number.
+                    ->queries(
+                        true: fn (Builder $query): Builder => $query->whereNotNull('delivered_at'),
+                        false: fn (Builder $query): Builder => $query->stillToWrite(),
+                    ),
             ])
             ->recordActions([
                 self::markDelivered(),

@@ -98,7 +98,7 @@ class ReadingResource extends Resource
      */
     public static function getNavigationBadge(): ?string
     {
-        $waiting = Reading::whereNull('delivered_at')->count();
+        $waiting = Reading::stillToWrite()->count();
 
         return $waiting > 0 ? (string) $waiting : null;
     }
