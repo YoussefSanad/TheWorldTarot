@@ -31,11 +31,18 @@ class ReadingsTable
                 // cannot be done in PHP, since it has to order rows the
                 // database has not sent yet, and `Reading::scopeOrderByDue`
                 // builds that from the same catalogue this reads.
+                //
+                // **Neither the words nor the colour are named here any
+                // more.** This screen used to name the states itself, and knew
+                // three of the four while the page it opens knew two, which is
+                // the disagreement `Due` was added to end. The colour is the
+                // state's; the words are the reading's, because rendering them
+                // needs the moment as well as the state.
                 TextColumn::make('due')
                     ->label('Due')
-                    ->state(fn (Reading $record): string => self::dueInWords($record))
+                    ->state(fn (Reading $record): string => $record->dueInWords())
                     ->badge()
-                    ->color(fn (Reading $record): string => self::dueColour($record))
+                    ->color(fn (Reading $record): string => $record->due()->colour())
                     ->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByDue($direction)),
 
                 TextColumn::make('orderLine.product_key')
@@ -166,6 +173,17 @@ class ReadingsTable
         }
 
         return $record->isOverdue() ? 'danger' : 'warning';
+    }
+  
+    /**
+     * What the customer sees this reading called, falling back to the key it
+     * was bought under if the row has since been retired.
+     */
+    private static function nameOf(Reading $record): string
+    {
+        $line = $record->orderLine;
+
+        return $line->product?->name ?: $line->product_key->value;
     }
 
     private static function firstLineOf(Reading $record): ?string

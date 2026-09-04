@@ -3,6 +3,7 @@
 use App\Actions\MarkOrderPaid;
 use App\Actions\RecordStripePayment;
 use App\Enums\OrderStatus;
+use App\Enums\Recording;
 use App\Mail\OrderPaid;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
@@ -10,7 +11,6 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Payments\OrderBelongsToNobody;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Stripe\Service\PaymentIntentService;
 
@@ -55,7 +55,7 @@ it('attaches the buyer Stripe collected and settles the order', function () {
     $order = unownedOrderWorth(2500);
     stripeAnswering([['email' => 'Jennifer@Example.com', 'name' => 'Jennifer Eisenberger']]);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeTrue();
+    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::Settled);
 
     $order->refresh();
 
@@ -134,7 +134,7 @@ it('never overwrites an identity the order already carried', function () {
     // No sessions service at all, so reaching for one would fail the test.
     substitutedStripe(Mockery::mock(PaymentIntentService::class));
 
-    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeTrue()
+    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::Settled)
         ->and($order->refresh()->customer_id)->toBe($customer->id);
 });
 
@@ -153,16 +153,14 @@ it('leaves the name empty for one Stripe did not collect', function () {
     expect($order->refresh()->customer->name)->toBeNull();
 });
 
-it('leaves the order pending and shouts when Stripe names nobody', function () {
-    Log::spy();
-
+it('leaves the order pending when Stripe names nobody', function () {
     $order = unownedOrderWorth(2500);
 
     // No Session, and a charge that names nobody either. Both sources
     // exhausted, which is the only shape that leaves an order pending.
     stripeAnswering([], charge: stripeCharge(null));
 
-    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeFalse();
+    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::BuyerUnknown);
 
     $order->refresh();
 
@@ -176,19 +174,13 @@ it('leaves the order pending and shouts when Stripe names nobody', function () {
 
     Mail::assertNothingSent();
     Mail::assertNothingQueued();
-
-    // Once, for the order left pending. The charge answered, it simply named
-    // nobody, so nothing shouted about reaching Stripe.
-    Log::shouldHaveReceived('error')->once();
 });
 
 it('leaves the order pending when the session collected no address', function () {
-    Log::spy();
-
     $order = unownedOrderWorth(2500);
     stripeAnswering([['email' => null, 'name' => 'Jennifer']], charge: stripeCharge(null));
 
-    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeFalse()
+    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::BuyerUnknown)
         ->and($order->refresh()->status)->toBe(OrderStatus::Pending);
 
     // A name with no address cannot make an account, because the address is
@@ -200,11 +192,11 @@ it('settles on a later attempt once Stripe can say who paid', function () {
     $order = unownedOrderWorth(2500);
     stripeAnswering([], charge: stripeCharge(null));
 
-    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeFalse();
+    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::BuyerUnknown);
 
     stripeAnswering([['email' => 'jennifer@example.com', 'name' => 'Jennifer']]);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeTrue()
+    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::Settled)
         ->and($order->refresh()->status)->toBe(OrderStatus::Paid);
 });
 
@@ -214,10 +206,10 @@ it('settles an unowned order exactly once however many times it is redelivered',
     $order = unownedOrderWorth(2500, product: Product::factory()->pass());
     stripeAnswering([['email' => 'jennifer@example.com', 'name' => 'Jennifer']]);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBeTrue()
+    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::Settled)
         // A redelivery finds the work done. It does not make a second account
         // and does not send a second receipt.
-        ->and(app(RecordStripePayment::class)(paymentFor($order)))->toBeFalse()
+        ->and(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::AlreadySettled)
         ->and(Customer::count())->toBe(1);
 
     // One receipt and one claim link. Not two of either. Nothing goes to
@@ -235,4 +227,38 @@ it('refuses to settle an order that reached the transition holding nobody', func
         ->toThrow(OrderBelongsToNobody::class);
 
     expect($order->refresh()->status)->toBe(OrderStatus::Pending);
+});
+
+/**
+ * **The two answers that used to be the same `false`.**
+ *
+ * One is a fault: somebody has been charged, Stripe named nobody, and the order
+ * is sitting pending waiting for a person to be found. The other is a success:
+ * the work was already done and a redelivery found it done. Reported to an
+ * operator as one word, they are indistinguishable, which is how
+ * `orders:reconcile` came to print a refused settlement as a healthy one.
+ *
+ * **Asserted on the return value alone**, with no `Log` spy anywhere near it.
+ * The log line is still written by the action and is still the record. It is no
+ * longer the only place the difference exists.
+ */
+it('tells a buyer nobody could name apart from an order already settled', function () {
+    $unknown = unownedOrderWorth(2500);
+    stripeAnswering([], charge: stripeCharge(null));
+
+    $refused = app(RecordStripePayment::class)(paymentFor($unknown));
+
+    $settled = unownedOrderWorth(2500, 'pi_second');
+    stripeAnswering([['email' => 'jennifer@example.com', 'name' => 'Jennifer']]);
+
+    app(RecordStripePayment::class)(paymentFor($settled, 'pi_second'));
+    $redelivered = app(RecordStripePayment::class)(paymentFor($settled, 'pi_second'));
+
+    expect($refused)->toBe(Recording::BuyerUnknown)
+        ->and($redelivered)->toBe(Recording::AlreadySettled)
+        ->and($refused)->not->toBe($redelivered)
+        // And the difference has a name rather than being two shades of the
+        // same word: one is a fault somebody has to see, the other is not.
+        ->and($refused->fault())->toBeTrue()
+        ->and($redelivered->fault())->toBeFalse();
 });

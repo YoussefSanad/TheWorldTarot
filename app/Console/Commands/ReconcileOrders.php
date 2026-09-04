@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\RecordStripePayment;
+use App\Enums\Recording;
 use App\Models\Order;
 use App\Payments\StripePayment;
 use Illuminate\Console\Command;
@@ -97,8 +98,35 @@ class ReconcileOrders extends Command
         // The one settlement path, shared with the webhook. It checks the
         // amount and the currency, and MarkOrderPaid underneath it locks the
         // row and refuses a second transition, so sweeping twice is free.
-        return $record($payment)
-            ? 'Paid, and settled by this sweep'
-            : 'Still '.$payment->status.' at Stripe';
+        $recording = $record($payment);
+
+        // **A `match` with no default arm, and that is the point of it.**
+        // ~~`$record($payment) ? ... : 'Still '.$payment->status.' at
+        // Stripe'`.~~ **Replaced 4 September 2026.** Five outcomes reached the
+        // second branch and it described one of them, so a mismatch this
+        // application refused was printed as `Still succeeded at Stripe`:
+        // Stripe's status on a refused settlement genuinely is `succeeded`.
+        // A seventh outcome added to `Recording` now stops this command
+        // running rather than inheriting a sentence written about something
+        // else.
+        $said = match ($recording) {
+            Recording::Settled => 'Paid, and settled by this sweep',
+            Recording::AlreadySettled => 'Already settled, and this sweep found the work done',
+            Recording::NotSucceededYet => 'Still '.$payment->status.' at Stripe',
+            Recording::NotOurs => 'Not an order this environment holds',
+            Recording::AmountMismatch => 'Refused, what Stripe collected does not match this order',
+            Recording::BuyerUnknown => 'Refused, Stripe named nobody to settle it for',
+        };
+
+        // **Loud for a fault, the way an unreachable Stripe already is above.**
+        // Somebody has been charged and has not been served, and the column
+        // this returns into is a status line people skim. Which outcomes are
+        // faults is `Recording`'s to say, so nothing here enumerates them a
+        // second time and the console cannot come to disagree with the action.
+        if ($recording->fault()) {
+            $this->error('Order '.$order->id.' was not settled. '.$said.'.');
+        }
+
+        return $said;
     }
 }

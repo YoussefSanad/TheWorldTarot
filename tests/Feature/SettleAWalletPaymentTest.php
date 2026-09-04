@@ -2,6 +2,7 @@
 
 use App\Actions\RecordStripePayment;
 use App\Enums\OrderStatus;
+use App\Enums\Recording;
 use App\Mail\OrderPaid;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
@@ -54,7 +55,7 @@ it('attaches the buyer the wallet collected on the charge, and settles the order
     $order = unownedOrderWorth(2500, 'pi_wallet');
     stripeWithNoSessionAndACharge(['email' => 'Jennifer@Example.com', 'name' => 'Jennifer Eisenberger']);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeTrue();
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::Settled);
 
     $order->refresh();
 
@@ -83,7 +84,7 @@ it('settles a wallet payment without logging an error at all', function () {
     $order = unownedOrderWorth(2500, 'pi_wallet');
     stripeWithNoSessionAndACharge(['email' => 'jennifer@example.com', 'name' => 'Jennifer']);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeTrue()
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::Settled)
         ->and($order->refresh()->status)->toBe(OrderStatus::Paid);
 
     // Not merely "not the pending line". An empty Session list is the normal
@@ -130,7 +131,7 @@ it('tries the checkout session first and never reaches the charge when it answer
         stripeSessions([['email' => 'session@example.com', 'name' => 'From The Session']]),
     );
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_hosted_shape')))->toBeTrue()
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_hosted_shape')))->toBe(Recording::Settled)
         ->and($order->refresh()->customer->email)->toBe('session@example.com');
 });
 
@@ -174,8 +175,8 @@ it('settles a wallet payment exactly once however many times it is redelivered',
     $order = unownedOrderWorth(2500, 'pi_wallet', Product::factory()->pass());
     stripeWithNoSessionAndACharge(['email' => 'jennifer@example.com', 'name' => 'Jennifer']);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeTrue()
-        ->and(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeFalse()
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::Settled)
+        ->and(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::AlreadySettled)
         ->and(Customer::count())->toBe(1);
 
     Mail::assertQueued(OrderPaid::class, 1);
@@ -196,7 +197,7 @@ it('leaves the order pending and names both sources when neither has anybody', f
     $order = unownedOrderWorth(2500, 'pi_wallet');
     stripeWithNoSessionAndACharge(null);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeFalse();
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::BuyerUnknown);
 
     $order->refresh();
 
@@ -219,7 +220,7 @@ it('leaves the order pending when the charge carries no email', function () {
     $order = unownedOrderWorth(2500, 'pi_wallet');
     stripeWithNoSessionAndACharge(['email' => null, 'name' => 'Jennifer']);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeFalse()
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::BuyerUnknown)
         ->and($order->refresh()->status)->toBe(OrderStatus::Pending);
 
     // A name with no address cannot make an account, because the address is
@@ -242,7 +243,7 @@ it('leaves the order pending when Stripe cannot be asked about the charge', func
 
     substitutedStripe($intents, stripeSessions([]));
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeFalse()
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::BuyerUnknown)
         ->and($order->refresh()->status)->toBe(OrderStatus::Pending);
 
     // Loud, because somebody has been charged and this is the only thing
@@ -260,10 +261,10 @@ it('settles on a later attempt once the charge can be read', function () {
     $order = unownedOrderWorth(2500, 'pi_wallet');
     stripeWithNoSessionAndACharge(null);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeFalse();
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::BuyerUnknown);
 
     stripeWithNoSessionAndACharge(['email' => 'jennifer@example.com', 'name' => 'Jennifer']);
 
-    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBeTrue()
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet')))->toBe(Recording::Settled)
         ->and($order->refresh()->status)->toBe(OrderStatus::Paid);
 });
