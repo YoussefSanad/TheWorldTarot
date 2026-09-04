@@ -62,7 +62,7 @@ class GiftsTable
 
                 TextColumn::make('orderLine.product_key')
                     ->label('Reading')
-                    ->formatStateUsing(fn (Gift $record): string => self::nameOf($record)),
+                    ->formatStateUsing(fn (Gift $record): string => $record->orderLine->displayName()),
 
                 // **The only address in this transaction nothing can check.**
                 // The buyer typed it for somebody else and never receives the
@@ -191,25 +191,5 @@ class GiftsTable
     private static function orderByAge(Builder $query, string $direction): Builder
     {
         return $query->orderBy('gifts.created_at', $direction === 'desc' ? 'asc' : 'desc');
-    }
-
-    /**
-     * What the customer saw this reading called.
-     *
-     * **A code for a withdrawn product still redeems**, so a row that could not
-     * say what was owed would be a liability nobody can read. A retired reading
-     * is soft deleted and `OrderLine::product` carries `withTrashed` for
-     * exactly this, so retirement alone never reaches the fallback.
-     *
-     * The key behind it is for a product row that is gone rather than retired,
-     * which `order_lines.product_id` restricts on delete and nothing here can
-     * produce. It is a name rather than an empty cell if that ever changes.
-     * `GiftToRedeem` falls back the same way and for the same reason.
-     */
-    private static function nameOf(Gift $record): string
-    {
-        $line = $record->orderLine;
-
-        return $line->product?->name ?: $line->product_key->value;
     }
 }

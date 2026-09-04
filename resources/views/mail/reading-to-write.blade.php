@@ -5,7 +5,7 @@ From: {!! $from !!}
 Total: {!! $order->currency !!} {!! \App\Support\Money::toMajor($order->total_amount) !!}
 
 @foreach ($readings as $reading)
-- {!! $reading->orderLine->product?->name ?? $reading->orderLine->product_key->value !!}{!! $reading->orderLine->quantity > 1 ? ' x'.$reading->orderLine->quantity : '' !!}
+- {!! $reading->orderLine->displayName() !!}{!! $reading->orderLine->quantity > 1 ? ' x'.$reading->orderLine->quantity : '' !!}
 @if ($reading->question)
   Their question: {!! $reading->question !!}
 @else

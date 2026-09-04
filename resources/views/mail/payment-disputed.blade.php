@@ -8,7 +8,7 @@ Stripe reference: {!! $disputeId !!}
 @if ($order)
 Order #{!! $order->id !!}, placed {!! $order->created_at?->toDayDateTimeString() !!}.
 @foreach ($order->lines as $line)
-- {!! $line->product?->name ?? $line->product_key->value !!}{!! $line->quantity > 1 ? ' x'.$line->quantity : '' !!}
+- {!! $line->displayName() !!}{!! $line->quantity > 1 ? ' x'.$line->quantity : '' !!}
 @endforeach
 @else
 We could not match this to an order on this site.

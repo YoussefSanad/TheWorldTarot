@@ -40,7 +40,7 @@ class ReadingsTable
 
                 TextColumn::make('orderLine.product_key')
                     ->label('Reading')
-                    ->formatStateUsing(fn (Reading $record): string => self::nameOf($record)),
+                    ->formatStateUsing(fn (Reading $record): string => $record->orderLine->displayName()),
 
                 // **Captured, not joined.** A gift's querent may have no
                 // customers row at all and deliberately never gets one, so the
@@ -166,17 +166,6 @@ class ReadingsTable
         }
 
         return $record->isOverdue() ? 'danger' : 'warning';
-    }
-
-    /**
-     * What the customer sees this reading called, falling back to the key it
-     * was bought under if the row has since been retired.
-     */
-    private static function nameOf(Reading $record): string
-    {
-        $line = $record->orderLine;
-
-        return $line->product?->name ?: $line->product_key->value;
     }
 
     private static function firstLineOf(Reading $record): ?string

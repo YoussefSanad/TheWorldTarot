@@ -34,7 +34,7 @@
   exactly one the literal string `@else Your order is confirmed`, since this
   view shipped. `MailBodyTest` scans for the shape now.
 --}}
-@section('title'){{ count($lines) === 1 ? 'Your '.($lines->first()->product?->name ?? $lines->first()->product_key->value).' is on its way' : 'Your order is confirmed' }}@endsection
+@section('title'){{ count($lines) === 1 ? 'Your '.$lines->first()->displayName().' is on its way' : 'Your order is confirmed' }}@endsection
 
 {{--
   The inbox preview, which is the second line a client shows beside the
@@ -91,7 +91,7 @@
                 <tr>
                   <td class="card-pad" style="padding:16px 22px 28px 22px;">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-<tr><td align="center" class="prod" style="padding:0;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:24px;line-height:28px;letter-spacing:-0.01em;color:#FFFFFF;text-transform:uppercase;">{{ $line->product?->name ?? $line->product_key->value }}@if ($line->quantity > 1)<span class="gold" style="color:#E4C46A;">&nbsp;&times;{{ $line->quantity }}</span>@endif</td></tr>
+<tr><td align="center" class="prod" style="padding:0;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:24px;line-height:28px;letter-spacing:-0.01em;color:#FFFFFF;text-transform:uppercase;">{{ $line->displayName() }}@if ($line->quantity > 1)<span class="gold" style="color:#E4C46A;">&nbsp;&times;{{ $line->quantity }}</span>@endif</td></tr>
 <tr><td align="center" class="sub" style="padding:3px 0 0 0;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:18px;line-height:22px;letter-spacing:-0.01em;color:#E4C46A;text-transform:uppercase;">{{ $line->product_key->emailSubtitle() }}</td></tr>
 <tr><td align="center" class="price" style="padding:4px 0 0 0;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:24px;line-height:28px;letter-spacing:0.03em;color:#E4C46A;">{{ $symbol }}{{ \App\Support\Money::toMajor($line->subtotal()) }}</td></tr>
 <tr><td style="height:14px;line-height:14px;font-size:0;">&nbsp;</td></tr>

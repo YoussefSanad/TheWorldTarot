@@ -52,8 +52,8 @@ class OrdersTable
                     ->label('Bought')
                     ->state(fn (Order $record): string => $record->lines
                         ->map(fn (OrderLine $line): string => $line->quantity > 1
-                            ? $line->quantity.' x '.self::nameOf($line)
-                            : self::nameOf($line))
+                            ? $line->quantity.' x '.$line->displayName()
+                            : $line->displayName())
                         ->join(', ')),
 
                 // **`What they asked` left on 3 September 2026**, for
@@ -150,14 +150,5 @@ class OrdersTable
                     ->title($changed ? 'Marked as paid' : 'That order was already paid')
                     ->send();
             });
-    }
-
-    /**
-     * What the customer sees this product called, falling back to the key it
-     * was bought under if the row has since been retired.
-     */
-    private static function nameOf(OrderLine $line): string
-    {
-        return $line->product?->name ?: $line->product_key->value;
     }
 }

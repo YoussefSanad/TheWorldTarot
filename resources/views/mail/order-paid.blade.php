@@ -4,7 +4,7 @@
 Thank you, your payment has gone through.
 
 @foreach ($lines as $line)
-- {!! $line->product?->name ?? $line->product_key->value !!}{!! $line->quantity > 1 ? ' x'.$line->quantity : '' !!}
+- {!! $line->displayName() !!}{!! $line->quantity > 1 ? ' x'.$line->quantity : '' !!}
 @if ($line->question)
   You asked: {!! $line->question !!}
 @endif

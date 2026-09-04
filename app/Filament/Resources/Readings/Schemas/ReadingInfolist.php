@@ -43,8 +43,7 @@ class ReadingInfolist
 
                         TextEntry::make('orderLine.product_key')
                             ->label('Reading')
-                            ->formatStateUsing(fn (Reading $record): string => $record->orderLine->product?->name
-                                ?: $record->orderLine->product_key->value),
+                            ->formatStateUsing(fn (Reading $record): string => $record->orderLine->displayName()),
                     ])
                     ->columns(2),
 

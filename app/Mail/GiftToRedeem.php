@@ -142,11 +142,11 @@ class GiftToRedeem extends QueuedMail
             'note' => $this->gift->message,
 
             // The catalogue's name, in this gift's language, because the
-            // enclosing `withLocale` is open while this runs. `product_key` is
-            // the fallback for a reading retired since it was bought: **a code
-            // for a withdrawn product still redeems**, so refusing to name it
-            // would be refusing to hand it over.
-            'reading' => $line->product?->name ?? $line->product_key->value,
+            // enclosing `withLocale` is open while this runs. **A code for a
+            // withdrawn product still redeems**, so refusing to name it would
+            // be refusing to hand it over, and `OrderLine::displayName()` is
+            // where that rule and its fallback live.
+            'reading' => $line->displayName(),
 
             // **The link and the code are one credential in two forms**, which
             // is why they are built from the same printed string. A link is
