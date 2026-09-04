@@ -408,6 +408,29 @@ it('shows no badge when nothing is waiting', function () {
     expect(ReadingResource::getNavigationBadge())->toBeNull();
 });
 
+it('spells "still to write" once, so the badge and the filter cannot disagree', function () {
+    $waiting = aReading();
+    $alsoWaiting = aReading();
+    $gone = aReading();
+
+    Livewire::test(ListReadings::class)->callTableAction('markDelivered', $gone);
+
+    // **One predicate asked from three places.** `Gift::outstanding()` already
+    // names its own, for the reason `CONTEXT.md` gives about
+    // `Customer::isUnclaimed()`: the badge and the list it opens on agree only
+    // because somebody wrote the same condition twice, and the second writing
+    // is the one nobody edits when the first changes. A sidebar number that
+    // disagreed with the screen under it would be worse than no number.
+    Livewire::test(ListReadings::class)
+        ->filterTable('delivered_at', false)
+        ->assertCanSeeTableRecords([$waiting, $alsoWaiting])
+        ->assertCanNotSeeTableRecords([$gone]);
+
+    expect(ReadingResource::getNavigationBadge())->toBe('2')
+        ->and(Reading::stillToWrite()->pluck('id')->all())
+        ->toEqualCanonicalizing([$waiting->id, $alsoWaiting->id]);
+});
+
 it('cannot create, edit or delete a reading', function () {
     $reading = aReading();
 
