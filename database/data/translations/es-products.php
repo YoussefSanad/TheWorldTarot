@@ -44,14 +44,20 @@ return [
     ],
 
     'in-depth' => [
-        'name' => 'LECTURA EN PROFUNDIDAD',
+        // ~~"LECTURA EN PROFUNDIDAD"~~ until 11 September 2026. It set two
+        // lines on the readings index where every other name sets one, which
+        // pushed that card's copy below its neighbours'. "A FONDO" is the same
+        // idiom for "in depth", in fewer letters.
+        'name' => 'LECTURA A FONDO',
         'short_description' => 'La Lectura Más Completa, Carta por Carta',
         'long_description' => 'La lectura más completa que se ofrece aquí: una interpretación larga y sin prisa que desarma tu pregunta y sigue cada hilo que abren las cartas. Para las preguntas que merecen más que una tirada y un resumen.',
     ],
 
     'viewing-room-pass' => [
         'name' => 'SALA DE PROYECCIÓN',
-        'short_description' => 'Colección Cinematográfica Completa',
+        // ~~"Colección Cinematográfica Completa"~~ until 11 September 2026: the
+        // homepage tile holds two lines and cut it off with an ellipsis.
+        'short_description' => 'Colección de Cine Completa',
         'long_description' => 'Un pase a la Sala de Proyección, donde los veintidós Arcanos Mayores se proyectan como las películas que estaban destinadas a ser, cada una rodada en el lugar que la inspiró. Tuyo para volver siempre que quieras.',
     ],
 ];
