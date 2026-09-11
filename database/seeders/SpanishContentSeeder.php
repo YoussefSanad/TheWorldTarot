@@ -40,10 +40,13 @@ use RuntimeException;
  *    somebody's work and is left exactly as it is, however unpromising.
  * 2. **Never touches English.** It writes one language key.
  * 3. **Refuses a data file missing Spanish for published copy that has
- *    English**, at run time and inside one transaction, so nothing it wrote
- *    survives the refusal. The alternative is a half-translated language that
- *    the gate then refuses for reasons nobody can trace back here. A draft is
- *    not refused over, or reported, because the gate does not count one.
+ *    English and no Spanish yet**, at run time and inside one transaction, so
+ *    nothing it wrote survives the refusal. The alternative is a
+ *    half-translated language that the gate then refuses for reasons nobody
+ *    can trace back here. A draft is not refused over, or reported, because
+ *    the gate does not count one. ~~Spanish already in the panel did not
+ *    count~~ until 11 September 2026: a card translated by hand still stopped
+ *    the whole run, which made "type it in the panel, then seed" impossible.
  * 4. **Reports, rather than refuses, copy that has no English either.** A field
  *    blank in English is not waiting on a translator, and writing Spanish into
  *    it would not be translation, it would be inventing this business's copy
@@ -131,11 +134,19 @@ class SpanishContentSeeder extends Seeder
      */
     public function fillFrom(Model $record, array $values, string $label): void
     {
-        $translatable = $this->fieldsWithEnglish($record, $label);
+        // Only a field still blank in Spanish is this seeder's business. One
+        // somebody has written in the panel is left alone by rule 1, and it
+        // already satisfies the gate, so the data file owes nothing for it.
+        // `false` disables spatie's fallback, so this asks what Spanish
+        // actually holds rather than what it would display.
+        $blank = array_filter(
+            $this->fieldsWithEnglish($record, $label),
+            fn (string $field): bool => blank($record->getTranslation($field, self::LOCALE, false)),
+        );
 
         // `array_filter` drops empty strings, so a key present but blank in the
         // data file counts as absent, which is what it is.
-        $missing = array_diff($translatable, array_keys(array_filter($values)));
+        $missing = array_diff($blank, array_keys(array_filter($values)));
 
         // The refusal exists because the gate would refuse, and the gate counts
         // published records only. A draft short of Spanish gets what the file
@@ -148,12 +159,8 @@ class SpanishContentSeeder extends Seeder
             );
         }
 
-        foreach (array_diff($translatable, $missing) as $field) {
-            // `false` disables spatie's fallback, so this asks what Spanish
-            // actually holds rather than what it would display.
-            if (blank($record->getTranslation($field, self::LOCALE, false))) {
-                $record->setTranslation($field, self::LOCALE, $values[$field]);
-            }
+        foreach (array_diff($blank, $missing) as $field) {
+            $record->setTranslation($field, self::LOCALE, $values[$field]);
         }
 
         // Eloquent fires `saved` on a save that changed nothing, and the

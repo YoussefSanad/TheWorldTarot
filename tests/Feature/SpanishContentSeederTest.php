@@ -143,6 +143,32 @@ it('writes nothing at all when it refuses', function () {
         ->toBeEmpty();
 });
 
+it('does not refuse over Spanish somebody has already written in the panel', function () {
+    seedEnglish();
+
+    // Staging's shape on 11 September 2026: a published card with English
+    // descriptions the data file has no Spanish for, and the Spanish typed into
+    // the panel instead. The gate counts what the record holds, and it holds
+    // Spanish, so refusing would hold every other record back over a gap that
+    // is not there.
+    $empress = Card::where('number', 3)->first();
+    $empress->setTranslation('short_description', 'en', 'The Empress, in short');
+    $empress->setTranslation('long_description', 'en', 'The Empress, at length');
+    $empress->setTranslation('short_description', 'es', 'La Emperatriz, en breve');
+    $empress->setTranslation('long_description', 'es', 'La Emperatriz, a fondo');
+    $empress->save();
+
+    seedSpanish();
+
+    $empress->refresh();
+
+    expect($empress->getTranslation('name', 'es', false))->toBe('La Emperatriz')
+        ->and($empress->getTranslation('short_description', 'es', false))->toBe('La Emperatriz, en breve')
+        ->and($empress->missingTranslations('es'))->toBe([])
+        ->and(Product::where('key', 'three-card')->first()->getTranslation('name', 'es', false))
+        ->toBe('LECTURA DE 3 CARTAS');
+});
+
 it('does not refuse over a draft the gate does not count', function () {
     seedEnglish();
 
