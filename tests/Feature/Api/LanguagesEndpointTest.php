@@ -11,12 +11,12 @@ uses(RefreshDatabase::class);
 beforeEach(fn () => Locales::forget());
 
 it('returns the agreed shape for the only live language', function () {
-    // The exact contract: a bare array, not wrapped in data, with these two
+    // The exact contract: a bare array, not wrapped in data, with these three
     // keys and no others.
     $this->getJson('/api/v1/languages')
         ->assertOk()
         ->assertExactJson([
-            ['code' => 'en', 'label' => 'English'],
+            ['code' => 'en', 'label' => 'English', 'native_name' => 'English'],
         ]);
 });
 
@@ -26,8 +26,8 @@ it('lists a second language once it goes live', function () {
     $this->getJson('/api/v1/languages')
         ->assertOk()
         ->assertExactJson([
-            ['code' => 'en', 'label' => 'English'],
-            ['code' => 'es', 'label' => 'Spanish'],
+            ['code' => 'en', 'label' => 'English', 'native_name' => 'English'],
+            ['code' => 'es', 'label' => 'Spanish', 'native_name' => 'Español'],
         ]);
 });
 
@@ -83,6 +83,17 @@ it('takes the label from the registry', function () {
 
     $this->getJson('/api/v1/languages')
         ->assertJsonPath('0.label', 'English (UK)');
+});
+
+it('names each language in itself, which is who a switcher is for', function () {
+    // A language switcher is read by somebody who cannot read the language the
+    // page is currently in, which is exactly the moment "Español" works and
+    // "Spanish" does not. The frontend hardcoded this while the field was
+    // unsent; this is what lets that list go.
+    Locale::where('code', 'es')->update(['status' => LocaleStatus::Live]);
+
+    $this->getJson('/api/v1/languages')
+        ->assertJsonPath('1.native_name', 'Español');
 });
 
 it('is readable without authentication', function () {

@@ -37,7 +37,7 @@ it('shows a spanish tab in the admin panel', function () {
 it('keeps spanish out of the public language list', function () {
     $this->getJson('/api/v1/languages')
         ->assertOk()
-        ->assertExactJson([['code' => 'en', 'label' => 'English']]);
+        ->assertExactJson([['code' => 'en', 'label' => 'English', 'native_name' => 'English']]);
 });
 
 it('never serves spanish while it is still a draft', function () {
@@ -76,8 +76,8 @@ it('serves spanish to everyone once it goes live', function () {
 
     $this->getJson('/api/v1/languages')
         ->assertExactJson([
-            ['code' => 'en', 'label' => 'English'],
-            ['code' => 'es', 'label' => 'Spanish'],
+            ['code' => 'en', 'label' => 'English', 'native_name' => 'English'],
+            ['code' => 'es', 'label' => 'Spanish', 'native_name' => 'Español'],
         ]);
 });
 

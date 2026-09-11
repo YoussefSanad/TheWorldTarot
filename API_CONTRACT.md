@@ -44,11 +44,12 @@ The API and the website share a root domain deliberately. Section 6 explains why
 
 ```json
 [
-  { "code": "en", "label": "English" }
+  { "code": "en", "label": "English", "native_name": "English" }
 ]
 ```
 
 - A single-item array until a second language goes live. Use the length to decide whether to render a language selector at all
+- **`native_name` is the language's name in itself, added 9 September 2026.** Draw your switcher's rows from it rather than from `label`: a switcher is read by somebody who cannot read the language the page is currently in, so "Español" works where "Spanish" does not. `label` stays, and is the name in English
 - **Only public languages appear.** A language being translated, or under internal review, is absent. There is no `enabled` flag, because presence in this list is what enabled means
 - `code` is the segment you put in the URL, `/api/v1/en/...`
 
