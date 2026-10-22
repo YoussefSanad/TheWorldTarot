@@ -65,10 +65,9 @@ jobs:
           key: composer-${{ hashFiles('composer.lock') }}
           restore-keys: composer-
 
-      # Before composer install, not after: installing runs
-      # `artisan package:discover`, which boots the application, which needs to
-      # know how to reach a database. Without this it falls back to SQLite and
-      # fails on a file that does not exist.
+      # The job-level DB_* values already tell artisan how to reach the database,
+      # so this step is not about connecting. It stays because `key:generate`
+      # below writes APP_KEY into .env, which has to exist first.
       - name: Prepare the environment
         run: cp .env.example .env
 
