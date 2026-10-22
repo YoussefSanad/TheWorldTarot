@@ -4,7 +4,9 @@ For the frontend partner building the Next.js website against this API.
 
 Everything here is live unless marked otherwise. Read it alongside the generated reference at `/docs/api`: that describes shapes and is generated from the code, this explains the rules behind them.
 
-Status: draft, not yet acknowledged. Until you confirm it, these shapes can still change freely. After that, changes are coordinated.
+~~Status: draft, not yet acknowledged. Until you confirm it, these shapes can still change freely. After that, changes are coordinated.~~
+
+Status: in use as of 22 October 2026. The frontend builds against it, so changes are coordinated rather than made freely. Formal confirmation of the shapes (section 10, item 4) is still outstanding.
 
 **Updated 12 August 2026 with member accounts and orders**, the endpoints at the end of section 2. They are the first part of this document you build against rather than only read from: registering, signing in, passwords, `me`, and placing an order. `GET /api/v1/user`, which this document always warned you not to build on, is gone and `GET /api/v1/me` replaces it.
 
@@ -230,6 +232,7 @@ We intend to turn this off, and said so on 7 August. It is still on nine days la
 - **404 for a card whose video is not ready**, which includes one still transcoding, one whose film has been removed, and one not on the website in that language. There is genuinely nothing to serve
 - **403 for a signed-in customer without a pass**, not 404. The Viewing Room is advertised, and hiding it would only confuse somebody who paid and is signed in as the wrong account
 - **401 with no authentication at all**
+- **429 above 30 requests a minute**, counted per signed-in customer rather than per address, carrying `Retry-After` in seconds. Renewing before `expires_at` costs one request about every 30 minutes, far below that, so a player that renews correctly never meets it. A 429 here means something is requesting in a loop
 
 **Access is decided here, every time.** Do not gate the player on anything the browser knows. If your UI shows a locked state, that is presentation, and this endpoint is the enforcement.
 
