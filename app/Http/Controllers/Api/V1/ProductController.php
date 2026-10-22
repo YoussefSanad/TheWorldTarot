@@ -29,8 +29,8 @@ class ProductController extends Controller
      * `type` distinguishes them, which is what it is for.
      *
      * **Add-ons are still excluded**, and explicitly rather than by omission.
-     * Nothing sells an add-on on its own — the rush upgrade is bought alongside
-     * a reading — so it has no page and no place in a list of things to buy.
+     * Nothing sells an add-on on its own: the rush upgrade is bought alongside
+     * a reading, so it has no page and no place in a list of things to buy.
      * It has no row yet either, which is exactly why the exclusion is written
      * now: adding `Rush24h` to `ProductKey::seedable()` in M5 would otherwise
      * put it on the homepage, and the person doing that has no reason to look

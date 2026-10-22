@@ -92,7 +92,7 @@ class StripeWallet implements PaymentGateway
             // the pair disagreed on a real device: its Elements group omitted
             // `paymentMethodTypes`, which *means* automatic payment methods,
             // and Stripe refused every confirmation against an intent that
-            // named types explicitly — "Payment details were collected through
+            // named types explicitly: "Payment details were collected through
             // Stripe Elements using automatic payment methods and cannot be
             // confirmed through the API configured with payment_method_types
             // or allowed_payment_method_types." The sheet opened, the customer
@@ -101,8 +101,8 @@ class StripeWallet implements PaymentGateway
             // So this line cannot move alone. Changing it to
             // `automatic_payment_methods` means deleting `paymentMethodTypes`
             // from the frontend's `ExpressCheckout.tsx` in the same breath,
-            // and vice versa. Nothing on this side can detect the disagreement
-            // — the intent is created successfully either way, and it fails one
+            // and vice versa. Nothing on this side can detect the disagreement:
+            // the intent is created successfully either way, and it fails one
             // round trip later in somebody's browser.
             'payment_method_types' => ['card'],
 

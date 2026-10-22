@@ -124,7 +124,7 @@ enum ProductKey: string
      * **Set in capitals because the tile is.** `ProductCard` prints the name as
      * it is given, with no `text-transform` anywhere in the frontend's CSS, so
      * capitals here are what keeps the rendered page identical. The cost is
-     * that everything else reading `name` shouts too — the product column in
+     * that everything else reading `name` shouts too: the product column in
      * the admin's order table, and page titles, which are derived from the name
      * rather than stored. If that reads badly, the fix is a `uppercase` class on
      * the tile and title case here, not a second name field.
@@ -151,8 +151,8 @@ enum ProductKey: string
      * Names an earlier version of the seeder wrote itself.
      *
      * **These are not edits and must not be protected like edits.** Until
-     * 20 August 2026 the seeder named products from a list of its own invention
-     * — 'One Card Reading' and so on — while the homepage had always said
+     * 20 August 2026 the seeder named products from a list of its own invention,
+     * 'One Card Reading' and so on, while the homepage had always said
      * '1 CARD READING'. Now that the tiles are the source of truth, a database
      * seeded before that date holds a name nobody chose, and the fill-only-what
      * -is-empty rule would protect it forever.
@@ -284,7 +284,7 @@ enum ProductKey: string
      * on the tile under the name.
      *
      * **The homepage tiles again, verbatim**, with each tile's two hard-wrapped
-     * lines joined by a space — the break is a layout decision and does not
+     * lines joined by a space: the break is a layout decision and does not
      * belong in the copy. `In Depth` and the rush add-on have no tile, so theirs
      * are the only invented ones here.
      */
@@ -308,7 +308,7 @@ enum ProductKey: string
         return match ($this) {
             self::OneCard => 'One card, drawn for your question and read in full. A focused message for when you want clarity on a single situation rather than a map of everything around it. Your reading arrives presented on the original artwork and delivered by email.',
             self::ThreeCard => 'Three cards read as one story: what stands behind your question, what surrounds it now, and where it is heading. The spread most people picture when they think of tarot, and the right depth for a question you have been carrying a while.',
-            self::MonthAhead => 'Five cards for the month in front of you — its shape, its turning point, and what it is asking of you. A forecast to keep and return to as the weeks unfold, rather than an answer to a single question.',
+            self::MonthAhead => 'Five cards for the month in front of you. Its shape, its turning point, and what it is asking of you. A forecast to keep and return to as the weeks unfold, rather than an answer to a single question.',
             self::InDepth => 'The fullest reading offered here: a long, unhurried interpretation that takes your question apart and follows every thread the cards open. For the questions that deserve more than a spread and a summary.',
             self::ViewingRoomPass => 'One pass into the Viewing Room, where all twenty-two Major Arcana play as the films they were made to be, each filmed in the place that inspired it. Yours to return to whenever you like.',
             self::Rush24h => 'Moves your reading to the front of the queue, written and delivered within twenty-four hours instead of seventy-two.',

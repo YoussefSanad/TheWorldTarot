@@ -42,7 +42,7 @@ use Illuminate\Mail\Mailables\Content;
  * behind: the subject said a gift and the document under it still said "You
  * Have Been Given A Reading". The heading, the opening line, the `<title>` and
  * the text part all say a gift now. **The card still names the reading**, and
- * that is not the same claim — it is which reading the gift is *for*, and
+ * that is not the same claim: it is which reading the gift is *for*, and
  * withholding it would leave the reader unable to see what they have been
  * given.
  *
@@ -100,7 +100,7 @@ class GiftToRedeem extends QueuedMail
      * branded message this application sends the one going to the only person
      * in it who has never bought anything. The designed body is the HTML one
      * now, drawn in `mail.html.frame`, the same document the receipt is drawn
-     * in. ~~The text one is what shipped before it, **unchanged**~~ — it was,
+     * in. ~~The text one is what shipped before it, **unchanged**~~. It was,
      * until the word for what arrives became a gift on 3 September 2026, and a
      * text part still calling it a reading would be two versions of one message
      * disagreeing in front of the reader least able to tell which was meant.
@@ -111,7 +111,7 @@ class GiftToRedeem extends QueuedMail
      * all.
      *
      * **The button is the document's alone.** A text part has no controls, and
-     * the address it prints is the same string the button carries — which is
+     * the address it prints is the same string the button carries, which is
      * also still printed under the button, for the reader who wants to look at
      * a host before trusting it.
      *

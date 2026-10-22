@@ -21,8 +21,8 @@ use Illuminate\Mail\Mailables\Content;
  * - `/checkout/complete/` states the window as a property of the reading rather
  *   than as a commitment, which is what `API_CONTRACT.md` asks of it, and the
  *   confirmation it renders dies with the tab. It is where `/redeem/` sends the
- *   querent once the code is spent — the frontend's third ADR carries that
- *   amendment, dated 3 September 2026 — and the record it draws from lives in
+ *   querent once the code is spent (the frontend's third ADR carries that
+ *   amendment, dated 3 September 2026) and the record it draws from lives in
  *   one tab's `sessionStorage`
  *
  * So until this message the promise was made only on a screen she can close,
