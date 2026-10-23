@@ -1,6 +1,5 @@
 <?php
 
-use App\Services\Payments\ManualSettlement;
 use App\Services\Payments\StripeCheckout;
 use App\Services\Payments\StripeWallet;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -21,7 +20,6 @@ uses(RefreshDatabase::class);
  */
 it('answers what a customer may press here, in the order config declares it', function () {
     config()->set('payments.methods', [
-        'manual' => ManualSettlement::class,
         'stripe' => StripeCheckout::class,
         'stripe_wallet' => StripeWallet::class,
     ]);
@@ -32,12 +30,13 @@ it('answers what a customer may press here, in the order config declares it', fu
 });
 
 /**
- * **`manual` is offered, to a person in the panel, everywhere and permanently.**
- * It is not something a customer can press, and drawing a button for it would
- * be a button that settles nothing.
+ * ~~`manual` was offered to a person in the panel and never to a customer.~~
+ * **Retired 22 October 2026.** An environment with no Stripe keys offers an
+ * empty registry, and this answers an empty list rather than a method that
+ * settles nothing.
  */
-it('never offers hand settlement, which belongs to a person in the panel', function () {
-    config()->set('payments.methods', ['manual' => ManualSettlement::class]);
+it('answers an empty list where no method is configured', function () {
+    config()->set('payments.methods', []);
 
     $this->getJson('/api/v1/payment-methods')
         ->assertOk()
@@ -60,7 +59,6 @@ it('answers an object, so a second key can join it without a breaking change', f
  */
 it('leaves out a method this environment did not configure', function () {
     config()->set('payments.methods', [
-        'manual' => ManualSettlement::class,
         'stripe' => StripeCheckout::class,
     ]);
 

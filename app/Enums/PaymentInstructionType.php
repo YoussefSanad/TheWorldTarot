@@ -16,9 +16,10 @@ namespace App\Enums;
 enum PaymentInstructionType: string
 {
     /**
-     * Nothing to collect. The order is settled, or it waits for a person.
+     * Nothing to collect. The order is settled, ~~or it waits for a person~~ (struck
+     * 22 October 2026: nothing can settle one by hand any more).
      *
-     * Hand settlement answers this. ~~And gift code redemption will, since by
+     * ~~Hand settlement answers this.~~ Now answered only by an order that is already paid (22 October 2026). ~~And gift code redemption will, since by
      * the time the recipient hears anything the order is already paid.~~
      * **Struck 2 September 2026: redemption is not a payment method and never
      * reaches this endpoint.** It collects nothing, so there is nothing for an

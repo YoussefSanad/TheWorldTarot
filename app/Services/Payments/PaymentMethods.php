@@ -3,7 +3,6 @@
 namespace App\Services\Payments;
 
 use App\Contracts\PaymentGateway;
-use App\Enums\PaymentMethod;
 use Illuminate\Contracts\Container\Container;
 
 /**
@@ -53,35 +52,20 @@ class PaymentMethods
     }
 
     /**
-     * The subset a customer may press, which is everything but hand settlement.
+     * The subset a customer may press, which is everything offered.
      *
-     * **`manual` is genuinely offered and is genuinely not a button.** Support
+     * ~~**`manual` is genuinely offered and is genuinely not a button.** Support
      * needs it after launch, in the panel, everywhere and permanently, so
-     * `offered()` is right to list it. What a reading page draws is the
-     * narrower question, and a wallet or a card is the whole of the answer.
-     * ~~Until gifting adds `gift_code`.~~ **Struck 2 September 2026: gifting
-     * adds nothing here**, so this list is the whole answer rather than a
-     * waypoint.
-     *
-     * **The exclusion lives here rather than in the controller**, so the
-     * comment explaining why hand settlement is offered everywhere and drawn
-     * nowhere sits with the list it applies to, and PaymentMethodsTest can pin
-     * it. It names `PaymentMethod::Manual` rather than the string, because the
-     * registry it filters is keyed by that enum's values.
-     *
-     * **`PayOrderRequest` still validates against the whole registry**, and
-     * narrowing a published validation rule is not this method's business. A
-     * caller naming `manual` gets `nothing_to_pay` on an order that stays
-     * pending, which grants nothing and settles nothing.
+     * `offered()` is right to list it.~~ **Struck 22 October 2026: hand
+     * settlement is retired**, so the two lists are the same and the filter
+     * that told them apart is gone. The method stays because the endpoint
+     * reads it and a later method may not be a button.
      *
      * @return array<int, string>
      */
     public function offeredToCustomers(): array
     {
-        return array_values(array_filter(
-            $this->offered(),
-            fn (string $method): bool => $method !== PaymentMethod::Manual->value,
-        ));
+        return $this->offered();
     }
 
     public function offers(string $method): bool

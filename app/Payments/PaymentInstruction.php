@@ -24,7 +24,7 @@ use App\Enums\PaymentInstructionType;
  * account one file away is how it came to disagree with itself, and it is why
  * `tests/Feature/CommentIntegrityTest.php` now fails a build over it.
  *
- * Hand settlement answers the first of these. ~~Gift code redemption will
+ * ~~Hand settlement answers the first of these.~~ Now answered only by an order that is already paid (22 October 2026). ~~Gift code redemption will
  * answer it too, in the gifting milestone, since by the time the recipient
  * hears anything the order is already paid.~~ **Struck 2 September 2026**: a
  * redemption collects nothing and never asks for an instruction, so the
@@ -58,7 +58,8 @@ class PaymentInstruction
     ) {}
 
     /**
-     * Nothing to collect. The order is settled, or it waits for a person.
+     * Nothing to collect. The order is settled, ~~or it waits for a person~~ (struck
+     * 22 October 2026: nothing can settle one by hand any more).
      */
     public static function nothingToPay(): self
     {

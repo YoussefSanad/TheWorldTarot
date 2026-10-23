@@ -28,7 +28,7 @@ use App\Enums\PaymentInstructionType;
  * Laravel's, `Cache::add` is Laravel's, `ZoneSecurityIncludeHashRemoteIP` is
  * Bunny's, and `ProductCard` is a component in the frontend partner's
  * repository, which this one cannot see. None of them is a name this class
- * offers and none is reported. `ManualSettlement` is a real class elsewhere and
+ * offers and none is reported. `StripeCheckout` is a real class elsewhere and
  * is mentioned here in passing, which is also not a claim of ownership.
  */
 class EveryClaimShape

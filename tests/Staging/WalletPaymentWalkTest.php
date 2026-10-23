@@ -383,8 +383,9 @@ it('answers a redirect for the card road and a secret for the wallet road', func
  * What this environment tells the frontend it offers, which is what decides
  * whether the wallet button is drawn at all.
  */
-it('offers both stripe methods to customers and never hand settlement', function (): void {
-    $response = Target::client()->get('api/v1/payment-methods');
+it('offers both stripe methods to customers and manual is not a method at all', function (): void {
+    $client = Target::client();
+    $response = $client->get('api/v1/payment-methods');
 
     expect($response->getStatusCode())->toBe(200);
 
@@ -394,7 +395,19 @@ it('offers both stripe methods to customers and never hand settlement', function
         ->and($methods)->toContain(PaymentMethod::StripeWallet->value)
         ->and($methods)->not->toContain(
             'manual',
-            'The payment methods endpoint offered hand settlement to customers. It is a person in the panel, and a '
-            .'button for it would settle nothing.'
+            'The payment methods endpoint still lists manual. It was retired on 22 October 2026 and is not a method at all.'
         );
+
+    // Not offered is not enough: naming it has to be refused like any unknown name.
+    ['account' => $account, 'order' => $order] = walletOrderReadyToPay('manual-retired');
+
+    $refused = $client->post('api/v1/orders/'.$order['pay_token'].'/pay', [
+        'headers' => Target::as($account),
+        'json' => ['method' => 'manual'],
+        'http_errors' => false,
+    ]);
+
+    Target::assertNotThrottled($refused, 'orders-pay');
+
+    expect($refused->getStatusCode())->toBe(422);
 });

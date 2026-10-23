@@ -125,7 +125,8 @@ function stripeNamesByFileInApp(): array
 //  - AppServiceProvider: binds the one StripeClient (AdminPanelProvider does not
 //    need Stripe, so the whole `App\Providers` namespace is not allowed)
 //  - StripeCheckout, StripeWallet, BuyerFromCheckoutSession, BuyerFromLatestCharge:
-//    the adapters (not PaymentMethods, ManualSettlement, UnknownPaymentMethod)
+//    the adapters (not PaymentMethods, UnknownPaymentMethod; ~~ManualSettlement~~
+//    was retired on 22 October 2026)
 //  - StripeSignature, StripePayment, PaymentStatus: Stripe types only
 //  - ReadPaymentStatus, ReconcileOrders: read from Stripe through the client
 //

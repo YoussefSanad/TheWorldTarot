@@ -12,7 +12,7 @@ use App\Enums\PaymentInstructionType;
  *
  * - `NothingToPay` is a case the enum has, and resolves
  * - `PayLater` is a name nothing here declares
- * - `ManualSettlement` is a real class elsewhere and still not a case here,
+ * - `StripeCheckout` is a real class elsewhere and still not a case here,
  *   which is why resolving the name somewhere else is not the question
  * - `PayOnCollection` was withdrawn before M5, so it is not offered today and
  *   is not reported

@@ -17,10 +17,9 @@ class PaymentMethodController extends Controller
      * makes and nobody outside can see. The panel draws one button or two on
      * this answer.
      *
-     * **Hand settlement is deliberately absent.** It is offered, everywhere and
-     * permanently, to a person in the admin panel. It is not something a
-     * customer can press, and the exclusion lives on `PaymentMethods` rather
-     * than here so the reasoning sits with the list.
+     * ~~**Hand settlement is deliberately absent.** It is offered, everywhere
+     * and permanently, to a person in the admin panel.~~ **Struck 22 October
+     * 2026: hand settlement is retired**, so there is nothing to exclude.
      *
      * Flat, with no language segment, for the reason `/currencies` is flat: it
      * carries no copy. It also varies by nothing about the visitor, unlike

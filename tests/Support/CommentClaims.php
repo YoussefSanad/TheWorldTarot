@@ -86,8 +86,8 @@ final class CommentClaims
      * `CLAUDE.md` section 0.6 requires a reversed decision to be struck through
      * and dated rather than deleted, and the repository does it: `FilmSource`
      * explains it was once `RevealVideoSource`, and `PaymentInstruction`
-     * explains gift code redemption will answer the same as hand settlement
-     * once the gifting milestone exists. Both have to survive. This is the one
+     * carries a struck sentence saying gift code redemption will answer the
+     * first kind of instruction in the gifting milestone. Both have to survive. This is the one
      * place the check reads intent, and it reads it narrowly: only a name the
      * prose presents as currently offered is a claim.
      */
@@ -432,9 +432,13 @@ final class CommentClaims
      * name is not a claim of ownership. A list is.
      *
      * **Whether the name resolves to a class elsewhere is not the question**,
-     * which is the whole reason the rule is drawn here. `ManualSettlement` and
+     * which is the whole reason the rule is drawn here. ~~`ManualSettlement` and
      * `StripeCheckout` are both real gateway classes, and listing them as the
-     * answers `PaymentInstruction` can give was still wrong: they are what
+     * answers `PaymentInstruction` can give was still wrong~~ **Reworded 22
+     * October 2026, when `ManualSettlement` was retired**: `StripeCheckout` is
+     * a real gateway class, and the `PaymentInstruction` docblock did list it
+     * (with `ManualSettlement` and `GiftCodeRedemption`) as an answer it can
+     * give, which was still wrong: a gateway is what
      * produces an instruction, not the kinds of instruction there are. A check
      * that skipped a name for existing somewhere would have been blind to the
      * defect that prompted it.

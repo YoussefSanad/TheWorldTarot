@@ -3,6 +3,8 @@
 namespace App\Http\Requests\Api\V1;
 
 use App\Enums\ProductKey;
+use App\Services\Payments\PaymentMethods;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -57,6 +59,30 @@ class PayOrderRequest extends FormRequest
             | quiet fall back to the index.
             */
             'return_to' => ['sometimes', Rule::enum(ProductKey::class)],
+        ];
+    }
+
+    /**
+     * A payment that names no method gets `payments.default`, which must be
+     * offered. Where the registry is empty (no Stripe keys) it is not, and the
+     * registry would throw UnknownPaymentMethod and answer 500. This is the
+     * same refusal as naming an unknown method, a 422 on the field.
+     *
+     * **Two side effects, both accepted.** A mistyped PAYMENT_METHOD on a
+     * deployed environment now gives a quiet 422 rather than a logged 500. And
+     * with no keys, an already-paid order gets a 422 rather than
+     * `nothing_to_pay`, because validation runs before `isPending()`.
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                if ($this->has('method') || app(PaymentMethods::class)->offers((string) config('payments.default'))) {
+                    return;
+                }
+
+                $validator->errors()->add('method', $this->messages()['method.in']);
+            },
         ];
     }
 

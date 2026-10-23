@@ -1,10 +1,10 @@
 <?php
 
 use App\Contracts\PaymentGateway;
+use App\Enums\PaymentMethod;
 use App\Enums\ProductKey;
 use App\Models\Order;
 use App\Payments\PaymentInstruction;
-use App\Services\Payments\ManualSettlement;
 use App\Services\Payments\PaymentMethods;
 use App\Services\Payments\UnknownPaymentMethod;
 
@@ -14,8 +14,11 @@ use App\Services\Payments\UnknownPaymentMethod;
  * **Nothing here proves anything about any payment processor**, and it is not
  * trying to. It proves that a name resolves to the class config names, and that
  * a name config does not name is refused. See .claude/external-services.md.
+ *
+ * ~~Written around hand settlement.~~ **Rewritten 22 October 2026** around
+ * `stripe` and a test-only gateway, because the `manual` method was retired.
  */
-function offering(array $methods, string $default = 'manual'): PaymentMethods
+function offering(array $methods, string $default = 'stripe'): PaymentMethods
 {
     config()->set('payments.methods', $methods);
     config()->set('payments.default', $default);
@@ -25,54 +28,56 @@ function offering(array $methods, string $default = 'manual'): PaymentMethods
 
 it('resolves each configured method to the class config names', function () {
     $methods = offering([
-        'manual' => ManualSettlement::class,
-        'invoice' => FakeInvoicing::class,
+        'stripe' => FakeInvoicing::class,
+        'invoice' => FakeInvoicingToo::class,
     ]);
 
-    expect($methods->resolve('manual'))->toBeInstanceOf(ManualSettlement::class)
-        ->and($methods->resolve('invoice'))->toBeInstanceOf(FakeInvoicing::class);
+    expect($methods->resolve('stripe'))->toBeInstanceOf(FakeInvoicing::class)
+        ->and($methods->resolve('invoice'))->toBeInstanceOf(FakeInvoicingToo::class);
 });
 
 it('lists what this environment offers, in the order config declares it', function () {
     $methods = offering([
-        'manual' => ManualSettlement::class,
-        'invoice' => FakeInvoicing::class,
+        'stripe' => FakeInvoicing::class,
+        'invoice' => FakeInvoicingToo::class,
     ]);
 
-    expect($methods->offered())->toBe(['manual', 'invoice'])
-        ->and($methods->offers('manual'))->toBeTrue()
+    expect($methods->offered())->toBe(['stripe', 'invoice'])
+        ->and($methods->offers('stripe'))->toBeTrue()
         ->and($methods->offers('invoice'))->toBeTrue()
-        ->and($methods->offers('stripe'))->toBeFalse();
+        ->and($methods->offers('stripe_wallet'))->toBeFalse();
 });
 
 /**
- * **What a customer may press, which is `offered()` less `manual`.**
+ * **What a customer may press is now everything that is offered.**
  *
- * `offered()` is correct as it stands: hand settlement **is** offered, to a
- * person in the panel, everywhere and permanently. The narrower question is
- * what a button on the reading page may name, and the exclusion lives here
- * rather than in the controller so the comment explaining why `manual` is
- * offered everywhere and drawn nowhere sits with the list it applies to.
- *
- * **`PayOrderRequest` keeps validating against the whole registry.** A caller
- * naming `manual` gets `nothing_to_pay` on an order that stays pending, which
- * grants nothing and settles nothing.
+ * ~~`offeredToCustomers()` was `offered()` less `manual`.~~ **Struck 22 October
+ * 2026**: hand settlement was retired, so there is nothing to subtract. The
+ * gateway below is deliberately registered under the old name, which is the only
+ * way to see the filter gone: while any exclusion by that name remained, it
+ * would be dropped from the list.
  */
-it('lists what a customer may press, which is everything but hand settlement', function () {
+it('lists what a customer may press, which is everything offered', function () {
     $methods = offering([
-        'manual' => ManualSettlement::class,
-        'invoice' => FakeInvoicing::class,
+        'stripe' => FakeInvoicing::class,
+        'invoice' => FakeInvoicingToo::class,
     ]);
 
-    expect($methods->offeredToCustomers())->toBe(['invoice'])
-        // The wider list is unchanged, and still has it.
-        ->and($methods->offered())->toBe(['manual', 'invoice']);
+    expect($methods->offeredToCustomers())->toBe($methods->offered())
+        ->and($methods->offeredToCustomers())->toBe(['stripe', 'invoice']);
 });
 
-it('answers an empty list where hand settlement is all there is', function () {
-    $methods = offering(['manual' => ManualSettlement::class]);
+it('has no exclusion by name left in what a customer may press', function () {
+    $methods = offering(['manual' => FakeInvoicing::class]);
 
-    expect($methods->offeredToCustomers())->toBe([]);
+    expect($methods->offeredToCustomers())->toBe(['manual']);
+});
+
+it('answers an empty list where nothing is configured', function () {
+    $methods = offering([]);
+
+    expect($methods->offered())->toBe([])
+        ->and($methods->offeredToCustomers())->toBe([]);
 });
 
 /**
@@ -81,9 +86,8 @@ it('answers an empty list where hand settlement is all there is', function () {
  */
 it('answers a list rather than a map, whatever config was keyed by', function () {
     $methods = offering([
-        'manual' => ManualSettlement::class,
         'stripe' => FakeInvoicing::class,
-        'stripe_wallet' => FakeInvoicing::class,
+        'stripe_wallet' => FakeInvoicingToo::class,
     ]);
 
     expect(array_keys($methods->offeredToCustomers()))->toBe([0, 1]);
@@ -98,21 +102,26 @@ it('answers a list rather than a map, whatever config was keyed by', function ()
  * nobody paid for. Refusing is the safe direction.
  */
 it('refuses a method it does not recognise, rather than substituting one', function () {
-    $methods = offering(['manual' => ManualSettlement::class]);
+    $methods = offering(['stripe' => FakeInvoicing::class]);
 
     expect(fn () => $methods->resolve('stirpe'))
         ->toThrow(UnknownPaymentMethod::class);
 });
 
 it('says what it does offer when it refuses, so a typo is obvious', function () {
-    $methods = offering(['manual' => ManualSettlement::class]);
+    $methods = offering(['stripe' => FakeInvoicing::class]);
+
+    $message = null;
 
     try {
         $methods->resolve('stirpe');
     } catch (UnknownPaymentMethod $refusal) {
-        expect($refusal->getMessage())->toContain('stirpe')
-            ->and($refusal->getMessage())->toContain('manual');
+        $message = $refusal->getMessage();
     }
+
+    expect($message)->toBeString()
+        ->and($message)->toContain('stirpe')
+        ->and($message)->toContain('stripe');
 });
 
 /**
@@ -121,23 +130,35 @@ it('says what it does offer when it refuses, so a typo is obvious', function () 
  * to fail rather than resolve into something that will fail later, further away.
  */
 it('refuses a method another environment offers but this one does not', function () {
-    $methods = offering(['manual' => ManualSettlement::class]);
+    $methods = offering(['invoice' => FakeInvoicing::class], default: 'invoice');
 
     expect(fn () => $methods->resolve('stripe'))
         ->toThrow(UnknownPaymentMethod::class);
 });
 
+/**
+ * **An environment with no Stripe keys offers an empty registry**, and every
+ * name is then refused, the default included. This is what `/pay` answers 422 on.
+ */
+it('refuses everything, the default included, when the registry is empty', function () {
+    $methods = offering([], default: 'stripe');
+
+    expect(fn () => $methods->resolve())->toThrow(UnknownPaymentMethod::class)
+        ->and(fn () => $methods->resolve('stripe'))->toThrow(UnknownPaymentMethod::class)
+        ->and(fn () => $methods->resolve('manual'))->toThrow(UnknownPaymentMethod::class);
+});
+
 it('uses the configured default when the caller does not name a method', function () {
     $methods = offering([
-        'manual' => ManualSettlement::class,
-        'invoice' => FakeInvoicing::class,
+        'stripe' => FakeInvoicing::class,
+        'invoice' => FakeInvoicingToo::class,
     ], default: 'invoice');
 
-    expect($methods->resolve())->toBeInstanceOf(FakeInvoicing::class);
+    expect($methods->resolve())->toBeInstanceOf(FakeInvoicingToo::class);
 });
 
 it('refuses a default naming a method that is not offered', function () {
-    $methods = offering(['manual' => ManualSettlement::class], default: 'gift_code');
+    $methods = offering(['stripe' => FakeInvoicing::class], default: 'gift_code');
 
     expect(fn () => $methods->resolve())->toThrow(UnknownPaymentMethod::class);
 });
@@ -147,11 +168,11 @@ it('refuses a default naming a method that is not offered', function () {
  */
 it('hands the default method to anything asking for a gateway', function () {
     offering([
-        'manual' => ManualSettlement::class,
-        'invoice' => FakeInvoicing::class,
+        'stripe' => FakeInvoicing::class,
+        'invoice' => FakeInvoicingToo::class,
     ], default: 'invoice');
 
-    expect(app(PaymentGateway::class))->toBeInstanceOf(FakeInvoicing::class);
+    expect(app(PaymentGateway::class))->toBeInstanceOf(FakeInvoicingToo::class);
 });
 
 /**
@@ -159,11 +180,11 @@ it('hands the default method to anything asking for a gateway', function () {
  * mistake would be and a test that only ever reads its own config proves
  * nothing about it.
  */
-it('offers hand settlement everywhere, because support needs it after launch', function () {
+it('ships with no manual entry and no manual enum case', function () {
     $shipped = require config_path('payments.php');
 
-    expect($shipped['methods'])->toHaveKey('manual')
-        ->and($shipped['methods']['manual'])->toBe(ManualSettlement::class);
+    expect($shipped['methods'])->not->toHaveKey('manual')
+        ->and(array_column(PaymentMethod::cases(), 'value'))->not->toContain('manual');
 });
 
 /**
@@ -177,3 +198,5 @@ class FakeInvoicing implements PaymentGateway
         return PaymentInstruction::nothingToPay();
     }
 }
+
+class FakeInvoicingToo extends FakeInvoicing {}

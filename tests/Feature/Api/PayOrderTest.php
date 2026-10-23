@@ -9,7 +9,6 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Payments\PaymentInstruction;
-use App\Services\Payments\ManualSettlement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 
@@ -69,7 +68,6 @@ beforeEach(function () {
     FakeCheckout::$returnTo = [];
 
     config()->set('payments.methods', [
-        'manual' => ManualSettlement::class,
         'card' => FakeCheckout::class,
         PaymentMethod::StripeWallet->value => FakeWallet::class,
     ]);
@@ -108,12 +106,62 @@ it('answers nothing to pay for an order already paid, and creates nothing', func
     expect(FakeCheckout::$started)->toBe([]);
 });
 
-it('answers nothing to pay when the method collects nothing', function () {
+/**
+ * ~~A method that collects nothing answered `nothing_to_pay`.~~ **Retired 22
+ * October 2026** with the `manual` method: nothing could complete it, and a
+ * pay endpoint that answered 200 for it let a caller believe an order was
+ * handled while it stayed pending.
+ *
+ * **This test puts the registry the repository ships back in place** instead
+ * of the fake one from `beforeEach`. That is the only way it can go red on the
+ * real rule: a registry the test wrote itself would refuse `manual` whether or
+ * not the shipped one still offered it.
+ */
+it('refuses the retired manual method like any other unknown name', function () {
+    config()->set('payments.methods', (require config_path('payments.php'))['methods']);
+
     $order = payableOrder();
 
     $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['method' => 'manual'])
-        ->assertOk()
-        ->assertExactJson(['type' => 'nothing_to_pay']);
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('method');
+
+    expect($order->fresh()->status)->toBe(OrderStatus::Pending);
+});
+
+/**
+ * **An environment with no Stripe keys offers an empty registry**, and `/pay`
+ * answers the existing unknown-method refusal for every name, Stripe included.
+ */
+it('refuses every method in an environment that offers none', function (string $method) {
+    config()->set('payments.methods', []);
+
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['method' => $method])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('method');
+
+    expect(FakeCheckout::$started)->toBe([])
+        ->and($order->fresh()->status)->toBe(OrderStatus::Pending);
+})->with(['stripe', 'stripe_wallet', 'manual']);
+
+/**
+ * The same environment, and the caller naming nothing, so the configured
+ * default is what is asked for and it is not offered. It is a refusal and
+ * not a server error, and nothing is started.
+ */
+it('refuses a payment that names no method where the registry is empty', function () {
+    config()->set('payments.methods', []);
+    config()->set('payments.default', 'stripe');
+
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay")
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['method' => 'That is not a way to pay here.']);
+
+    expect(FakeCheckout::$started)->toBe([]);
 });
 
 it('mints a fresh payment on a second call, so a decline is a retry', function () {

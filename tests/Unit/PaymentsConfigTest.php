@@ -1,7 +1,6 @@
 <?php
 
 use App\Enums\PaymentMethod;
-use App\Services\Payments\ManualSettlement;
 use App\Services\Payments\StripeCheckout;
 use App\Services\Payments\StripeWallet;
 use Illuminate\Support\Env;
@@ -45,7 +44,6 @@ it('offers both stripe methods only where both keys are filled', function () {
     $config = paymentsConfiguredWith('sk_test_x', 'whsec_x');
 
     expect($config['methods'])->toBe([
-        'manual' => ManualSettlement::class,
         'stripe' => StripeCheckout::class,
         'stripe_wallet' => StripeWallet::class,
     ]);
@@ -74,13 +72,13 @@ it('offers the wallet on exactly the same test as the hosted page', function () 
 it('does not offer stripe for keys that are present and empty', function () {
     $config = paymentsConfiguredWith('', '');
 
-    expect($config['methods'])->toBe(['manual' => ManualSettlement::class]);
+    expect($config['methods'])->toBe([]);
 });
 
 it('does not offer stripe for keys that are absent', function () {
     $config = paymentsConfiguredWith(null, null);
 
-    expect($config['methods'])->toBe(['manual' => ManualSettlement::class]);
+    expect($config['methods'])->toBe([]);
 });
 
 /**
@@ -95,13 +93,13 @@ it('does not offer stripe for keys that are absent', function () {
 it('does not offer stripe with a secret but no webhook secret', function () {
     $config = paymentsConfiguredWith('sk_test_x', null);
 
-    expect($config['methods'])->toBe(['manual' => ManualSettlement::class]);
+    expect($config['methods'])->toBe([]);
 });
 
 it('does not offer stripe with a webhook secret but no secret', function () {
     $config = paymentsConfiguredWith(null, 'whsec_x');
 
-    expect($config['methods'])->toBe(['manual' => ManualSettlement::class]);
+    expect($config['methods'])->toBe([]);
 });
 
 /**
@@ -134,10 +132,41 @@ it('registers every PaymentMethod case where the environment allows it', functio
 });
 
 /**
- * Hand settlement is never removed, per the file's own comment. Support needs it
- * after launch for the customer who pays some other way.
+ * ~~Hand settlement is never removed, per the file's own comment.~~ **Retired 22
+ * October 2026**: nothing could complete it, so an environment without Stripe
+ * keys offers no method at all, and `/pay` there answers the unknown-method
+ * refusal. The enum case and the registry key go with it.
  */
-it('offers hand settlement in every environment', function () {
-    expect(paymentsConfiguredWith('sk_test_x', 'whsec_x')['methods'])->toHaveKey('manual')
-        ->and(paymentsConfiguredWith(null, null)['methods'])->toHaveKey('manual');
+it('has no manual method, in any environment or in the enum', function () {
+    expect(paymentsConfiguredWith('sk_test_x', 'whsec_x')['methods'])->not->toHaveKey('manual')
+        ->and(paymentsConfiguredWith(null, null)['methods'])->not->toHaveKey('manual')
+        ->and(PaymentMethod::tryFrom('manual'))->toBeNull()
+        ->and(array_column(PaymentMethod::cases(), 'value'))->not->toContain('manual');
+});
+
+/**
+ * **What an environment with no Stripe keys offers is nothing**, and the default
+ * names Stripe, so a missing key surfaces as the unknown-method refusal on `/pay`
+ * rather than as a payment that settles by itself.
+ */
+it('defaults to stripe when PAYMENT_METHOD is not set', function () {
+    $repository = Env::getRepository();
+    $repository->clear('PAYMENT_METHOD');
+
+    expect(paymentsConfiguredWith(null, null)['default'])->toBe('stripe');
+});
+
+it('takes the default from PAYMENT_METHOD when it is set', function () {
+    $repository = Env::getRepository();
+    $repository->set('PAYMENT_METHOD', 'stripe_wallet');
+
+    try {
+        expect(paymentsConfiguredWith(null, null)['default'])->toBe('stripe_wallet');
+    } finally {
+        $repository->clear('PAYMENT_METHOD');
+    }
+});
+
+it('no longer ships a hand settlement class', function () {
+    expect(class_exists('App\\Services\\Payments\\ManualSettlement'))->toBeFalse();
 });

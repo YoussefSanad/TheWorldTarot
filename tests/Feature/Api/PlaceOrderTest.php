@@ -1,7 +1,6 @@
 <?php
 
 use App\Actions\PlaceOrder;
-use App\Contracts\PaymentGateway;
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
 use App\Models\Customer;
@@ -9,7 +8,6 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Purchasability\Basket;
 use App\Purchasability\Purchasability;
-use App\Services\Payments\ManualSettlement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -382,8 +380,18 @@ it('hands back a token nobody could have guessed from the id', function () {
         ->and(strlen($mine))->toBeGreaterThanOrEqual(32);
 });
 
-it('offers hand settlement, which is what this environment collects with', function () {
-    expect(app(PaymentGateway::class))->toBeInstanceOf(ManualSettlement::class);
+/**
+ * ~~Placing an order offered hand settlement.~~ **Retired 22 October 2026.**
+ * Placing is not paying: an environment that offers no payment method still
+ * takes the order and hands back the token, and the refusal comes at `/pay`.
+ */
+it('places an order even where no payment method is offered', function () {
+    sellable();
+    config()->set('payments.methods', []);
+
+    $this->postJson('/api/v1/orders', orderPayload())
+        ->assertCreated()
+        ->assertJsonStructure(['id', 'pay_token']);
 });
 
 it('refuses to be cached', function () {

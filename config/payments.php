@@ -1,7 +1,6 @@
 <?php
 
 use App\Enums\PaymentMethod;
-use App\Services\Payments\ManualSettlement;
 use App\Services\Payments\StripeCheckout;
 use App\Services\Payments\StripeWallet;
 
@@ -28,10 +27,13 @@ return [
     | method that is chosen per payment rather than the gateway that is chosen
     | per environment.
     |
-    | **What is listed here is what this environment offers.** Locally that is
+    | **What is listed here is what this environment offers.** ~~Locally that is
     | hand settlement alone, since nobody has Jennifer's Stripe keys on a laptop
     | and an offered method with no credentials is a button that fails at the
-    | worst moment. A deployed environment configures Stripe and gets it.
+    | worst moment.~~ **Struck 22 October 2026: hand settlement is retired.**
+    | An environment with no Stripe keys offers nothing, and an offered method
+    | with no credentials is still a button that fails at the worst moment. A
+    | deployed environment configures Stripe and gets it.
     |
     | **A name that is not in this list is refused, never substituted.** That is
     | the opposite of config/newsletter.php, which falls through to Mailchimp on
@@ -43,13 +45,16 @@ return [
     'methods' => array_filter([
 
         /*
-        | Somebody settles the order by hand in the admin panel.
+        | ~~Somebody settles the order by hand in the admin panel. Not
+        | scaffolding. Support needs it after launch for the customer who pays
+        | some other way and for the order that goes wrong, so it is offered
+        | everywhere and is never removed.~~
         |
-        | Not scaffolding. Support needs it after launch for the customer who
-        | pays some other way and for the order that goes wrong, so it is
-        | offered everywhere and is never removed.
+        | **Retired 22 October 2026.** The panel's "Mark as paid" action is
+        | gone, so nothing could ever complete an order this method began, and
+        | anyone holding a pay token could still start one. Stripe is the only
+        | road to paid.
         */
-        PaymentMethod::Manual->value => ManualSettlement::class,
 
         /*
         | Card, on Stripe's own hosted page. The card button.
@@ -129,12 +134,17 @@ return [
     | then, and for anything on this side that starts a payment without a
     | customer in front of it, this is the answer.
     |
+    | **Stripe, decided 22 October 2026.** ~~It was `manual`.~~ An environment
+    | with no Stripe keys has an empty registry, so this names a method that is
+    | not offered, and `POST /pay` answers the existing unknown-method refusal,
+    | a 422. That is deliberate: nothing there can be paid.
+    |
     | It must be one of the methods above. It is not a fallback for an
     | unrecognised name, which is refused: it is the answer to a question that
     | was never asked.
     |
     */
 
-    'default' => env('PAYMENT_METHOD', 'manual'),
+    'default' => env('PAYMENT_METHOD', 'stripe'),
 
 ];

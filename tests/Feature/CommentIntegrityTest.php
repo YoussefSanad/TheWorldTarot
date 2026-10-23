@@ -127,12 +127,13 @@ it('reports a citation of a CLAUDE.md section or hard rule that does not exist',
 });
 
 it('reports a docblock listing a name neither the class nor its enum declares', function () {
-    // `PayLater` is nothing anywhere. `ManualSettlement` is a real gateway
+    // `PayLater` is nothing anywhere. `StripeCheckout` is a real gateway
     // class, and listing it as an answer this can give is still false, which is
-    // why resolving a name somewhere else is not the question.
+    // why resolving a name somewhere else is not the question. (~~It was
+    // `ManualSettlement`~~ until 22 October 2026, when that class was retired.)
     expect(unresolvedClaims('tests/Fixtures/Claims/Unresolved/WrongCases.php'))->toBe([
         'tests/Fixtures/Claims/Unresolved/WrongCases.php:14  docblock lists PayLater among what WrongCases offers, and neither it nor its enum declares one',
-        'tests/Fixtures/Claims/Unresolved/WrongCases.php:15  docblock lists ManualSettlement among what WrongCases offers, and neither it nor its enum declares one',
+        'tests/Fixtures/Claims/Unresolved/WrongCases.php:15  docblock lists StripeCheckout among what WrongCases offers, and neither it nor its enum declares one',
     ]);
 });
 
@@ -140,8 +141,8 @@ it('says nothing about a name the prose marks as former or future', function () 
     // `CLAUDE.md` section 0.6 requires a reversed decision to be struck through
     // and dated rather than deleted, and the repository does it: `FilmSource`
     // explains it was once `RevealVideoSource`, and `PaymentInstruction`
-    // explains gift code redemption will answer the same as hand settlement
-    // once gifting exists. Both survive.
+    // carries a struck sentence saying gift code redemption will answer the
+    // first kind of instruction in the gifting milestone. Both survive.
     //
     // `PayOnCollection` sits in the same list as the two names reported above,
     // marked as withdrawn, so the exemption is proved where it has to work:

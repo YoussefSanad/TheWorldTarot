@@ -25,16 +25,6 @@ namespace App\Enums;
 enum PaymentMethod: string
 {
     /**
-     * Somebody settles the order by hand in the admin panel.
-     *
-     * **Offered everywhere and drawn nowhere.** Support needs it after launch
-     * for the customer who pays some other way, so every environment registers
-     * it, and no customer can press it, so `PaymentMethods::offeredToCustomers()`
-     * is what takes it back out again.
-     */
-    case Manual = 'manual';
-
-    /**
      * Card, on Stripe's own hosted page. The card button.
      *
      * Answers `PaymentInstructionType::Redirect`, a Checkout Session's URL.

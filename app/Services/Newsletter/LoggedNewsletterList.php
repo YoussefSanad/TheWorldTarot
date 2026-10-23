@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Log;
  * **Not a fake, and not for tests.** The suite fakes HTTP and asserts against
  * the real implementation, per .claude/testing.md. This is a real
  * implementation of the interface whose behaviour happens to be "write it
- * down", which is the same standing `ManualSettlement` has in config/payments.
+ * down", ~~which is the same standing `ManualSettlement` has in config/payments.~~ (Struck 22 October 2026: that class is retired.)
  * Naming it in a deployed environment would silently stop collecting
  * subscribers, which is why the log line is a warning rather than info.
  */
