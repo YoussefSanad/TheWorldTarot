@@ -11,7 +11,10 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Payments\OrderBelongsToNobody;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Stripe\Collection;
+use Stripe\Service\Checkout\SessionService;
 use Stripe\Service\PaymentIntentService;
 
 uses(RefreshDatabase::class);
@@ -169,7 +172,10 @@ it('leaves the order pending when Stripe names nobody', function () {
     // attempt settles it properly. Somebody is served late rather than never.
     expect($order->status)->toBe(OrderStatus::Pending)
         ->and($order->customer_id)->toBeNull()
-        ->and($order->charged_amount)->toBe(2500)
+        // **Changed 23 October 2026, step 5.** This used to assert 2500, which
+        // an unconditional save wrote before the transition. Only settlement
+        // writes the amount now, and this order has not settled.
+        ->and($order->charged_amount)->toBeNull()
         ->and($order->stripe_payment_intent_id)->toBe('pi_hosted');
 
     Mail::assertNothingSent();
@@ -223,7 +229,7 @@ it('refuses to settle an order that reached the transition holding nobody', func
     // transition does is addressed to somebody.
     $order = unownedOrderWorth(2500);
 
-    expect(fn () => app(MarkOrderPaid::class)($order))
+    expect(fn () => app(MarkOrderPaid::class)($order, paidBy($order)))
         ->toThrow(OrderBelongsToNobody::class);
 
     expect($order->refresh()->status)->toBe(OrderStatus::Pending);
@@ -261,4 +267,168 @@ it('tells a buyer nobody could name apart from an order already settled', functi
         // same word: one is a fault somebody has to see, the other is not.
         ->and($refused->fault())->toBeTrue()
         ->and($redelivered->fault())->toBeFalse();
+});
+
+/*
+| Step 5 of the design review fixes: which intent is the paying one.
+|
+| An order's `stripe_payment_intent_id` is not the payment that arrived. On the
+| hosted road it is null (a Checkout Session has no PaymentIntent when it is
+| created, R2), and on a retried wallet payment it names an earlier attempt.
+| Settlement used to hide both by writing the paying intent onto the column
+| before it looked, which is also the write that let a second payment overwrite
+| the first. With it gone, everything has to read `$payment->id`.
+*/
+
+it('asks the resolvers about the paying intent when the order column is null', function () {
+    $asked = [];
+    $order = unownedOrderWorth(2500, 'pi_placeholder');
+    $order->forceFill(['stripe_payment_intent_id' => null])->save();
+
+    stripeAnswering([['email' => 'jennifer@example.com', 'name' => 'Jennifer']], $asked);
+
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_paying')))->toBe(Recording::Settled);
+
+    expect($asked)->toHaveCount(1)
+        ->and($asked[0]['payment_intent'])->toBe('pi_paying')
+        ->and($order->refresh()->stripe_payment_intent_id)->toBe('pi_paying')
+        ->and($order->charged_amount)->toBe(2500);
+});
+
+it('asks the resolvers about the paying intent and not an earlier one the order holds', function () {
+    $asked = [];
+    $order = unownedOrderWorth(2500, 'pi_wallet_abandoned');
+
+    stripeAnswering([['email' => 'jennifer@example.com', 'name' => 'Jennifer']], $asked);
+
+    // A customer who retried: a different intent paid than the one the order
+    // last recorded. The one that paid is the one whose buyer is wanted.
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_paying')))->toBe(Recording::Settled);
+
+    expect($asked[0]['payment_intent'])->toBe('pi_paying')
+        ->and($order->refresh()->stripe_payment_intent_id)->toBe('pi_paying');
+});
+
+it('leaves the paying intent on a pending hosted order whose buyer nobody could name', function () {
+    $order = unownedOrderWorth(2500, 'pi_placeholder');
+    $order->forceFill(['stripe_payment_intent_id' => null])->save();
+
+    stripeAnswering([], charge: stripeCharge(null));
+
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_paying')))->toBe(Recording::BuyerUnknown);
+
+    $order->refresh();
+
+    // The narrow write the sweep depends on: without the intent on the column
+    // `orders:reconcile` has nothing to ask Stripe about, and the customer who
+    // paid is never served.
+    expect($order->status)->toBe(OrderStatus::Pending)
+        ->and($order->stripe_payment_intent_id)->toBe('pi_paying')
+        ->and($order->charged_amount)->toBeNull();
+});
+
+it('reports a second distinct intent for a paid order as PaidTwice and logs how to find it', function () {
+    Log::spy();
+
+    $order = orderWorth(2500);
+
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_first')))->toBe(Recording::Settled);
+
+    $paidAt = $order->fresh()->paid_at;
+
+    // Forget the first settlement's mail, so what is counted is the second's.
+    Mail::fake();
+
+    $outcome = app(RecordStripePayment::class)(paymentFor($order, 'pi_second'));
+
+    expect($outcome)->toBe(Recording::PaidTwice)
+        ->and($outcome->fault())->toBeTrue();
+
+    $order->refresh();
+
+    expect($order->stripe_payment_intent_id)->toBe('pi_first')
+        ->and($order->charged_amount)->toBe(2500)
+        ->and($order->paid_at->eq($paidAt))->toBeTrue();
+
+    Mail::assertNothingQueued();
+
+    Log::shouldHaveReceived('error')->once()->withArgs(
+        fn (string $message, array $context): bool => str_contains($message, 'Refund it by hand in Stripe')
+            && $context['order_id'] === $order->id
+            && $context['settling_intent'] === 'pi_first'
+            && $context['duplicate_intent'] === 'pi_second',
+    );
+});
+
+it('reports the settling intent redelivered as AlreadySettled, with nothing logged as an error', function () {
+    Log::spy();
+
+    $order = orderWorth(2500);
+
+    app(RecordStripePayment::class)(paymentFor($order, 'pi_first'));
+
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_first')))->toBe(Recording::AlreadySettled);
+
+    Log::shouldNotHaveReceived('error');
+});
+
+/*
+| Step 5, security review: identity is written from the model read before the
+| row lock. The race is simulated from inside the Stripe call that names the
+| buyer, which is the window between that read and the transition: intent A
+| settles the order for alice while intent B is still asking who paid.
+*/
+
+it('keeps the customer who settled the order when a second intent names somebody else mid-call', function () {
+    $order = unownedOrderWorth(2500, 'pi_hosted', Product::factory()->pass());
+    $alice = Customer::factory()->create(['email' => 'alice@example.com']);
+
+    $sessions = Mockery::mock(SessionService::class);
+    $sessions->shouldReceive('all')->andReturnUsing(function () use ($order, $alice): Collection {
+        Order::whereKey($order->id)->update([
+            'status' => OrderStatus::Paid->value,
+            'paid_at' => now(),
+            'charged_amount' => $order->total_amount,
+            'stripe_payment_intent_id' => 'pi_A',
+            'customer_id' => $alice->id,
+        ]);
+
+        return Collection::constructFrom(['data' => [[
+            'customer_details' => ['email' => 'bob@example.com', 'name' => 'Bob'],
+        ]]]);
+    });
+    substitutedStripe(Mockery::mock(PaymentIntentService::class), $sessions);
+
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_B')))->toBe(Recording::PaidTwice);
+
+    $order->refresh();
+
+    expect($order->customer_id)->toBe($alice->id)
+        ->and($order->stripe_payment_intent_id)->toBe('pi_A')
+        ->and(Customer::firstWhere('email', 'bob@example.com')?->hasViewingRoomAccess())->not->toBeTrue();
+});
+
+it('still fills the customer on a pending order that has none', function () {
+    $order = unownedOrderWorth(2500, 'pi_hosted', Product::factory()->pass());
+    stripeAnswering([['email' => 'bob@example.com', 'name' => 'Bob']]);
+
+    expect(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::Settled);
+
+    $bob = Customer::firstWhere('email', 'bob@example.com');
+
+    expect($order->refresh()->customer_id)->toBe($bob->id)
+        ->and($bob->hasViewingRoomAccess())->toBeTrue();
+});
+
+it('settles with the later intent while the order is still pending, and keeps that one', function () {
+    // The rule is about an order that is no longer pending. A pending order
+    // that held an earlier attempt's intent is settled by whichever intent
+    // actually succeeded, and from then on that is the intent it names.
+    $order = orderWorth(2500);
+    $order->forceFill(['stripe_payment_intent_id' => 'pi_earlier_attempt'])->save();
+
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_that_paid')))->toBe(Recording::Settled)
+        ->and(app(RecordStripePayment::class)(paymentFor($order, 'pi_earlier_attempt')))->toBe(Recording::PaidTwice);
+
+    expect($order->refresh()->stripe_payment_intent_id)->toBe('pi_that_paid');
 });

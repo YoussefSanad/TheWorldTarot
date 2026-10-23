@@ -16,7 +16,9 @@ use App\Enums\Recording;
  * enum said, and a seventh outcome is exactly the event this file exists to
  * make loud rather than let through.
  */
-it('holds six outcomes and no more', function () {
+it('holds seven outcomes and no more', function () {
+    // ~~Six outcomes~~ **Seven from 23 October 2026**: `PaidTwice`, a second
+    // distinct Stripe payment for an order that was already paid.
     expect(Recording::cases())->toBe([
         Recording::Settled,
         Recording::AlreadySettled,
@@ -24,6 +26,7 @@ it('holds six outcomes and no more', function () {
         Recording::NotOurs,
         Recording::AmountMismatch,
         Recording::BuyerUnknown,
+        Recording::PaidTwice,
     ]);
 });
 
@@ -33,8 +36,11 @@ it('holds six outcomes and no more', function () {
  * that log line was the only place either one could be seen.
  */
 it('calls a refused settlement a fault', function () {
+    // `PaidTwice` joins them: a customer has been charged a second time and a
+    // person has to refund it by hand in Stripe, so the sweep must be loud.
     expect(Recording::AmountMismatch->fault())->toBeTrue()
-        ->and(Recording::BuyerUnknown->fault())->toBeTrue();
+        ->and(Recording::BuyerUnknown->fault())->toBeTrue()
+        ->and(Recording::PaidTwice->fault())->toBeTrue();
 });
 
 /**

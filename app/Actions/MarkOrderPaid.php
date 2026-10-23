@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
+use App\Enums\Settlement;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
 use App\Mail\SetPasswordLink;
@@ -11,6 +12,7 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Payments\OrderBelongsToNobody;
+use App\Payments\PaidBy;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -62,18 +64,41 @@ class MarkOrderPaid
     ) {}
 
     /**
-     * @return bool Whether this call is the one that changed anything. False
-     *              means it was already paid, which is a success.
+     * @return Settlement What this call did, decided inside the row lock.
+     *
+     * **~~A bool, whether this call is the one that changed anything.~~
+     * Replaced 23 October 2026.** Two answers could not tell a redelivery of
+     * the payment that settled the order from a second, different payment
+     * arriving for an order somebody had already paid for. The second is a
+     * customer charged twice, and it used to overwrite the first payment's
+     * intent and amount while reporting success.
+     *
+     * - `Settled`: pending, and this call is the one that paid it.
+     * - `AlreadyPaid`: not pending, and `$paidBy` is the intent that settled it.
+     *   A success.
+     * - `PaidTwice`: not pending, and a different intent. Nothing is written.
+     *   Orders are only ever settled by Stripe, so this means two distinct
+     *   succeeded intents. Hand-settled staging orders made before 22 October
+     *   2026 hold no intent and would read as this, which is test data only.
+     * - `Gone`: the row no longer exists.
      */
-    public function __invoke(Order $order): bool
+    public function __invoke(Order $order, PaidBy $paidBy): Settlement
     {
-        $paid = DB::transaction(function () use ($order): bool {
+        $settlement = DB::transaction(function () use ($order, $paidBy): Settlement {
             // Locked, so two settlements arriving together cannot both see a
             // pending order and both grant a pass.
             $locked = Order::whereKey($order->getKey())->lockForUpdate()->first();
 
-            if ($locked === null || $locked->status !== OrderStatus::Pending) {
-                return false;
+            if ($locked === null) {
+                return Settlement::Gone;
+            }
+
+            if ($locked->status !== OrderStatus::Pending) {
+                // Nothing is written on either branch. The stored intent is
+                // the one that settled the order, and it stays that way.
+                return $locked->stripe_payment_intent_id === $paidBy->intentId
+                    ? Settlement::AlreadyPaid
+                    : Settlement::PaidTwice;
             }
 
             // **An order with no customer cannot be settled here**, and this
@@ -89,21 +114,25 @@ class MarkOrderPaid
                 throw OrderBelongsToNobody::soItCannotBeSettled($locked);
             }
 
+            // One save, so an order is never paid for an amount nobody wrote
+            // down, and the payment that settled it is the one it names.
             $locked->forceFill([
                 'status' => OrderStatus::Paid,
                 'paid_at' => now(),
+                'charged_amount' => $paidBy->amount,
+                'stripe_payment_intent_id' => $paidBy->intentId,
             ])->save();
 
             $this->fulfill($locked);
 
-            return true;
+            return Settlement::Settled;
         });
 
-        if ($paid) {
+        if ($settlement === Settlement::Settled) {
             $this->tell($order->refresh()->load('lines.product', 'lines.gift', 'customer'));
         }
 
-        return $paid;
+        return $settlement;
     }
 
     /**

@@ -437,3 +437,41 @@ it('says an order was settled by something else rather than still waiting', func
         ->expectsOutputToContain('Already settled')
         ->assertSuccessful();
 });
+
+/**
+ * **The race with a different payment.** The sweep loads a pending order for
+ * intent B, and a webhook settles it with intent A before the settlement runs.
+ * B is a second payment for a paid order, which is a customer charged twice, and
+ * the console is the one place somebody is looking. Printed as "Already
+ * settled" it would be a refund nobody makes.
+ */
+it('says a payment for an order another payment settled is refused, and reports it as an error', function () {
+    $order = awaitingPayment('pi_second');
+
+    $service = Mockery::mock(PaymentIntentService::class);
+    $service->shouldReceive('retrieve')->andReturnUsing(
+        function (string $id) use ($order): PaymentIntent {
+            $order->forceFill([
+                'status' => OrderStatus::Paid,
+                'paid_at' => now(),
+                'charged_amount' => $order->total_amount,
+                'stripe_payment_intent_id' => 'pi_first',
+            ])->save();
+
+            return PaymentIntent::constructFrom(array_merge(
+                ['id' => $id, 'object' => 'payment_intent'],
+                succeededIntent($order),
+            ));
+        },
+    );
+
+    substitutedStripe($service);
+
+    $this->artisan('orders:reconcile')
+        ->expectsOutputToContain('Refused, this order was already paid by another payment. Refund this one by hand in Stripe')
+        ->expectsOutputToContain('Order '.$order->id.' was not settled')
+        ->doesntExpectOutputToContain('Already settled')
+        ->assertSuccessful();
+
+    expect($order->fresh()->stripe_payment_intent_id)->toBe('pi_first');
+});

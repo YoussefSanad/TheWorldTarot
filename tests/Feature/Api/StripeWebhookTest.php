@@ -191,6 +191,58 @@ it('changes nothing the second time the same payment is reported', function () {
 });
 
 /**
+ * **R1 of the design review, end to end.** A customer who pays on two attempts
+ * produces two succeeded intents for one order. The second used to overwrite
+ * the first intent and the amount on the order and, worse, left no trace that
+ * a second payment had been taken. Now the first stands, nothing is sent, and
+ * the error log says how to find the money to refund it by hand.
+ */
+it('keeps the first payment when a second, different intent succeeds for the same order', function () {
+    Log::spy();
+
+    $customer = Customer::factory()->create(['password' => bcrypt('already-claimed')]);
+    $order = orderCosting(7500, customer: $customer, pass: true);
+
+    $first = stripeEvent('payment_intent.succeeded', paymentIntent([
+        'id' => 'pi_first_attempt',
+        'metadata' => ['order_id' => (string) $order->id],
+    ]), id: 'evt_first');
+
+    postToStripeWebhook($first)->assertOk()->assertExactJson(['received' => true]);
+
+    $settled = $order->fresh();
+    $grantedAt = $customer->fresh()->viewing_room_access_at;
+
+    $this->travel(2)->hours();
+
+    $second = stripeEvent('payment_intent.succeeded', paymentIntent([
+        'id' => 'pi_second_attempt',
+        'metadata' => ['order_id' => (string) $order->id],
+    ]), id: 'evt_second');
+
+    // Stripe must still get its 200, or it retries a payment that is already
+    // a refund waiting to happen.
+    postToStripeWebhook($second)->assertOk()->assertExactJson(['received' => true]);
+
+    $after = $order->fresh();
+
+    expect($after->status)->toBe(OrderStatus::Paid)
+        ->and($after->stripe_payment_intent_id)->toBe('pi_first_attempt')
+        ->and($after->charged_amount)->toBe(7500)
+        ->and($after->paid_at->equalTo($settled->paid_at))->toBeTrue()
+        ->and($customer->fresh()->viewing_room_access_at->equalTo($grantedAt))->toBeTrue();
+
+    // One receipt, for the payment that settled the order.
+    Mail::assertQueued(OrderPaid::class, 1);
+
+    Log::shouldHaveReceived('error')->once()->withArgs(
+        fn (string $message, array $context): bool => $context['order_id'] === $order->id
+            && $context['settling_intent'] === 'pi_first_attempt'
+            && $context['duplicate_intent'] === 'pi_second_attempt',
+    );
+});
+
+/**
  * **Answer fast, do the work on the queue.**
  *
  * Stripe retries anything that is not a 2xx, indefinitely, so an exception

@@ -23,8 +23,9 @@ namespace App\Enums;
  * - **Changed.** `Settled`, and only that
  * - **A no-op.** `AlreadySettled`, `NotSucceededYet`, `NotOurs`. Nothing to do
  *   and nothing wrong
- * - **A fault.** `AmountMismatch`, `BuyerUnknown`. Somebody has been charged
- *   and this application refused to settle it, which a person has to see
+ * - **A fault.** `AmountMismatch`, `BuyerUnknown`, `PaidTwice`. Somebody has been
+ *   charged and a person has to see it: the first two were refused, and the
+ *   third is a second charge that needs refunding by hand
  *
  * **Not backed**, because nothing stores or transmits one. It is an answer
  * passed between two objects in one call, and a backing value would be a
@@ -84,6 +85,16 @@ enum Recording
     case BuyerUnknown;
 
     /**
+     * A second, different payment succeeded for an order already paid.
+     *
+     * **Somebody has been charged twice.** The order keeps the payment that
+     * settled it and nothing is overwritten, so what is left is a refund, which
+     * only a person can do in Stripe. A fault rather than a no-op for that
+     * reason, although this application refused nothing it should have granted.
+     */
+    case PaidTwice;
+
+    /**
      * Whether somebody has been charged and this refused to settle it.
      *
      * **The one place the three kinds are written down.** `ReconcileOrders`
@@ -98,7 +109,7 @@ enum Recording
     public function fault(): bool
     {
         return match ($this) {
-            self::AmountMismatch, self::BuyerUnknown => true,
+            self::AmountMismatch, self::BuyerUnknown, self::PaidTwice => true,
             self::Settled, self::AlreadySettled, self::NotSucceededYet, self::NotOurs => false,
         };
     }

@@ -4,6 +4,7 @@ use App\Actions\AskForReading;
 use App\Actions\MarkOrderPaid;
 use App\Enums\OrderStatus;
 use App\Enums\ProductKey;
+use App\Enums\Settlement;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
 use App\Mail\ReadingToWrite;
@@ -49,9 +50,9 @@ beforeEach(function () {
 /**
  * Settle an order the way both roads into payment do.
  */
-function settlingAGift(Order $order): bool
+function settlingAGift(Order $order): Settlement
 {
-    return app(MarkOrderPaid::class)($order);
+    return app(MarkOrderPaid::class)($order, paidBy($order));
 }
 
 /**
@@ -128,9 +129,9 @@ it('mints a different code for every gift on one order', function () {
 it('mints one code and not two when a payment is redelivered', function () {
     $order = anOrderGifting();
 
-    expect(settlingAGift($order))->toBeTrue()
-        ->and(settlingAGift($order))->toBeFalse()
-        ->and(settlingAGift($order))->toBeFalse();
+    expect(settlingAGift($order))->toBe(Settlement::Settled)
+        ->and(settlingAGift($order))->toBe(Settlement::AlreadyPaid)
+        ->and(settlingAGift($order))->toBe(Settlement::AlreadyPaid);
 
     $code = Gift::sole()->code;
 
@@ -151,7 +152,7 @@ it('mints nothing for an order that was never pending', function () {
     $order = anOrderGifting();
     $order->forceFill(['status' => OrderStatus::Cancelled])->save();
 
-    expect(settlingAGift($order))->toBeFalse()
+    expect(settlingAGift($order))->not->toBe(Settlement::Settled)
         ->and(Gift::sole()->code)->toBeNull();
 
     Mail::assertNothingQueued();

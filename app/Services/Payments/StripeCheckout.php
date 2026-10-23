@@ -3,8 +3,10 @@
 namespace App\Services\Payments;
 
 use App\Contracts\PaymentGateway;
+use App\Enums\OrderStatus;
 use App\Enums\ProductKey;
 use App\Models\Order;
+use App\Payments\OrderCannotBeCharged;
 use App\Payments\PaymentInstruction;
 use App\Payments\RefuseAnythingButAPendingOrder;
 use App\Support\FrontendUrl;
@@ -101,7 +103,32 @@ class StripeCheckout implements PaymentGateway
         // **Written back before the instruction goes out**, so a payment Stripe
         // accepts is reconcilable even if no notification ever arrives. By the
         // time one is lost there is nothing left to write this from.
-        $order->forceFill(['stripe_payment_intent_id' => $session->payment_intent])->save();
+        //
+        // **Conditional on the row still being pending**, because the
+        // model in hand predates the Stripe call and a plain save would
+        // overwrite the intent that settled the order. Plan step 19 removes
+        // this write entirely.
+        $written = Order::whereKey($order->id)
+            ->where('status', OrderStatus::Pending)
+            ->update(['stripe_payment_intent_id' => $session->payment_intent]);
+
+        if ($written === 0) {
+            // **Refused rather than skipped, the way a not-pending order is
+            // refused at the door.** The webhook settled the order while we
+            // were waiting on Stripe, so the intent just minted can never
+            // matter and its secret must not reach a browser: handing it over
+            // would invite a second charge on a paid order. Reloaded first so
+            // the message names the status it really has, not the stale one.
+            //
+            // `fresh()` rather than `refresh()`, because the row may have been
+            // deleted during the call too and `refresh()` would throw
+            // ModelNotFoundException. A missing row is refused the same way,
+            // on the model in hand.
+            throw OrderCannotBeCharged::itIsNotPending($order->fresh() ?? $order);
+        }
+
+        $order->setAttribute('stripe_payment_intent_id', $session->payment_intent);
+        $order->syncOriginalAttribute('stripe_payment_intent_id');
 
         // **The Session's address is never persisted.** It expires after 24
         // hours and an order never does, so it is only ever the answer to the

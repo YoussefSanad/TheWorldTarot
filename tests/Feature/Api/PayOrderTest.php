@@ -10,7 +10,14 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Payments\PaymentInstruction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Services\Payments\StripeCheckout;
+use App\Services\Payments\StripeWallet;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
+use Stripe\Checkout\Session;
+use Stripe\PaymentIntent;
+use Stripe\Service\Checkout\SessionService;
+use Stripe\Service\PaymentIntentService;
 
 uses(RefreshDatabase::class);
 
@@ -408,3 +415,72 @@ it('refuses anything that is not a reading, and never falls back to one', functi
     'a reading that does not exist' => 'two-card',
     'nothing at all' => '',
 ]);
+
+/**
+ * **The order settles while Stripe is being asked, through the real gateways.**
+ *
+ * The controller's own already-paid check reads the order before the Stripe
+ * call, so an order settled inside that call passes it and the refusal comes
+ * from the gateway instead. The customer has done nothing wrong, so the answer
+ * has to be exactly the one an order paid beforehand gets: `nothing_to_pay`,
+ * with no secret and no address, and nothing reported as a fault.
+ *
+ * The fake gateways above cannot walk this, so the registry is pointed at the
+ * real ones with Stripe substituted, settling the order from inside the faked
+ * call, which is the window the real race has.
+ */
+it('answers nothing to pay when the order settles during the Stripe call', function (string $method) {
+    Exceptions::fake();
+
+    config()->set('payments.methods', [
+        'stripe' => StripeCheckout::class,
+        'stripe_wallet' => StripeWallet::class,
+    ]);
+
+    $order = payableOrder();
+
+    $settle = fn () => Order::whereKey($order->id)->update([
+        'status' => OrderStatus::Paid->value,
+        'paid_at' => now(),
+        'charged_amount' => $order->total_amount,
+        'stripe_payment_intent_id' => 'pi_A',
+    ]);
+
+    $intents = Mockery::mock(PaymentIntentService::class);
+    $sessions = Mockery::mock(SessionService::class);
+
+    $intents->shouldReceive('create')->andReturnUsing(function () use ($settle): PaymentIntent {
+        $settle();
+
+        return PaymentIntent::constructFrom([
+            'id' => 'pi_B',
+            'object' => 'payment_intent',
+            'client_secret' => 'pi_B_secret_shh',
+        ]);
+    });
+    $sessions->shouldReceive('create')->andReturnUsing(function () use ($settle): Session {
+        $settle();
+
+        return Session::constructFrom([
+            'id' => 'cs_test_B',
+            'url' => 'https://checkout.stripe.com/c/pay/cs_test_B',
+            'payment_intent' => 'pi_B',
+        ]);
+    });
+
+    substitutedStripe($intents, $sessions);
+
+    $response = $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['method' => $method])
+        ->assertOk()
+        ->assertExactJson(['type' => 'nothing_to_pay']);
+
+    expect($response->getContent())->not->toContain('pi_B_secret_shh')
+        ->and($response->getContent())->not->toContain('checkout.stripe.com');
+
+    $settled = Order::find($order->id);
+
+    expect($settled->status)->toBe(OrderStatus::Paid)
+        ->and($settled->stripe_payment_intent_id)->toBe('pi_A');
+
+    Exceptions::assertNothingReported();
+})->with(['the wallet road' => 'stripe_wallet', 'the hosted checkout road' => 'stripe']);

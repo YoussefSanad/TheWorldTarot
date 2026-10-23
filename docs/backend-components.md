@@ -310,13 +310,13 @@ Small invokable classes holding the transitions that matter.
 | Action | What it does |
 |---|---|
 | `PlaceOrder` | Builds a basket, runs the purchasability guard, captures prices at purchase time, and creates the order and its lines in a transaction |
-| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, refuses anything not `pending`, stamps `paid_at`, grants the Viewing Room pass for any `access_grant` line, **mints a code for every gift on the order**, asks `AskForReading` about the lines that are waiting for a person, then asks the order itself whether everything it owes has gone. Then it sends the receipt, a set-password link if the order grants access and the account has no password, and a `GiftToRedeem` to each recipient |
+| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, takes a required `PaidBy` (intent id and amount) and answers a `Settlement`: only a `pending` order is settled, in one save that writes `status`, `paid_at`, `charged_amount` and the intent id. A paid order answers `AlreadyPaid` for the same intent and `PaidTwice` for a different one, writing nothing (~~answered a bool, 23 October 2026~~). Settling also grants the Viewing Room pass for any `access_grant` line, **mints a code for every gift on the order**, asks `AskForReading` about the lines that are waiting for a person, then asks the order itself whether everything it owes has gone. Then it sends the receipt, a set-password link if the order grants access and the account has no password, and a `GiftToRedeem` to each recipient |
 | `AskForReading` | **The one moment a reading starts existing**, and the note to the client that follows it. Two roads reach it: settlement for a line nobody gifted, and `forGift` for a line somebody did. One message per asking, not per reading |
 | `RedeemGift` | Spends a code. Re-reads the gift **under `lockForUpdate` inside the transaction**, refuses one already spent with a 409, stamps `redeemed_at`, and calls `AskForReading::forGift` in the same transaction. The mail waits for the commit |
 | `DeliverReading` | Stamps `readings.delivered_at` once, then asks `MarkOrderFulfilled` whether the order it belongs to is now finished |
 | `ReadPaymentStatus` | Asks Stripe what became of an order's PaymentIntent, for the confirmation screen to poll |
 | `MarkOrderFulfilled` | Stamps `fulfilled_at` once, idempotently |
-| `RecordStripePayment` | Refuses anything not succeeded, refuses a payment naming an unknown order, refuses one whose **amount and currency do not match the order**, then records `charged_amount` and the intent id and calls `MarkOrderPaid` |
+| `RecordStripePayment` | Refuses anything not succeeded, refuses a payment naming an unknown order, refuses one whose **amount and currency do not match the order**, ~~then records `charged_amount` and the intent id and calls `MarkOrderPaid`~~ then calls `MarkOrderPaid`, which records both in the settling save (changed 23 October 2026). A second distinct payment for a paid order is `Recording::PaidTwice`, logged at error and counted a fault |
 | `SyncCardVideo` | Asks Bunny for a video's real status and promotes, fails or updates the card accordingly |
 
 The row lock plus the "must be pending" check in `MarkOrderPaid` is what makes a duplicated webhook, a retried job and a panel click all safe together. `RedeemGift` is the same shape for the same reason, and it is the one place where getting it wrong means a free reading: `tests/Feature/RedeemAGiftRaceTest.php` forks two real processes at one code to prove the lock is there, because nothing else can.
@@ -357,7 +357,7 @@ What limits a copied link is its life: 30 minutes, from `services.bunny.playback
 ### `Services/Payments`
 
 - `PaymentMethods` is the registry. `config/payments.php` maps `manual` to `ManualSettlement` and `stripe` to `StripeCheckout`, and **the Stripe entry filters itself out when the secrets are absent**, so an environment without keys cannot half-offer it
-- `StripeCheckout` refuses anything not pending, refuses an order whose total disagrees with its lines, creates a PaymentIntent carrying `order_id` in metadata, stores the intent id and returns a client secret
+- `StripeCheckout` refuses anything not pending, refuses an order whose total disagrees with its lines, creates a PaymentIntent carrying `order_id` in metadata, stores the intent id only while the row is still pending (an order settled mid-call is refused, and plan step 19 removes the write) and returns a client secret
 - `ManualSettlement` returns "nothing to pay", which is how an order is settled by hand in the panel
 
 `PaymentInstruction` is the return value either way: a small value object that is either `nothing_to_pay` or a `client_secret`.

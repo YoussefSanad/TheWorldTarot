@@ -158,7 +158,7 @@ it('sends the payment path through the one writer', function () {
 
     // Nothing on it needs a person, so the money landing is what delivers it.
     $atPayment = pendingOrder(product: Product::factory()->pass()->create());
-    app(MarkOrderPaid::class)($atPayment);
+    app(MarkOrderPaid::class)($atPayment, paidBy($atPayment));
 
     // **The other half of this test moved to ReadingResourceTest**, which is
     // where the by-hand caller lives now. Both are still one writer and the

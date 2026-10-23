@@ -5,6 +5,7 @@ use App\Models\Customer;
 use App\Models\Gift;
 use App\Models\Order;
 use App\Models\Product;
+use App\Payments\PaidBy;
 use App\Payments\StripePayment;
 use App\Support\Locales;
 use Database\Factories\ProductFactory;
@@ -278,6 +279,23 @@ function paymentFor(Order $order, string $intentId = 'pi_hosted'): StripePayment
         currency: $order->currency,
         status: 'succeeded',
     );
+}
+
+/**
+ * Who paid, for a test that calls `MarkOrderPaid` directly.
+ *
+ * **Always at the order's own total**, since `charged_amount` equals
+ * `total_amount` for every order that becomes paid (CLAUDE.md section 4, "Prices
+ * are tax inclusive"). A test that wants a different amount, to prove nothing is
+ * overwritten, builds its own `PaidBy` rather than bending this one.
+ *
+ * **Name the intent when the question is which payment this is.** The default
+ * is one intent, so a test that settles twice with it is a redelivery and not
+ * a second payment.
+ */
+function paidBy(Order $order, string $intent = 'pi_test'): PaidBy
+{
+    return new PaidBy($intent, $order->total_amount);
 }
 
 /**

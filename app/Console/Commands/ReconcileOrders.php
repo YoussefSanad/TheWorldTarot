@@ -116,6 +116,7 @@ class ReconcileOrders extends Command
             Recording::NotOurs => 'Not an order this environment holds',
             Recording::AmountMismatch => 'Refused, what Stripe collected does not match this order',
             Recording::BuyerUnknown => 'Refused, Stripe named nobody to settle it for',
+            Recording::PaidTwice => 'Refused, this order was already paid by another payment. Refund this one by hand in Stripe',
         };
 
         // **Loud for a fault, the way an unreachable Stripe already is above.**
@@ -124,7 +125,10 @@ class ReconcileOrders extends Command
         // faults is `Recording`'s to say, so nothing here enumerates them a
         // second time and the console cannot come to disagree with the action.
         if ($recording->fault()) {
-            $this->error('Order '.$order->id.' was not settled. '.$said.'.');
+            // **The reason is not repeated here.** It is on the detail line
+            // this method returns, directly beneath, and saying it twice made
+            // the two lines one string to anything asserting on either.
+            $this->error('Order '.$order->id.' was not settled.');
         }
 
         return $said;

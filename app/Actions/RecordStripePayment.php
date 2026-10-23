@@ -2,10 +2,13 @@
 
 namespace App\Actions;
 
+use App\Enums\OrderStatus;
 use App\Enums\Recording;
+use App\Enums\Settlement;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Payments\BuyerIdentity;
+use App\Payments\PaidBy;
 use App\Payments\StripePayment;
 use App\Services\Payments\BuyerFromCheckoutSession;
 use App\Services\Payments\BuyerFromLatestCharge;
@@ -36,7 +39,7 @@ class RecordStripePayment
     ) {}
 
     /**
-     * @return Recording Which of the six things happened.
+     * @return Recording Which of the seven things happened.
      *
      * **~~A bool, whether this call is the one that changed anything.~~
      * Replaced 4 September 2026.** Six outcomes answered one of two words, so
@@ -95,20 +98,28 @@ class RecordStripePayment
             return Recording::AmountMismatch;
         }
 
-        // Recorded before the transition, so an order that is marked paid is
-        // never briefly paid for an amount nobody wrote down. Rewriting the
-        // same values on a redelivery costs nothing and changes nothing.
-        $order->forceFill([
-            'charged_amount' => $payment->amount,
-            'stripe_payment_intent_id' => $payment->id,
-        ])->save();
+        // ~~Recorded before the transition: `charged_amount` and the intent were
+        // written onto the order here unconditionally.~~ **Struck 23 October
+        // 2026.** That write let a second payment overwrite the first one's
+        // intent and amount on an order already paid. `MarkOrderPaid` writes
+        // both in the save that settles the order and in no other.
 
         // **Whose order this is, if it did not already know.** An order paid
         // for through Stripe carries no identity of its own, because both roads
         // collect the email after the order exists. Everything downstream of
         // the transition addresses a customer, so this has to be settled
         // before it and not inside it.
-        if (! $this->identify($order)) {
+        if (! $this->identify($order, $payment)) {
+            // **The one narrow write left, and only while the order is
+            // pending.** The sweep finds an order through the intent on its
+            // column, so without this the customer who paid is never served.
+            // The pending guard is what stops it overwriting a settling
+            // intent. Step 14 moves it onto the attempt and step 19 removes
+            // it.
+            Order::whereKey($order->id)
+                ->where('status', OrderStatus::Pending)
+                ->update(['stripe_payment_intent_id' => $payment->id]);
+
             return Recording::BuyerUnknown;
         }
 
@@ -116,24 +127,30 @@ class RecordStripePayment
         // grants access inside the transaction and queues mail after commit, so
         // a redelivery finds the work done and does nothing.
         //
-        // **`MarkOrderPaid` keeps its bool and this is where it is read.**
-        // Theirs means one thing, "this call is the one that changed
-        // anything", and there are genuinely only two answers to it. What is
-        // added here is which of the two, said out loud, so a redelivery is
-        // reported as work already done rather than as a payment nobody has
-        // finished collecting.
-        //
-        // **`AlreadySettled` is the honest reading of that `false` from here
-        // and not from everywhere.** `MarkOrderPaid` answers it for any order
-        // that is no longer pending, which includes a cancelled one and a row
-        // that has gone. Neither can arrive here: nothing in this application
-        // writes `OrderStatus::Cancelled`, and both roads in reach an order
-        // they have just read. A caller that could cancel would have to ask
-        // the transition which of the three it meant rather than widen this
-        // line.
-        return ($this->markPaid)($order)
-            ? Recording::Settled
-            : Recording::AlreadySettled;
+        // **~~`MarkOrderPaid` keeps its bool and this is where it is read.~~
+        // Struck 23 October 2026.** It answers a `Settlement`, which says which
+        // of four things happened, so nothing here has to infer one from a
+        // `false`. `Gone` is `NotOurs` because the row vanished between the
+        // read above and the lock, which is the same answer as never finding it.
+        $settlement = ($this->markPaid)($order, new PaidBy($payment->id, $payment->amount));
+
+        if ($settlement === Settlement::PaidTwice) {
+            // **Somebody has been charged twice, and nothing here can refund
+            // it.** The first payment stays on the order untouched. A person
+            // has to refund the second in Stripe, so this is loud.
+            Log::error('A second Stripe payment succeeded for an order that was already paid. Refund it by hand in Stripe.', [
+                'order_id' => $order->id,
+                'settling_intent' => $order->fresh()?->stripe_payment_intent_id,
+                'duplicate_intent' => $payment->id,
+            ]);
+        }
+
+        return match ($settlement) {
+            Settlement::Settled => Recording::Settled,
+            Settlement::AlreadyPaid => Recording::AlreadySettled,
+            Settlement::PaidTwice => Recording::PaidTwice,
+            Settlement::Gone => Recording::NotOurs,
+        };
     }
 
     /**
@@ -172,13 +189,13 @@ class RecordStripePayment
      *
      * @return bool Whether this order can now be settled.
      */
-    private function identify(Order $order): bool
+    private function identify(Order $order, StripePayment $payment): bool
     {
         if ($order->customer_id !== null) {
             return true;
         }
 
-        $intentId = (string) $order->stripe_payment_intent_id;
+        $intentId = $payment->id;
 
         $buyer = $this->buyerFromSession->forPaymentIntent($intentId)
             ?? $this->buyerFromCharge->forPaymentIntent($intentId);
@@ -223,8 +240,24 @@ class RecordStripePayment
             ['name' => $buyer->name, 'password' => null],
         );
 
-        $order->forceFill(['customer_id' => $customer->getKey()])->save();
-        $order->setRelation('customer', $customer);
+        // **A `Customer` created above may go unused** when the write below
+        // loses, because the order already has an owner or is no longer
+        // pending. That is harmless: the row is keyed by email, so the next
+        // payment from this buyer finds it with `firstOrCreate`, and a
+        // customer with no orders costs nothing.
+        //
+        // **Written only while the order has no customer and is still
+        // pending.** This runs outside the row lock on a model read earlier,
+        // so a second intent racing a settlement would otherwise reassign the
+        // paid order's owner. Re-read afterwards so everything downstream
+        // sees whoever actually holds the row.
+        Order::whereKey($order->id)
+            ->whereNull('customer_id')
+            ->where('status', OrderStatus::Pending)
+            ->update(['customer_id' => $customer->getKey()]);
+
+        $order->refresh();
+        $order->load('customer');
 
         return true;
     }

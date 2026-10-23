@@ -221,6 +221,62 @@ it('refuses to charge for an order that is not pending', function () {
     expect($sent)->toBe([]);
 });
 
+/*
+| Step 5, security review: the write-back must not land on a paid order. The
+| settling is simulated from inside the faked Stripe call, which is the window
+| the real race has, and `$order` is the stale model loaded before it.
+*/
+
+it('writes the new intent onto an order that is still pending when Stripe answers', function () {
+    $sent = [];
+    stripeAccepting($sent, intentId: 'pi_new');
+
+    $order = orderWorth(2500);
+    $order->forceFill(['stripe_payment_intent_id' => 'pi_old'])->save();
+
+    app(StripeCheckout::class)->begin($order);
+
+    expect($order->fresh()->stripe_payment_intent_id)->toBe('pi_new_1')
+        ->and($order->fresh()->status)->toBe(OrderStatus::Pending);
+});
+
+it('leaves a paid order naming the intent that paid when it settles during the Stripe call', function () {
+    $order = orderWorth(2500);
+
+    $sessions = Mockery::mock(SessionService::class);
+    $sessions->shouldReceive('create')->andReturnUsing(function () use ($order): Session {
+        // The webhook lands while we are waiting on Stripe.
+        Order::whereKey($order->id)->update([
+            'status' => OrderStatus::Paid->value,
+            'paid_at' => now(),
+            'charged_amount' => $order->total_amount,
+            'stripe_payment_intent_id' => 'pi_A',
+        ]);
+
+        return Session::constructFrom([
+            'id' => 'cs_test_B',
+            'url' => 'https://checkout.stripe.com/c/pay/cs_test_B',
+            'payment_intent' => 'pi_B',
+        ]);
+    });
+    substitutedStripe(Mockery::mock(PaymentIntentService::class), $sessions);
+
+    // **Refusing is required, not merely allowed.** Returning the new Session's
+    // address for an order that is already paid is a second charge waiting to
+    // be made.
+    expect(fn () => app(StripeCheckout::class)->begin($order))
+        ->toThrow(OrderCannotBeCharged::class);
+
+    $settled = Order::find($order->id);
+
+    expect($settled->stripe_payment_intent_id)->toBe('pi_A')
+        ->and($settled->status)->toBe(OrderStatus::Paid)
+        ->and($settled->charged_amount)->toBe(2500)
+        ->and($settled->paid_at)->not->toBeNull()
+        ->and($settled->customer_id)->toBe($order->customer_id)
+        ->and($settled->total_amount)->toBe(2500);
+});
+
 it('refuses to charge an order whose total disagrees with its own lines', function () {
     $sent = [];
     stripeAccepting($sent);

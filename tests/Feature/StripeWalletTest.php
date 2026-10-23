@@ -235,6 +235,65 @@ it('refuses to charge for an order that is not pending', function () {
     expect($sent)->toBe([]);
 });
 
+/*
+| Step 5, security review: the write-back must not land on a paid order.
+|
+| The guard above reads a model loaded before the Stripe call and holds no lock,
+| so an order settled while Stripe is being talked to still passed it. The
+| settling is simulated from inside the faked Stripe call, which is exactly the
+| window the real race has.
+*/
+
+it('writes the new intent onto an order that is still pending when Stripe answers', function () {
+    $sent = [];
+    stripeMintingIntents($sent, intentId: 'pi_new');
+
+    $order = orderWorth(2500);
+    $order->forceFill(['stripe_payment_intent_id' => 'pi_old'])->save();
+
+    app(StripeWallet::class)->begin($order);
+
+    expect($order->fresh()->stripe_payment_intent_id)->toBe('pi_new_1')
+        ->and($order->fresh()->status)->toBe(OrderStatus::Pending);
+});
+
+it('leaves a paid order naming the intent that paid when it settles during the Stripe call', function () {
+    $order = orderWorth(2500);
+
+    $intents = Mockery::mock(PaymentIntentService::class);
+    $intents->shouldReceive('create')->andReturnUsing(function () use ($order): PaymentIntent {
+        // The webhook lands while we are waiting on Stripe.
+        Order::whereKey($order->id)->update([
+            'status' => OrderStatus::Paid->value,
+            'paid_at' => now(),
+            'charged_amount' => $order->total_amount,
+            'stripe_payment_intent_id' => 'pi_A',
+        ]);
+
+        return PaymentIntent::constructFrom([
+            'id' => 'pi_B',
+            'object' => 'payment_intent',
+            'client_secret' => 'pi_B_secret_shh',
+        ]);
+    });
+    substitutedStripe($intents);
+
+    // `$order` is the model loaded before the call and still says pending.
+    // **Refusing is required, not merely allowed.** Returning pi_B's secret for
+    // an order that is already paid is a second charge waiting to be confirmed.
+    expect(fn () => app(StripeWallet::class)->begin($order))
+        ->toThrow(OrderCannotBeCharged::class);
+
+    $settled = Order::find($order->id);
+
+    expect($settled->stripe_payment_intent_id)->toBe('pi_A')
+        ->and($settled->status)->toBe(OrderStatus::Paid)
+        ->and($settled->charged_amount)->toBe(2500)
+        ->and($settled->paid_at)->not->toBeNull()
+        ->and($settled->customer_id)->toBe($order->customer_id)
+        ->and($settled->total_amount)->toBe(2500);
+});
+
 it('refuses to charge an order whose total disagrees with its own lines', function () {
     $sent = [];
     stripeMintingIntents($sent);

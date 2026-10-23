@@ -6,6 +6,7 @@ use App\Enums\ClaimOutcome;
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
 use App\Enums\ProductKey;
+use App\Enums\Settlement;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
 use App\Mail\PasswordResetLink;
@@ -15,6 +16,8 @@ use App\Models\Customer;
 use App\Models\Gift;
 use App\Models\Order;
 use App\Models\Product;
+use App\Payments\OrderBelongsToNobody;
+use App\Payments\PaidBy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -26,9 +29,9 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function settle(Order $order): bool
+function settle(Order $order, string $intent = 'pi_test'): Settlement
 {
-    return app(MarkOrderPaid::class)($order);
+    return app(MarkOrderPaid::class)($order, paidBy($order, $intent));
 }
 
 function orderFor(Product $product, ?Customer $customer = null): Order
@@ -42,7 +45,7 @@ function orderFor(Product $product, ?Customer $customer = null): Order
 it('marks a pending order paid and records when', function () {
     $order = orderFor(Product::factory()->create());
 
-    expect(settle($order))->toBeTrue();
+    expect(settle($order))->toBe(Settlement::Settled);
 
     $order->refresh();
 
@@ -127,10 +130,11 @@ it('does nothing at all the second time', function () {
     $customer = Customer::factory()->create(['password' => null]);
     $order = orderFor(Product::factory()->pass()->create(), $customer);
 
-    expect(settle($order))->toBeTrue()
-        // False means it was already paid, which is a success and not a failure.
-        ->and(settle($order))->toBeFalse()
-        ->and(settle($order))->toBeFalse();
+    expect(settle($order))->toBe(Settlement::Settled)
+        // AlreadyPaid means the same intent came round again, which is a
+        // success and not a failure.
+        ->and(settle($order))->toBe(Settlement::AlreadyPaid)
+        ->and(settle($order))->toBe(Settlement::AlreadyPaid);
 
     Mail::assertQueued(OrderPaid::class, 1);
     Mail::assertQueued(SetPasswordLink::class, 1);
@@ -153,10 +157,176 @@ it('keeps the date somebody first got in, however many times it is settled', fun
 it('will not pay a cancelled order', function () {
     $order = Order::factory()->cancelled()->forProduct(Product::factory()->create())->create();
 
-    expect(settle($order))->toBeFalse()
-        ->and($order->fresh()->status)->toBe(OrderStatus::Cancelled);
+    // Nothing in the application writes `cancelled`, so which of the
+    // not-pending answers this is does not matter. What matters is that it is
+    // not a settlement and moves nothing.
+    expect(settle($order))->not->toBe(Settlement::Settled)
+        ->and($order->fresh()->status)->toBe(OrderStatus::Cancelled)
+        ->and($order->fresh()->paid_at)->toBeNull()
+        ->and($order->fresh()->charged_amount)->toBeNull()
+        ->and($order->fresh()->stripe_payment_intent_id)->toBeNull();
 
     Mail::assertNothingQueued();
+});
+
+/*
+| Which payment settled it, and what a second one may not touch.
+|
+| R1 of the design review: a retried payment used to overwrite the record of
+| the payment that had settled the order. `PaidBy` is required, so there is no
+| road to a paid order that does not say which intent and how much, and
+| `Settlement` says which of four things happened.
+*/
+
+it('writes the amount and the intent in the same save that marks the order paid', function () {
+    $order = orderFor(Product::factory()->create(['price_usd' => 7500]));
+
+    expect($order->charged_amount)->toBeNull()
+        ->and($order->stripe_payment_intent_id)->toBeNull();
+
+    // What the one save that moves the order to paid carried. A second save
+    // writing the columns afterwards would leave a paid order that briefly
+    // names no payment, and this reads the moment of the transition itself.
+    $atTransition = null;
+
+    Order::updated(function (Order $saved) use (&$atTransition): void {
+        if ($saved->wasChanged('status') && $saved->status === OrderStatus::Paid) {
+            $atTransition = $saved->getChanges();
+        }
+    });
+
+    expect(settle($order, 'pi_settling'))->toBe(Settlement::Settled);
+
+    expect($atTransition)->not->toBeNull()
+        ->and($atTransition['charged_amount'] ?? null)->toBe(7500)
+        ->and($atTransition['stripe_payment_intent_id'] ?? null)->toBe('pi_settling');
+
+    $order->refresh();
+
+    expect($order->charged_amount)->toBe($order->total_amount)
+        ->and($order->stripe_payment_intent_id)->toBe('pi_settling');
+});
+
+it('records exactly what the order says was charged, in every currency', function (string $currency) {
+    $order = orderWorth(4500, $currency);
+
+    settle($order);
+
+    // CLAUDE.md section 4: prices are tax inclusive, so what was collected is
+    // the number the customer saw. This replaces the deleted hand-settlement
+    // test that asserted the opposite for a road that no longer exists.
+    expect($order->refresh()->status)->toBe(OrderStatus::Paid)
+        ->and($order->total_amount)->toBe(4500)
+        ->and($order->charged_amount)->toBe($order->total_amount);
+})->with(['USD', 'EUR', 'GBP']);
+
+it('answers AlreadyPaid and writes nothing when the same intent comes round again', function () {
+    $order = orderFor(Product::factory()->create());
+
+    settle($order, 'pi_first');
+    $before = $order->fresh()->getAttributes();
+
+    $saves = 0;
+    Order::saving(function () use (&$saves): void {
+        $saves++;
+    });
+
+    $this->travel(3)->hours();
+
+    expect(settle($order, 'pi_first'))->toBe(Settlement::AlreadyPaid);
+
+    expect($saves)->toBe(0)
+        ->and($order->fresh()->getAttributes())->toBe($before);
+});
+
+it('answers PaidTwice for a different intent and leaves the first payment exactly as it was', function () {
+    $order = anOrderGivingAPassAndAPresent();
+    $customer = $order->customer;
+
+    expect(settle($order, 'pi_first'))->toBe(Settlement::Settled);
+
+    $settled = $order->fresh();
+    $accessAt = $customer->fresh()->viewing_room_access_at;
+    $code = Gift::sole()->code;
+
+    expect($code)->not->toBeNull();
+
+    // Everything queued by the first settlement is forgotten here, so what
+    // follows can only be the second one's doing.
+    Mail::fake();
+
+    $this->travel(2)->days();
+
+    // **A different amount as well, on purpose.** Replaying the same figure
+    // would leave an overwrite invisible: the columns would hold the same
+    // numbers either way.
+    $second = app(MarkOrderPaid::class)($order, new PaidBy('pi_second', 1));
+
+    expect($second)->toBe(Settlement::PaidTwice);
+
+    $after = $order->fresh();
+
+    expect($after->stripe_payment_intent_id)->toBe('pi_first')
+        ->and($after->charged_amount)->toBe($settled->charged_amount)
+        ->and($after->charged_amount)->toBe($after->total_amount)
+        ->and($after->paid_at->eq($settled->paid_at))->toBeTrue()
+        ->and($after->status)->toBe(OrderStatus::Paid)
+        // The pass was granted once and keeps its date.
+        ->and($customer->fresh()->viewing_room_access_at->eq($accessAt))->toBeTrue()
+        // The code somebody was emailed is the code that still stands.
+        ->and(Gift::sole()->code)->toBe($code);
+
+    // No receipt, no claim link and no second gift code for a payment that is
+    // a refund waiting to happen.
+    Mail::assertNothingQueued();
+    Mail::assertNothingSent();
+});
+
+it('answers PaidTwice again for a third distinct intent', function () {
+    $order = orderFor(Product::factory()->create());
+
+    settle($order, 'pi_first');
+
+    expect(settle($order, 'pi_second'))->toBe(Settlement::PaidTwice)
+        ->and(settle($order, 'pi_third'))->toBe(Settlement::PaidTwice)
+        ->and($order->fresh()->stripe_payment_intent_id)->toBe('pi_first');
+});
+
+it('still answers AlreadyPaid for the settling intent after a different one has been refused', function () {
+    $order = orderFor(Product::factory()->create());
+
+    settle($order, 'pi_first');
+    settle($order, 'pi_second');
+
+    // The refused payment did not become the order's payment by being seen.
+    expect(settle($order, 'pi_first'))->toBe(Settlement::AlreadyPaid);
+});
+
+it('answers Gone for an order whose row has been deleted', function () {
+    $order = Order::factory()->create();
+
+    DB::table('orders')->where('id', $order->id)->delete();
+
+    expect(settle($order))->toBe(Settlement::Gone);
+
+    Mail::assertNothingQueued();
+});
+
+it('still refuses to settle an order that belongs to nobody, and writes neither column', function () {
+    $order = unownedOrderWorth(2500, 'pi_hosted');
+
+    // The order starts holding the intent a hosted checkout recorded. Neither
+    // column may move when the transition is refused.
+    $order->forceFill(['stripe_payment_intent_id' => null])->save();
+
+    expect(fn () => app(MarkOrderPaid::class)($order, paidBy($order, 'pi_nobody')))
+        ->toThrow(OrderBelongsToNobody::class);
+
+    $order->refresh();
+
+    expect($order->status)->toBe(OrderStatus::Pending)
+        ->and($order->charged_amount)->toBeNull()
+        ->and($order->stripe_payment_intent_id)->toBeNull();
 });
 
 /*

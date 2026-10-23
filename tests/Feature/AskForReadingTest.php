@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\MarkOrderPaid;
+use App\Enums\Settlement;
 use App\Mail\ReadingToWrite;
 use App\Models\Customer;
 use App\Models\Order;
@@ -36,9 +37,9 @@ beforeEach(function () {
 /**
  * Settle an order the way both roads into payment do.
  */
-function settling(Order $order): bool
+function settling(Order $order): Settlement
 {
-    return app(MarkOrderPaid::class)($order);
+    return app(MarkOrderPaid::class)($order, paidBy($order));
 }
 
 /**
@@ -190,9 +191,9 @@ it('creates a reading for the reading on an order that also holds a pass', funct
 it('creates one reading and not two when a payment is redelivered', function () {
     $order = anOrderAsking('Will the move be right for me?');
 
-    expect(settling($order))->toBeTrue()
-        ->and(settling($order))->toBeFalse()
-        ->and(settling($order))->toBeFalse();
+    expect(settling($order))->toBe(Settlement::Settled)
+        ->and(settling($order))->toBe(Settlement::AlreadyPaid)
+        ->and(settling($order))->toBe(Settlement::AlreadyPaid);
 
     expect(Reading::count())->toBe(1);
 });
@@ -200,7 +201,7 @@ it('creates one reading and not two when a payment is redelivered', function () 
 it('creates nothing for an order that was never pending', function () {
     $order = Order::factory()->cancelled()->forProduct(Product::factory()->create())->create();
 
-    expect(settling($order))->toBeFalse()
+    expect(settling($order))->not->toBe(Settlement::Settled)
         ->and(Reading::count())->toBe(0);
 });
 

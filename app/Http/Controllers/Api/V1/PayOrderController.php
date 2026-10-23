@@ -8,6 +8,7 @@ use App\Http\Requests\Api\V1\PayOrderRequest;
 use App\Http\Resources\Api\V1\PaymentInstructionResource;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Payments\OrderCannotBeCharged;
 use App\Payments\PaymentInstruction;
 use App\Services\Payments\PaymentMethods;
 use Illuminate\Http\JsonResponse;
@@ -116,10 +117,23 @@ class PayOrderController extends Controller
         // address even by accident.
         $returnTo = $request->validated('return_to');
 
-        return $methods->resolve($request->validated('method'))->begin(
-            $order,
-            $returnTo === null ? null : ProductKey::from($returnTo),
-        );
+        try {
+            return $methods->resolve($request->validated('method'))->begin(
+                $order,
+                $returnTo === null ? null : ProductKey::from($returnTo),
+            );
+        } catch (OrderCannotBeCharged $refusal) {
+            // **An order that settled during the Stripe call is the same
+            // answer as one already paid before it**, because the customer
+            // did nothing wrong in either. A fresh read decides it, so a
+            // refusal for any other reason is still thrown rather than
+            // swallowed.
+            if ($order->fresh()?->isPending() === false) {
+                return PaymentInstruction::nothingToPay();
+            }
+
+            throw $refusal;
+        }
     }
 
     private function answer(PaymentInstruction $instruction, Request $request): JsonResponse

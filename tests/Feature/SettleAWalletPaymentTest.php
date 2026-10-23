@@ -205,7 +205,14 @@ it('leaves the order pending and names both sources when neither has anybody', f
     // that paid for it, so orders:reconcile comes back to it.
     expect($order->status)->toBe(OrderStatus::Pending)
         ->and($order->customer_id)->toBeNull()
-        ->and($order->charged_amount)->toBe(2500);
+        // **Changed 23 October 2026, step 5 of the design review fixes.** It
+        // asserted `charged_amount` was 2500 here, written before the
+        // transition by an unconditional save that is what let a retried
+        // payment overwrite the first. Only settlement writes the amount now,
+        // and this order has not settled. The paying intent is still kept, so
+        // the sweep comes back to it.
+        ->and($order->charged_amount)->toBeNull()
+        ->and($order->stripe_payment_intent_id)->toBe('pi_wallet');
 
     Mail::assertNothingQueued();
 
