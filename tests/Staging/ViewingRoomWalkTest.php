@@ -10,23 +10,41 @@ use Tests\Staging\Target;
  *
  * `docs/CHECKPOINT.md` has carried "the Viewing Room path is unwalked on
  * staging" since M4, because walking it needed a pass holder and there had
- * never been a way to make one. Somebody buying a pass and an order being
- * settled by hand is that way.
+ * never been a way to make one. ~~Somebody buying a pass and an order being
+ * settled by hand is that way.~~ Struck through 22 October 2026: somebody
+ * buying a pass and paying for it through Stripe is that way now.
  *
- * ## The denials run on their own. The purchase needs you.
+ * ~~## The denials run on their own. The purchase needs you.~~
  *
- * Nothing collects money yet, by design, so a person has to open the admin
+ * ~~Nothing collects money yet, by design, so a person has to open the admin
  * panel and mark the order paid. That is not a limitation of this suite, it is
- * the product: `ManualSettlement` is the only payment gateway there is.
+ * the product: `ManualSettlement` is the only payment gateway there is.~~
  *
- * Run the full walk with:
+ * ~~Run the full walk with `STAGING_URL=... STAGING_INTERACTIVE=1 composer
+ * test:staging`. It will place an order, print its number, and wait for you to
+ * settle it.~~
+ *
+ * **Struck through 22 October 2026.** Hand settlement is not the product, it is
+ * a panel action for an order nobody paid through the site. Stripe has taken
+ * payments on staging since 26 August 2026, so this walk now buys its pass the
+ * way a customer does and nobody opens the panel.
+ *
+ * ## The denials run on their own. The purchase takes a Stripe test payment.
+ *
+ * It places an order, pays it with `stripe_wallet`, confirms the client secret
+ * at Stripe with `pm_card_visa` and the `pk_test_` key (a `pk_live_` key is
+ * refused), then waits for `/api/v1/me` to show the pass. The helpers are
+ * restated from `WalletPaymentWalkTest` rather than shared, for the reason
+ * given in that file: a walk that only runs when another file was loaded is a
+ * fatal error waiting for somebody to run it alone.
  *
  * ```bash
- * STAGING_URL=... STAGING_INTERACTIVE=1 composer test:staging
+ * STAGING_URL=... STAGING_WALLET=1 STAGING_STRIPE_PUBLISHABLE=pk_test_... \
+ * composer test:staging --filter=ViewingRoomWalk
  * ```
  *
- * It will place an order, print its number, and wait for you to settle it while
- * watching `/api/v1/me` for the pass to appear.
+ * Gated on `STAGING_WALLET=1`, the same switch as the wallet walk, because it
+ * moves the same Stripe test money. `STAGING_INTERACTIVE` no longer gates it.
  *
  * ## The part that has to be done properly
  *
@@ -139,6 +157,17 @@ it('sells a pass, grants it when the money is recorded, and plays the film', fun
         $this->markTestSkipped('No card on this environment has a finished film, so there is nothing to play.');
     }
 
+    $publishableKey = (string) getenv('STAGING_STRIPE_PUBLISHABLE');
+
+    if ($publishableKey === '') {
+        $this->markTestSkipped('STAGING_STRIPE_PUBLISHABLE is not set, so the pass cannot be paid for the way a browser would.');
+    }
+
+    // A live key confirms against real cards. Restated, not borrowed.
+    if (! str_starts_with($publishableKey, 'pk_test_')) {
+        $this->markTestSkipped('STAGING_STRIPE_PUBLISHABLE is not a test mode key. Refusing to run.');
+    }
+
     $client = Target::client();
 
     // Its own account, because this one ends up holding a pass and every other
@@ -160,6 +189,8 @@ it('sells a pass, grants it when the money is recorded, and plays the film', fun
         ],
     ]);
 
+    Target::assertNotThrottled($placed, 'orders');
+
     if ($placed->getStatusCode() === 422) {
         $this->markTestSkipped(
             $passKey.' cannot be bought in '.$currency.' here. Publish it and price it above zero in the panel first. '
@@ -173,14 +204,62 @@ it('sells a pass, grants it when the money is recorded, and plays the film', fun
 
     expect($order['status'])->toBe('pending');
 
-    Target::say(str_repeat('=', 72));
-    Target::say('Order #'.$order['id'].' is waiting, for '.$email);
-    Target::say('Open '.Target::url('/admin').', go to Orders, and use "Mark as paid".');
-    Target::say('This is watching for the pass to appear. It gives up after five minutes.');
-    Target::say(str_repeat('=', 72));
+    expect($order['pay_token'] ?? null)->toBeString();
+
+    $paying = $client->post('api/v1/orders/'.$order['pay_token'].'/pay', [
+        'headers' => $asCustomer,
+        'json' => ['method' => 'stripe_wallet'],
+    ]);
+
+    Target::assertNotThrottled($paying, 'orders-pay');
+
+    if ($paying->getStatusCode() === 422) {
+        $this->markTestSkipped(
+            'This environment does not offer stripe_wallet. It needs STRIPE_SECRET and STRIPE_WEBHOOK_SECRET both '
+            .'filled. Response: '.$paying->getBody()
+        );
+    }
+
+    expect($paying->getStatusCode())->toBe(200);
+
+    $instruction = Target::json($paying);
+
+    expect($instruction['type'])->toBe('client_secret')
+        ->and($instruction['client_secret'] ?? null)->toBeString();
+
+    $secret = (string) $instruction['client_secret'];
+
+    Target::say('Order #'.$order['id'].' placed for '.$email.'. Paying it with a Stripe test card.');
+
+    $confirmed = (new Client(['http_errors' => false, 'timeout' => 30]))->post(
+        'https://api.stripe.com/v1/payment_intents/'.explode('_secret_', $secret, 2)[0].'/confirm',
+        [
+            'headers' => [
+                'Authorization' => 'Bearer '.$publishableKey,
+                'Content-Type' => 'application/x-www-form-urlencoded',
+            ],
+            'form_params' => [
+                'client_secret' => $secret,
+                'payment_method' => 'pm_card_visa',
+                'return_url' => Target::origin().'/',
+            ],
+        ],
+    );
+
+    if ($confirmed->getStatusCode() !== 200) {
+        $this->fail('Stripe refused the confirmation with '.$confirmed->getStatusCode().': '.$confirmed->getBody());
+    }
+
+    $body = Target::json($confirmed);
+
+    // `amount` and not `amount_received`: a publishable key gets a limited
+    // PaymentIntent that withholds the settlement fields.
+    expect($body['status'] ?? null)->toBe('succeeded')
+        ->and($body['amount'] ?? null)->toBe($order['total_amount'])
+        ->and(strtoupper((string) ($body['currency'] ?? '')))->toBe(strtoupper($currency));
 
     $granted = false;
-    $deadline = time() + 300;
+    $deadline = time() + 120;
 
     while (time() < $deadline) {
         sleep(5);
@@ -194,7 +273,7 @@ it('sells a pass, grants it when the money is recorded, and plays the film', fun
         }
     }
 
-    expect($granted)->toBeTrue('The pass never appeared. Either the order was not settled, or settling it did not grant access.');
+    expect($granted)->toBeTrue('A Stripe test payment succeeded and the pass never appeared within two minutes. The sweep leaves an order alone for fifteen, so this is the webhook, or settling did not grant access.');
 
     // **404 now, where it could not be checked before.** A card with nothing to
     // watch answers 404 to somebody holding a pass and 403 to everybody else,
@@ -277,6 +356,6 @@ it('sells a pass, grants it when the money is recorded, and plays the film', fun
 
     Target::say('A tampered token was refused, so the URL is genuinely signed.');
 })->skip(
-    fn (): bool => getenv('STAGING_INTERACTIVE') !== '1',
-    'Needs somebody to mark an order paid in the admin panel. Set STAGING_INTERACTIVE=1 to run it.'
+    fn (): bool => getenv('STAGING_WALLET') !== '1',
+    'Takes a real Stripe test payment. Set STAGING_WALLET=1 and STAGING_STRIPE_PUBLISHABLE=pk_test_... to run it.'
 );

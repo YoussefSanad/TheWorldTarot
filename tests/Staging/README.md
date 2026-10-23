@@ -26,6 +26,15 @@ STAGING_STRIPE_PUBLISHABLE=pk_test_... \
 composer test:staging
 ```
 
+The Viewing Room walk buys its pass through Stripe too, since 22 October 2026, and shares the wallet walk's switch and key. ~~It used to stop and wait for you to mark an order paid in the panel, under `STAGING_INTERACTIVE=1`.~~
+
+```bash
+STAGING_URL=https://staging-api.theworldtarot.com \
+STAGING_WALLET=1 \
+STAGING_STRIPE_PUBLISHABLE=pk_test_... \
+composer test:staging --filter=ViewingRoomWalk
+```
+
 The gift walk is off for the same reason and one more: **it stops and waits for
 you.** Set `STAGING_EMAIL` to an address you can read, because the code is
 mailed to the recipient and never to the buyer, and reading it out of that inbox
@@ -50,7 +59,7 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 | `STAGING_ORIGIN` | The exact origin the website will be served from. Cookie authentication and CORS are both keyed on it, so without it those checks prove much less |
 | `STAGING_EMAIL` | **Your own address.** Every walk account becomes `you+walk-...@yours`, so each is a separate customer and all the mail lands in one inbox |
 | `STAGING_EMAIL_DOMAIN` | The blunter older form: a whole domain you can receive at. `STAGING_EMAIL` wins if both are set |
-| `STAGING_INTERACTIVE=1` | Runs the purchase walk, which waits for you to mark an order paid in the panel |
+| ~~`STAGING_INTERACTIVE=1`~~ | ~~Runs the purchase walk, which waits for you to mark an order paid in the panel.~~ No longer gates anything as of 22 October 2026: the Viewing Room purchase walk runs under `STAGING_WALLET=1` |
 | `STAGING_CARD=1` | Runs the **card walk**, which takes real Stripe test payments against the environment. Needs the key below |
 | `STAGING_WALLET=1` | Runs the **wallet walk**, `tests/Staging/WalletPaymentWalkTest.php`, which confirms a real test-mode PaymentIntent minted by `stripe_wallet`. Needs the same key. **It proves nothing about identity**: no headless client opens a wallet sheet, so the order it places is signed in and settlement never has to ask who paid. Whether a real wallet fills `latest_charge.billing_details.email` is issue #44, and it needs a device |
 | `STAGING_STRIPE_PUBLISHABLE` | The **test mode** publishable key for the Stripe account this environment is configured with. A `pk_live_` key is refused outright |
@@ -82,7 +91,7 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 - A forgotten password request answers identically whether or not the address exists
 - A claim link cannot be used on an account that already has a password
 - Orders: recorded as pending with a `pay_token` and nothing collected, totals summed from lines, money as integers, questions refused where they do not belong, one bad line refusing the whole order, an unsupported currency refused
-- **The whole purchase path**: no access, 403 on a film, buy the pass, settle it in the panel, access appears, and then the film plays through **manifest, rendition and segment** with a tampered token refused
+- **The whole purchase path**: no access, 403 on a film, buy the pass, ~~settle it in the panel, access appears~~ (struck through 22 October 2026: it now pays through Stripe's wallet road with a test card under `STAGING_WALLET=1`, and nobody opens the panel) the pass appears by itself, and then the film plays through **manifest, rendition and segment** with a tampered token refused
 
 - **A real card payment, end to end, with nobody in the panel**: an order placed, a client secret issued, a Stripe test card confirmed against it the way a browser confirms it, and the pass appearing by itself. A declined card leaves the order payable and a second card settles it. A card requiring 3D Secure is genuinely challenged rather than quietly charged
 
@@ -199,7 +208,7 @@ run it. Two of these three were written the day before and skipped every run.
 
 ## What it leaves behind
 
-Real customer rows and real orders, in whatever environment you point it at. With `STAGING_CARD=1`, real Stripe test mode payments too, which show up in the Stripe dashboard for that account. That is acceptable on staging and is the reason for the production guard. Each run uses fresh addresses prefixed `walk-`, so they are easy to find and clear out:
+Real customer rows and real orders, in whatever environment you point it at. With `STAGING_CARD=1`, real Stripe test mode payments too, and `STAGING_WALLET=1` now creates them from **two** walks, the wallet walk and the Viewing Room purchase walk, which show up in the Stripe dashboard for that account. That is acceptable on staging and is the reason for the production guard. Each run uses fresh addresses prefixed `walk-`, so they are easy to find and clear out:
 
 ```php
 // php artisan tinker, on the environment console
