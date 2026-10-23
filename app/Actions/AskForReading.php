@@ -23,9 +23,10 @@ use Illuminate\Support\Facades\Mail;
  *
  * Two moments reach here and they are the same moment in different clothes:
  * settlement, for a line nobody gifted, and redemption, for a line somebody
- * did. Both arrive at this action for the reason both hand-settlement and the
- * webhook arrive at `MarkOrderPaid`, so what happens when somebody asks cannot
- * come to differ between them.
+ * did. Both arrive at this action for the reason ~~both hand-settlement and~~
+ * the webhook ~~arrive~~ arrives at `MarkOrderPaid` (**struck 22 October 2026:
+ * hand-settlement is gone from the panel**), so what happens when somebody asks
+ * cannot come to differ between them.
  *
  * ## One mail per asking, and this is the trap
  *

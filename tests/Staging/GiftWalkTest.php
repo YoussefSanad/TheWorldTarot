@@ -670,10 +670,11 @@ it('buys a present, hands over its code, and starts the clock on the day it is r
     Target::say('A code arrived '.$waited.' seconds after the payment, so this environment settled the order.');
 
     // **What that proves is that the order was settled here, and not by which
-    // road.** The webhook, the fifteen minute sweep and somebody pressing
-    // `Mark as paid` all reach `MarkOrderPaid`, and a code exists after any of
-    // them. Naming the webhook off a stopwatch would be a conclusion drawn from
-    // how quickly a person read an email. `WalletPaymentWalkTest` is what
+    // road.** The webhook and the fifteen minute sweep ~~and somebody pressing
+    // `Mark as paid`~~ (struck through 22 October 2026, the button is gone) both
+    // reach `MarkOrderPaid`, and a code exists after either of them. Naming the
+    // webhook off a stopwatch would be a conclusion drawn from how quickly a
+    // person read an email. `WalletPaymentWalkTest` is what
     // proves the endpoint is registered and reachable, by watching for
     // something no other road could have caused.
     //
@@ -685,8 +686,11 @@ it('buys a present, hands over its code, and starts the clock on the day it is r
     // conclusion inside.** It was fifteen, which is the deadline the wait above
     // gives up at, so the branch could never be false and the line printed
     // after a fourteen minute wait as readily as after ten seconds.
+    // ~~Fast enough that nobody could have settled it by hand meanwhile~~
+    // (struck through 22 October 2026: nobody can settle by hand now, so the
+    // line makes no claim about the road).
     if ($waited < 120) {
-        Target::say('Fast enough that nobody could have settled it by hand meanwhile, though this cannot tell.');
+        Target::say('Fast enough that the wallet walk is the better place to ask which road settled it.');
     }
 
     $lookupPath = 'api/v1/'.giftWalkLocale().'/gifts/lookup';

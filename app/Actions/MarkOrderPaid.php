@@ -19,10 +19,12 @@ use Illuminate\Support\Facades\Password;
 /**
  * The one moment an order becomes paid, and everything that follows from it.
  *
- * **Everything downstream of payment happens here and nowhere else.** A person
- * settling an order in the panel and, in phase B, a webhook from a card
+ * **Everything downstream of payment happens here and nowhere else.**
+ * ~~A person settling an order in the panel and, in phase B, a webhook from a card
  * processor both arrive at this action, so fulfillment cannot come to differ
- * between them.
+ * between them.~~ **Struck 22 October 2026: the panel can no longer mark an order
+ * paid.** The webhook and the sweep, through `RecordStripePayment`, are the
+ * only roads here, so Stripe is the only way an order becomes paid.
  *
  * ## Running twice
  *

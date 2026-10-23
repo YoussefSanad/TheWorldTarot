@@ -17,8 +17,9 @@ use Illuminate\Support\Facades\Log;
  * **Reached by two roads and written once.** A webhook is the quick way to
  * learn about a payment and not a certain one, so a sweep asks Stripe about
  * anything still pending. Both arrive here, and here calls `MarkOrderPaid`,
- * which is the one moment an order becomes paid for a person in the panel as
- * well. Fulfillment cannot come to differ between the three.
+ * which is the one moment an order becomes paid. ~~For a person in the panel as
+ * well. Fulfillment cannot come to differ between the three.~~ **Struck 22 October 2026:
+ * the panel no longer marks orders paid**, so there are two roads and not three.
  *
  * **Nothing here throws for anything Stripe can legitimately send.** An event
  * about an order this environment does not have, or one whose amount disagrees,

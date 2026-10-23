@@ -74,7 +74,7 @@ Without `STAGING_URL` every test skips itself with the reason attached, so a run
 
 - **Products need prices.** They seed at zero in every currency and an order refuses a line priced at zero. The order tests skip with an explanation rather than failing, so a skip here means the catalogue is not ready to sell, not that anything is broken
 - **A card needs a finished film**, or the Viewing Room tests have nothing to walk
-- **An admin account**, since settling an order is done in the panel. `php artisan app:create-admin` on the environment console
+- ~~**An admin account**, since settling an order is done in the panel.~~ Struck through 22 October 2026: the panel can no longer mark an order paid, so no walk needs it for that. `php artisan app:create-admin` on the environment console, if you want one for other reasons
 - **For the card walk and the wallet walk alike**: **both** `STRIPE_SECRET` and `STRIPE_WEBHOOK_SECRET` set on the environment, or neither `stripe` nor `stripe_wallet` is offered at all and the pay endpoint refuses both. They stand or fall together, on one test, because both roads reach the same Stripe account through the same secret. Both, since 26 August 2026: a secret without a webhook secret would take money it could never confirm, so the registry refuses to offer the method at all. A webhook endpoint registered at Stripe pointing at `/api/v1/webhooks/stripe` on that environment supplies the `whsec_`, and it is issued per endpoint rather than per account
 
 ## What it proves

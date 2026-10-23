@@ -40,8 +40,9 @@ beforeEach(function () {
 |
 | **Minting is at settlement and never at placement**, because a code minted at
 | placement is a live bearer credential behind every abandoned checkout.
-| `MarkOrderPaid` is the one seam both the webhook and a hand settlement reach,
-| it is already locked, and it already survives redelivery, so minting there
+| `MarkOrderPaid` is the one seam the webhook and the sweep reach (~~the webhook
+| and a hand settlement~~, struck through 22 October 2026: the panel can no
+| longer mark an order paid), it is already locked, and it already survives redelivery, so minting there
 | inherits all of it.
 */
 

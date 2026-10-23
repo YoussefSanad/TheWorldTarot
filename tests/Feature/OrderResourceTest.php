@@ -2,10 +2,8 @@
 
 use App\Actions\MarkOrderFulfilled;
 use App\Actions\MarkOrderPaid;
-use App\Enums\OrderStatus;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Orders\Pages\ListOrders;
-use App\Mail\OrderPaid;
 use App\Models\Admin;
 use App\Models\Customer;
 use App\Models\Order;
@@ -70,56 +68,23 @@ it('names a product with nothing left in its name, and names it the way the rece
 });
 
 /*
-| Marking an order paid by hand.
+| Marking an order paid, which this screen no longer does.
 |
-| The same transition a card payment will use, so the two cannot come to mean
-| different things. This is also what makes a real pass holder without a
-| payment processor, which is what the Viewing Room has never been walked
-| against on staging.
+| ~~Jennifer could mark a pending order paid by hand.~~ Struck through 22
+| October 2026: money is confirmed by Stripe and nobody else, so an order is
+| paid by the webhook or the sweep reaching `MarkOrderPaid`, never by a button.
 */
 
-it('grants the pass when Jennifer marks a pass order paid', function () {
-    $customer = Customer::factory()->create();
-    $order = pendingOrder($customer, Product::factory()->pass()->create());
-
-    Livewire::test(ListOrders::class)
-        ->callTableAction('markAsPaid', $order);
-
-    expect($order->refresh()->status)->toBe(OrderStatus::Paid)
-        ->and($order->paid_at)->not->toBeNull()
-        ->and($customer->fresh()->hasViewingRoomAccess())->toBeTrue();
-
-    Mail::assertQueued(OrderPaid::class);
-});
-
-it('does not grant twice when it is marked paid twice', function () {
-    $customer = Customer::factory()->create();
-    $order = pendingOrder($customer, Product::factory()->pass()->create());
-
-    Livewire::test(ListOrders::class)->callTableAction('markAsPaid', $order);
-
-    $firstTime = $customer->fresh()->viewing_room_access_at;
-
-    $this->travel(1)->day();
-
-    // The action hides itself once an order is paid, so this is the belt and
-    // braces underneath: even called directly, the transition happens once.
-    app(MarkOrderPaid::class)($order->refresh());
-
-    expect($customer->fresh()->viewing_room_access_at->eq($firstTime))->toBeTrue();
-
-    Mail::assertQueued(OrderPaid::class, 1);
-});
-
-it('offers marking as paid only while an order is waiting for money', function () {
+it('offers no way to mark an order paid', function () {
     $pending = pendingOrder();
-    $paid = Order::factory()->paid()->forProduct(Product::factory()->create())->create();
-    $cancelled = Order::factory()->cancelled()->forProduct(Product::factory()->create())->create();
 
-    Livewire::test(ListOrders::class)
-        ->assertTableActionVisible('markAsPaid', record: $pending)
-        ->assertTableActionHidden('markAsPaid', record: $paid)
-        ->assertTableActionHidden('markAsPaid', record: $cancelled);
+    $component = Livewire::test(ListOrders::class)
+        ->assertCanSeeTableRecords([$pending])
+        ->assertTableActionDoesNotExist('markAsPaid', record: $pending);
+
+    // The name alone proves little, since the same button under another name
+    // would pass it. The screen offers no per-row action of any kind.
+    expect($component->instance()->getTable()->getRecordActions())->toBeEmpty();
 });
 
 /*

@@ -17,9 +17,9 @@ use App\Payments\PaymentInstruction;
  * that follows and defeat the point of having a boundary.
  *
  * So this interface has one method, and the other direction, learning that an
- * order was paid, is not here at all. That is `MarkOrderPaid`, which a person in
- * the panel and a webhook both reach, so fulfillment cannot come to differ
- * between them.
+ * order was paid, is not here at all. That is `MarkOrderPaid`, which ~~a person in
+ * the panel and~~ a webhook ~~both~~ reaches. **Struck 22 October 2026: the panel
+ * cannot mark an order paid**, so the webhook and the sweep are the only roads.
  *
  * **Which implementation runs is chosen per payment**, not per environment: the
  * checkout design puts four buttons on the reading page and the customer picks.

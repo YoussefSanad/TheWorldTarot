@@ -1,9 +1,6 @@
 <?php
 
-use App\Actions\MarkOrderPaid;
-use App\Enums\OrderStatus;
 use App\Models\Order;
-use App\Models\Product;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -16,24 +13,11 @@ beforeEach(function () {
 });
 
 /**
- * What a card payment leaves behind on an order, and what a hand settled one
- * deliberately does not.
+ * What a card payment leaves behind on an order.
+ *
+ * ~~A test here settled an order by hand and asserted nothing was written in
+ * the payment columns.~~ Removed 22 October 2026: that road no longer exists.
  */
-it('settles an order by hand with nothing written in the payment columns', function () {
-    $order = Order::factory()->forProduct(Product::factory()->create())->create();
-
-    expect(app(MarkOrderPaid::class)($order))->toBeTrue();
-
-    $order->refresh();
-
-    expect($order->status)->toBe(OrderStatus::Paid)
-        // **An order nobody was charged for must not look like one somebody
-        // was.** A default of zero here would have every hand settled order
-        // claiming a real charge of nothing.
-        ->and($order->charged_amount)->toBeNull()
-        ->and($order->stripe_payment_intent_id)->toBeNull();
-});
-
 it('keeps the money columns nullable at the database level', function () {
     $columns = collect(DB::select(
         'select column_name, is_nullable, column_default from information_schema.columns

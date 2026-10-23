@@ -142,10 +142,12 @@ it('answers requires payment method for an order no payment was started for', fu
 });
 
 /**
- * **One path on the confirmation screen rather than two.** An order settled in
- * the panel has no Stripe payment behind it at all, and a gift code redemption
- * will not either, so the answer comes from the order rather than from an intent
- * that does not exist.
+ * **One path on the confirmation screen rather than two.** ~~An order settled in
+ * the panel has no Stripe payment behind it at all~~ (struck through 22 October
+ * 2026: the panel can no longer settle an order, though a paid order with no
+ * intent is still answered from the order). A gift code redemption will have no
+ * Stripe payment behind it either, so the answer comes from the order rather
+ * than from an intent that does not exist.
  */
 it('answers succeeded for an order settled by hand, with no payment at Stripe', function () {
     $order = orderAwaitingConfirmation();

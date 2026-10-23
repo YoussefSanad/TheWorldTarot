@@ -2,14 +2,10 @@
 
 namespace App\Filament\Resources\Orders\Tables;
 
-use App\Actions\MarkOrderPaid;
 use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Support\Money;
-use Filament\Actions\Action;
-use Filament\Notifications\Notification;
-use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
@@ -106,49 +102,13 @@ class OrdersTable
             // becoming fulfilled follows from everything it owes having gone.
             // `fulfilled_at` stays a column and stops being something anybody
             // sets by hand.
-            ->recordActions([
-                self::markAsPaid(),
-            ])
+            //
+            // **Marking an order paid left on 22 October 2026.** ~~An order could be settled
+            // here by hand.~~ Stripe is the only road to paid, so there is
+            // no record action at all.
+            ->recordActions([])
             // No create, no delete, no bulk anything. An order is a record of
             // something that happened.
             ->toolbarActions([]);
-    }
-
-    /**
-     * Saying the money arrived, by hand.
-     *
-     * Everything a card payment will do runs from here too, so an order settled
-     * in this panel and one settled by a payment cannot come to mean different
-     * things. It grants a pass, emails the customer, and tells Jennifer if
-     * there is a reading to write.
-     *
-     * Confirmed, because it is not reversible from this screen and because a
-     * customer hears about it immediately.
-     */
-    private static function markAsPaid(): Action
-    {
-        return Action::make('markAsPaid')
-            ->label('Mark as paid')
-            ->icon(Heroicon::OutlinedBanknotes)
-            ->color('success')
-            ->requiresConfirmation()
-            ->modalHeading('Mark this order as paid?')
-            ->modalDescription('The customer is emailed straight away, and anything they bought is unlocked for them. This cannot be undone here.')
-            ->modalSubmitActionLabel('Yes, it has been paid')
-            // **Hidden on an order that belongs to nobody**, rather than
-            // shown and refused. Everything this does is addressed to a
-            // customer, and there is none here to address. An order in that
-            // state is an abandoned hosted checkout, so there is nothing to
-            // settle by hand either.
-            ->visible(fn (Order $record): bool => $record->status === OrderStatus::Pending
-                && $record->customer_id !== null)
-            ->action(function (Order $record): void {
-                $changed = app(MarkOrderPaid::class)($record);
-
-                Notification::make()
-                    ->success()
-                    ->title($changed ? 'Marked as paid' : 'That order was already paid')
-                    ->send();
-            });
     }
 }

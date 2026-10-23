@@ -12,7 +12,8 @@ use Stripe\StripeClient;
  * Asking what happened to the money for one order.
  *
  * **It reads, and that is the whole of it.** Settling an order is
- * `MarkOrderPaid`, reached by the webhook and by a person in the panel, and
+ * `MarkOrderPaid`, reached by the webhook ~~and by a person in the panel~~
+ * (**struck 22 October 2026: the panel cannot mark an order paid**), and
  * this must never become a third road to it however plainly Stripe says the
  * payment succeeded. A polled endpoint is the worst possible second writer: it
  * runs on whatever interval a browser felt like, from a request nobody
@@ -38,8 +39,10 @@ class ReadPaymentStatus
      */
     public function __invoke(Order $order): PaymentStatus
     {
-        // Read before Stripe is reached for, so an order settled by hand
-        // answers without an intent existing. ~~And the one a gift code paid
+        // Read before Stripe is reached for, so ~~an order settled by hand
+        // answers without an intent existing.~~ Struck 22 October 2026: the
+        // panel cannot settle one, so an order already paid answers without an
+        // intent being asked about. ~~And the one a gift code paid
         // for.~~ Struck 2 September 2026: a redemption never calls this, and
         // the order behind a redeemed code was paid at Stripe like any other.
         if ($order->isPaid()) {

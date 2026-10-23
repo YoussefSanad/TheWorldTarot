@@ -42,10 +42,11 @@ class PaymentStatus
     /**
      * The order is paid, whatever road the money came down.
      *
-     * **One path on the confirmation screen rather than two.** An order settled
+     * **One path on the confirmation screen rather than two.** ~~An order settled
      * by hand in the panel has no payment at Stripe behind it, so an intent
      * that does not exist is not something the frontend should have to render
-     * around.
+     * around.~~ **Struck 22 October 2026: the panel cannot settle an order**, so every paid
+     * order has a payment at Stripe behind it.
      *
      * ~~And a gift code redemption will not have one either.~~ **Struck
      * 2 September 2026.** A redemption never reaches the status endpoint at

@@ -19,7 +19,9 @@ use Illuminate\Database\Eloquent\Model;
  * a row is a purchase. What work is owed moved to `ReadingResource`, and with
  * it the question column, `Mark as fulfilled` and the navigation badge.
  *
- * Read only, with one thing she can do to a row: say the money arrived.
+ * ~~Read only, with one thing she can do to a row: say the money arrived.~~
+ * **Struck 22 October 2026: read only, with no row actions.** Stripe is the
+ * only road to paid.
  * Everything else about an order is a record of something that happened, and a
  * record you can edit is not a record.
  *

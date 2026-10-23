@@ -31,7 +31,8 @@ use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
  * ours.
  *
  * **Read only, permanently.** `MarkOrderPaid` is the single writer of the paid
- * transition, reached by the webhook and by a person in the panel. This endpoint
+ * transition, reached by the webhook ~~and by a person in the panel~~ (**struck 22 October 2026:
+ * the panel cannot mark an order paid**). This endpoint
  * may look straight at a payment that has succeeded and still must not settle
  * anything: it is polled, by a browser, on an interval nobody here chose.
  *
