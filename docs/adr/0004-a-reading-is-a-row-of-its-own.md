@@ -5,6 +5,11 @@
 > "Gift codes", and it withdraws `gift_code` as a payment method before that
 > method ever acquires a caller.
 >
+> **Amended 23 October 2026.** Where this record says `nothing_to_pay` keeps "a
+> hand-settled order" as a caller, hand settlement was removed in
+> `design-review-fixes` step 3. The remaining caller is an order that is already
+> paid. The text below is left as the record.
+>
 > The client's proposed flow (`PROPOSED_GIFT_FLOW_08_31_26.pdf`) is a walkthrough
 > of what a purchaser and a recipient should experience. It is taken as that.
 > Where it describes storage — a second order carrying a payment status of

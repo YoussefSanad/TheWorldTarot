@@ -234,7 +234,7 @@ curl -s -D- $API/api/v1/en/cards/draw
 
 ## 6d. The Viewing Room over the API
 
-**Since M5 you can sign in as a customer rather than minting a token by hand**, and a pass holder is made by settling an order in the panel. Section 12 is how. Doing it that way is better than a hand-made token, because it walks the path a real customer walks.
+**Since M5 you can sign in as a customer rather than minting a token by hand**, and a pass holder is made by paying for the pass with a Stripe test card (~~settling an order in the panel~~, removed 23 October 2026). Section 12 is how. Doing it that way is better than a hand-made token, because it walks the path a real customer walks.
 
 > **Read this before testing a playback URL, or every check below fails and tells you nothing.**
 > The CDN refuses requests with no referrer. So:
@@ -385,16 +385,18 @@ Run this section from a browser on the real frontend origin as well as from `cur
 | Order while signed in, sending somebody else's email | The order attaches to **your own account**, and the email is ignored |
 | Change a product's price in the panel, then look at the order again | **The order still shows what was charged.** Prices are captured, never re-read |
 
-### Settling it by hand, as Jennifer would
+### Settling it through Stripe, and what Jennifer sees
+
+~~Settling it by hand, as Jennifer would~~ **Rewritten 23 October 2026**: the panel has no mark-as-paid action, and the only road to paid is a Stripe test payment (card 4242 4242 4242 4242) on a deployed environment with test keys.
 
 | Check | Expected |
 |---|---|
 | Orders in the panel | Read only. **No Create, no Delete, no way to edit any money** |
+| **Orders offers no way to mark an order paid** | No **Mark as paid** on a pending order, in the row or on the detail page |
 | The sidebar badge | Counts readings waiting to be written |
-| **Mark as paid** on a pending order | Confirms first, then the status becomes **Paid** |
-| The same action afterwards | **Gone.** An order can only be paid once |
+| Pay a pending order with a Stripe test card | Once the webhook arrives, the status becomes **Paid** |
 | The customer's record | Viewing room access is stamped, if the order held the pass |
-| Mark as paid a second time by any route | Access is granted **once**, the first date is kept, and no second email goes out |
+| A second, different test payment on the same paid order, if you can force one | Access is granted **once**, the first date is kept, and no second email goes out |
 | An order holding only the pass | **Already fulfilled**, with no work left on her list. It delivered itself the moment it was paid |
 | An order holding a reading | ~~**Awaiting fulfillment**, and **Mark as fulfilled** appears~~ **Changed 3 September 2026, with gifting.** **Awaiting fulfillment**, and **nothing on this screen marks it off.** She delivers a reading and not an order, so the row to act on is on **Readings**, section 12b, and the order finishes itself once everything it owes has gone |
 | The wording throughout | Hers: "Awaiting payment", "Paid", "Fulfilled". Never "settled", "pending" or "access grant" |
@@ -463,14 +465,14 @@ Built 3 September 2026, B1 to B10. **Nothing here can be signed off from the pan
 
 | Check | Expected |
 |---|---|
-| **Mark as paid** on that order | The buyer gets their receipt, and the recipient gets the code |
+| Pay that order with a Stripe test card (~~**Mark as paid** in the panel~~, removed 23 October 2026) | The buyer gets their receipt, and the recipient gets the code |
 | **The recipient's inbox.** Open it and read it | One message from `noreply@theworldtarot.com`, subject **"Mum has sent you a gift"**, headed **You Have Been Given A Gift**, naming the reading on the card, carrying the buyer's words, an **OPEN YOUR GIFT** button, the address that button goes to printed under it, and the code |
 | **The button, in Outlook on Windows if you have one** | A gold control with dark text, not a blue link. It is the one client that draws this from VML rather than from the markup, and the one most likely to belong to somebody being sent an unexpected present |
 | The code in the body against the code in the link | **The same credential, printed twice.** They cannot disagree |
 | **The buyer's receipt** | Names the address each present went to. It does **not** say a reading is being written for them, because nobody has asked one yet |
 | Jennifer's inbox | **Nothing for the gifted line.** She is told when the present is redeemed, not when it is bought |
 | The **Gifts** screen | The row is there now, **Outstanding for** counting from when it was bought |
-| Mark as paid a second time by any route | **One code, one mail.** A minted gift is never minted again |
+| A second, different test payment on the same paid order, if you can force one (~~mark as paid a second time~~, 23 October 2026) | **One code, one mail.** A minted gift is never minted again |
 
 ### Looking a code up, which spends nothing
 

@@ -8,6 +8,11 @@
 > Nothing in the panel has a user yet. That is why this is a design rather than
 > a migration: there is no habit to preserve and no screen anybody has learned,
 > so the only constraint is what the work actually is.
+>
+> **Amended 23 October 2026.** The `Mark as paid` action this record names on
+> Orders (and calls "the road `MarkOrderPaid` reaches by hand") was removed in
+> `design-review-fixes` step 3. Stripe is the only road to paid. The text below
+> is left as the record of the original decision.
 
 ## What one screen was doing
 

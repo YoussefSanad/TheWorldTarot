@@ -33,7 +33,7 @@ From the customer's side:
 From Jennifer's side:
 
 - Orders arrive already paid, and the ones that need her to write a reading say so
-- She still has "mark as paid" in the panel, for the customer who pays some other way or the order that goes wrong
+- ~~She still has "mark as paid" in the panel, for the customer who pays some other way or the order that goes wrong~~ **Removed 23 October 2026**, plan `design-review-fixes` step 3. Stripe is the only road to paid
 
 From this system's side:
 
@@ -90,8 +90,8 @@ From this system's side:
 **Jennifer**
 
 28. As Jennifer, I want orders to arrive already paid, so that my involvement starts at writing the reading rather than at chasing the money
-29. As Jennifer, I want to keep settling an order by hand, so that a customer who pays another way, or an order that goes wrong, can still be put right
-30. As Jennifer, I want a hand-settled order to behave exactly as a card-paid one, so that support has one path and not two
+29. ~~As Jennifer, I want to keep settling an order by hand, so that a customer who pays another way, or an order that goes wrong, can still be put right~~ **Withdrawn 23 October 2026**, hand settlement removed (step 3)
+30. ~~As Jennifer, I want a hand-settled order to behave exactly as a card-paid one, so that support has one path and not two~~ **Withdrawn 23 October 2026**, there is one path, Stripe
 31. As Jennifer, I want to be told when a customer disputes a payment with their bank, so that a chargeback is something I learn about rather than discover
 32. As Jennifer, I want the amount actually collected recorded against the order, so that a support conversation and my bank statement agree
 
@@ -135,16 +135,16 @@ Deliberately **not** seams: reconciliation, which is a console command reaching 
 
 ### 1. A registry of payment methods
 
-- `config/payments.php` stops naming one class and starts naming **the methods this environment offers**, keyed by method name. Local offers `manual`. Deployed environments offer `stripe`, and `gift_code` joins them in the gifting milestone
+- `config/payments.php` stops naming one class and starts naming **the methods this environment offers**, keyed by method name. ~~Local offers `manual`.~~ **Struck 23 October 2026:** `manual` is retired (step 4), local offers `stripe` like everywhere else. Deployed environments offer `stripe`, and `gift_code` joins them in the gifting milestone
 - A resolver turns a method name into a `PaymentGateway`. **An unrecognised name is refused**, never defaulted, which is the opposite of `config/newsletter.php` and deliberate: a typo must not quietly start charging cards
-- `ManualSettlement` is one of the registered methods and is otherwise untouched
+- ~~`ManualSettlement` is one of the registered methods and is otherwise untouched~~ **Retired 23 October 2026** (step 4)
 - Structure in code, values in config, per CLAUDE.md section 4. Adding a method is a class and a config line
 
 ### 2. Columns on `orders`
 
 Three nullable columns, all added in one migration.
 
-- **`charged_amount`**, integer minor units. What Stripe actually collected. Null on a hand-settled order, and that stays true after launch
+- **`charged_amount`**, integer minor units. What Stripe actually collected. ~~Null on a hand-settled order, and that stays true after launch~~ **Struck 23 October 2026:** hand settlement is gone, so a paid order always carries it
 - **`stripe_payment_intent_id`**, string, **indexed**, because the sweep in step 5 iterates on it. Written back at the moment an intent is created, so a payment is reconcilable even if no notification ever arrives
 - **`pay_token`**, an unguessable opaque string, unique, generated when the order is created. It is how a guest proves an order is theirs, and it exists because order ids are sequential integers
 
@@ -156,7 +156,7 @@ A second `/pay` on the same order overwrites `stripe_payment_intent_id` with the
 
 **`PaymentInstruction`**, a named value with three named constructors, replacing `?string`:
 
-- `nothingToPay()`, which `ManualSettlement` returns and which gift code redemption will return
+- `nothingToPay()`, ~~which `ManualSettlement` returns and which gift code redemption will return~~ **struck 23 October 2026:** `ManualSettlement` is retired and redemption never reached it. It remains in the interface for an order that is already paid
 - `clientSecret(string $secret)`, which `StripeCheckout` returns
 - `redirectTo(string $url)`, which nothing implements today and exists because a redirecting method is plausible and discovering the type cannot express it later is worse
 
@@ -230,7 +230,7 @@ The response shapes, as already published:
 - **`PlaceOrder` is untouched.** It already captures prices at purchase and already carries the guards, because phase B was known to be adding a caller that does not route through the form request
 - **`MarkOrderPaid` is untouched.** It locks the row, transitions only from pending, grants access inside the transaction and queues mail after commit
 - **No fulfillment code is added.** Delivery is driven by the product's `fulfillment` value, so nothing about how an order is delivered learns that Stripe exists
-- **`ManualSettlement` and its tests are untouched**, which is what proves step 1 was a refactor
+- ~~**`ManualSettlement` and its tests are untouched**, which is what proves step 1 was a refactor~~ **Retired 23 October 2026** (step 4), history only
 
 ## Testing Decisions
 
@@ -255,9 +255,9 @@ The response shapes, as already published:
 
 ### Per step
 
-**1. The registry.** Each configured method resolves to its class. An unknown method is refused rather than substituted. The existing `ManualSettlement` tests are not edited, and that is the evidence this was a refactor.
+**1. The registry.** Each configured method resolves to its class. An unknown method is refused rather than substituted. ~~The existing `ManualSettlement` tests are not edited, and that is the evidence this was a refactor.~~ **Retired 23 October 2026** (step 4), history only.
 
-**2. The columns.** A manual settlement still works with all three null. `pay_token` is generated, unique, and not derivable from the id. The money columns are nullable at the database level.
+**2. The columns.** ~~A manual settlement still works with all three null.~~ **Struck 23 October 2026**, there is no manual settlement. `pay_token` is generated, unique, and not derivable from the id. The money columns are nullable at the database level.
 
 **3. `StripeCheckout` and the pay endpoint.** Driven through HTTP against a **fake gateway**, which proves the controller and proves nothing about Stripe:
 

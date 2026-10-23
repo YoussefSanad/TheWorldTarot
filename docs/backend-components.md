@@ -333,7 +333,7 @@ The row lock plus the "must be pending" check in `MarkOrderPaid` is what makes a
 |---|---|---|---|
 | What the homepage reveal plays | `FilmSource` | `FullFilmRevealVideo` | `config/reveal.php` |
 | What a pass buys | `FilmSource` | `ViewingRoomFilm` | `config/viewing-room.php` |
-| Taking money for an order | `PaymentGateway` | `ManualSettlement`, `StripeCheckout` | `config/payments.php` |
+| Taking money for an order | `PaymentGateway` | `StripeCheckout` (~~`ManualSettlement`~~ retired 23 October 2026) | `config/payments.php` |
 | Subscribing to the newsletter | `NewsletterList` | `MailchimpAudience`, `LoggedNewsletterList` | `config/newsletter.php` |
 
 Where the framework already provides a seam, nothing is wrapped: Resend is a mail driver, the media bucket is a filesystem disk, managed queues are a queue connection.
@@ -356,9 +356,9 @@ What limits a copied link is its life: 30 minutes, from `services.bunny.playback
 
 ### `Services/Payments`
 
-- `PaymentMethods` is the registry. `config/payments.php` maps `manual` to `ManualSettlement` and `stripe` to `StripeCheckout`, and **the Stripe entry filters itself out when the secrets are absent**, so an environment without keys cannot half-offer it
+- `PaymentMethods` is the registry. `config/payments.php` maps `stripe` to `StripeCheckout` and the default method is `stripe` (~~`manual` mapped to `ManualSettlement`, retired 23 October 2026~~: `/pay` with `manual`, or with a default that is not offered, answers 422 on `method`), and **the Stripe entry filters itself out when the secrets are absent**, so an environment without keys cannot half-offer it
 - `StripeCheckout` refuses anything not pending, refuses an order whose total disagrees with its lines, creates a PaymentIntent carrying `order_id` in metadata, stores the intent id only while the row is still pending (an order settled mid-call is refused, and plan step 19 removes the write) and returns a client secret
-- `ManualSettlement` returns "nothing to pay", which is how an order is settled by hand in the panel
+- ~~`ManualSettlement` returns "nothing to pay", which is how an order is settled by hand in the panel~~ **Retired 23 October 2026.** Stripe, by webhook and sweep, is the only road to paid
 
 `PaymentInstruction` is the return value either way: a small value object that is either `nothing_to_pay` or a `client_secret`.
 
@@ -444,12 +444,12 @@ The only rendered UI in the project. Five resources, since `docs/adr/0006-one-sc
 | **Cards** | Full CRUD, the one place rows are created. Copy, picture, video upload, per-language tabs |
 | **Products** | Edit and list only. Copy, translations and prices. Never sees `key`, `type` or `fulfillment`, and never creates or deletes |
 | **Locales** | List with actions: "Let me review it" (draft to preview), "Show on the website" (to live, refused while anything is untranslated), and withdraw |
-| **Orders** | **Money, and only money.** List, filter by status and fulfilment, mark as paid. It lost the question column, the `Mark as fulfilled` button and its navigation badge to Readings |
+| **Orders** | **Money, and only money.** List, filter by status and fulfilment. ~~Mark as paid~~ removed 23 October 2026: the panel has no way to mark an order paid. It lost the question column, the `Mark as fulfilled` button and its navigation badge to Readings |
 | **Readings** | **The work queue.** Sorted oldest promise first, with due computed at read time and coloured, a detail page carrying the whole question and the buyer's message, and `Mark delivered` per reading. Carries the navigation badge |
 
 **Orders is money, Readings is work, and Gifts is liability.** No screen answers two of them and no number on one is derived from another's table. The Gifts screen is B9 (#75) and is not built, so an outstanding gift is visible today only through the order it hangs off.
 
-**Marking an order paid in the panel runs `MarkOrderPaid`**, the same action a card payment runs, so a hand-settled order and a Stripe-settled one can never come to mean different things.
+~~**Marking an order paid in the panel runs `MarkOrderPaid`**, the same action a card payment runs, so a hand-settled order and a Stripe-settled one can never come to mean different things.~~ **Struck 23 October 2026.** There is no panel action. `MarkOrderPaid` is reached only from the Stripe webhook and the sweep.
 
 Two shared concerns: `EditsTranslatableContent` and `ShowsTranslationProgress`.
 

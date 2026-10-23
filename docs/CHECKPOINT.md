@@ -58,7 +58,7 @@ So identity has a second source. **`BuyerFromLatestCharge` is new and sits besid
 
 Three smaller things went with it:
 
-- **`GET /api/v1/payment-methods`**, top-level beside `/currencies`, answering `{ "methods": [...] }`. It reads a new `PaymentMethods::offeredToCustomers()`, which is `offered()` less `manual`: hand settlement **is** offered, to a person in the panel, and is not a button. `PayOrderRequest` still validates against the whole registry
+- **`GET /api/v1/payment-methods`**, top-level beside `/currencies`, answering `{ "methods": [...] }`. It reads a new `PaymentMethods::offeredToCustomers()`, which was `offered()` less `manual`. ~~Hand settlement **is** offered, to a person in the panel, and is not a button. `PayOrderRequest` still validates against the whole registry.~~ **Struck 23 October 2026:** `manual` is retired, so there is nothing to subtract and `/pay` validates against what is offered
 - **The guard is shared rather than copied.** `refuseAnythingButAPendingOrder` left `StripeCheckout` and became the invokable `App\Payments\RefuseAnythingButAPendingOrder`, which both gateways call. A base class was declined: it would have pulled the `StripeClient` constructor into a parent and made two genuinely different roads look alike
 - **`payment_method_types: ['card']`, not `automatic_payment_methods`.** Apple Pay and Google Pay are card payment methods, so the element loses nothing, and the set cannot then grow from a Dashboard nobody is watching. It is also what makes ADR 0003's `return_url` paragraph literally true
 
@@ -113,6 +113,9 @@ Decided 17 to 19 August, reshaped 25 August, and **redesigned 1 to 2 September 2
 
 **What this file recorded as settled, and what then reversed:**
 
+- ~~**Hand settlement in the panel.** Support could mark an order paid, through `MarkOrderPaid`.~~ **Removed 23 October 2026**, plan `design-review-fixes` step 3 (`23093e7`). Stripe, by webhook and sweep, is the only road to paid. **Committed and pushed on `design-review-fixes`, not yet deployed to staging or production.**
+- ~~**The `manual` payment method and `ManualSettlement`.**~~ **Retired 23 October 2026**, step 4 (`e7467f8`). Default method is `stripe`; `/pay` with `manual` or an unoffered default answers 422 on `method`. Local development needs Stripe test keys to reach paid. Same deployment state as above
+- `MarkOrderPaid` takes a `PaidBy` and answers a `Settlement` (`Settled`, `AlreadyPaid`, `PaidTwice`, `Gone`), step 5 (`8323747`). A second, different succeeded intent on a paid order writes nothing and is logged. Same deployment state
 - ~~**Redemption is a payment method, not a discount.** The recipient does not get a line zeroed, they get a fourth way to pay. `GiftCodeRedemption implements PaymentGateway`, consumes the code under a row lock, and settles through `MarkOrderPaid` like everything else.~~ **Withdrawn 1 September 2026**, before `gift_code` ever acquired a caller. Redemption collects nothing, so there is no payment for a gateway to make and no second order for one to settle. Redemption mints a **reading** instead. ADR 0004 names the four places that still promise the method, each to be corrected when this is built
 
 **The substance of the redesign**, and it is why the reversal above was not a small correction: **a reading is a row of its own**, existing from the moment somebody asks and never before. A gift bought in September and redeemed in December pulls "the money arrived" and "somebody asked for a reading" three months apart, and one row cannot hold "paid, and not yet asked". ADR 0004 argues it; ADR 0006 follows it into the panel, splitting one screen into Orders, Readings and Gifts so that no screen answers two questions.
