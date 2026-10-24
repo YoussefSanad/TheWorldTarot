@@ -136,6 +136,30 @@ it('does nothing at all the second time', function () {
     Mail::assertQueued(SetPasswordLink::class, 1);
 });
 
+it('queues exactly one receipt for a paid pass order', function () {
+    settle(orderFor(Product::factory()->pass()->create()));
+
+    Mail::assertQueued(OrderPaid::class, 1);
+});
+
+it('queues one receipt in total when the same payment is settled twice', function () {
+    $order = orderFor(Product::factory()->pass()->create());
+
+    expect(settle($order))->toBeTrue()
+        ->and(settle($order))->toBeFalse();
+
+    Mail::assertQueued(OrderPaid::class, 1);
+});
+
+it('queues no receipt for an order that did not settle', function () {
+    // No `failed` order state exists; cancelled is the not-pending one.
+    $order = Order::factory()->cancelled()->forProduct(Product::factory()->pass()->create())->create();
+
+    expect(settle($order))->toBeFalse();
+
+    Mail::assertNotQueued(OrderPaid::class);
+});
+
 it('keeps the date somebody first got in, however many times it is settled', function () {
     $customer = Customer::factory()->create();
     $order = orderFor(Product::factory()->pass()->create(), $customer);

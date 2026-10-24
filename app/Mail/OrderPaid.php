@@ -2,10 +2,12 @@
 
 namespace App\Mail;
 
+use App\Enums\Fulfillment;
 use App\Enums\ProductType;
 use App\Enums\Sender;
 use App\Models\Order;
 use App\Models\OrderLine;
+use App\Support\FrontendUrl;
 use Illuminate\Mail\Mailables\Content;
 
 /**
@@ -21,6 +23,12 @@ use Illuminate\Mail\Mailables\Content;
  * this replyable again through a different door, which is the thing Jennifer
  * asked to close, so nothing here sets one and `MailTransportTest` reads the
  * sent headers to say so.
+ *
+ * **A pass on the order adds a paragraph and a link into the Viewing Room.**
+ * The pass is open the moment it is paid for, so the receipt is the first
+ * place a buyer is told so and sent in. A customer with no password yet is also
+ * told one is still to be chosen, in words only: the link to set it stays in
+ * `SetPasswordLink`, and this message never carries it.
  */
 class OrderPaid extends QueuedMail
 {
@@ -40,7 +48,7 @@ class OrderPaid extends QueuedMail
      * **Multipart since issue #53, and the text part is not a leftover.**
      *
      * The designed body is the HTML one. The text one is what shipped before
-     * it, unchanged, and it stays for two reasons: a client that will not
+     * it, plus the pass paragraph and nothing else, and it stays for two reasons: a client that will not
      * render markup still has to be able to read a receipt, and a message
      * offering no alternative part scores worse with the filters that decide
      * whether any of this arrives at all.
@@ -53,6 +61,14 @@ class OrderPaid extends QueuedMail
      */
     public function content(): Content
     {
+        // The same question `MarkOrderPaid::grantsAccess()` asks, so the
+        // receipt and the set-password invitation cannot disagree about
+        // whether this order opens the Viewing Room. Loaded here so each line
+        // costs no query of its own.
+        $holdsAPass = $this->order->lines->loadMissing('product')->contains(
+            fn (OrderLine $line): bool => $line->product?->fulfillment === Fulfillment::AccessGrant,
+        );
+
         return new Content(
             html: 'mail.html.order-paid',
             text: 'mail.order-paid',
@@ -67,8 +83,8 @@ class OrderPaid extends QueuedMail
                 'currency' => $this->order->currency,
                 'total' => $this->order->total_amount,
 
-                // Only the HTML part reads these four, and the text part is
-                // deliberately left exactly as it was.
+                // Only the HTML part reads these four, and the text part
+                // gained only the pass paragraph.
                 'assets' => config('mail.assets.url'),
                 'site' => rtrim((string) config('frontend.url'), '/'),
 
@@ -96,6 +112,18 @@ class OrderPaid extends QueuedMail
                 // belongs in the view, and a text body is no place for a
                 // closure over the lines.
                 'holdsAGift' => $this->order->gifts()->isNotEmpty(),
+
+                // **Whether the order holds a Viewing Room pass**, which earns
+                // the paragraph telling the buyer it is theirs and the link in.
+                // A boolean for the same reason as the two above.
+                'holdsAPass' => $holdsAPass,
+                'viewingRoomUrl' => FrontendUrl::viewingRoom(),
+
+                // **Only a customer with no password yet is told one is still
+                // to come.** The sentence points at the separate invitation and
+                // the receipt carries no set-password link, because support
+                // can resend a receipt and a credential must not be resent.
+                'needsPassword' => $holdsAPass && $this->order->customer->isUnclaimed(),
 
                 // The same lookup the panel's product table does. Falling back
                 // to the code means an order in a currency somebody adds to

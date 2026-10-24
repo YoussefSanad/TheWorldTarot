@@ -411,7 +411,7 @@ The platform invokes `schedule:run` every five minutes, measured on staging on 2
 
 | Mailable | When |
 |---|---|
-| `OrderPaid` | The receipt, on payment |
+| `OrderPaid` | The receipt, on payment. Carries the pass copy and a Viewing Room link when the order holds a pass |
 | `SetPasswordLink` | On payment of an order that grants Viewing Room access, when the account has never had a password |
 | `ReadingToWrite` | To the client, whenever somebody asks: on settlement for a line nobody gifted, and on redemption for a line somebody did |
 | `GiftToRedeem` | To the recipient, on payment, carrying the code and the `/redeem/` link. Rendered in `gifts.locale`, and the buyer never receives a copy |

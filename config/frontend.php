@@ -68,8 +68,9 @@ return [
         // said which one that was.
         'readings' => env('FRONTEND_READINGS_PATH', '/readings/'),
 
-        // Where a cancelled checkout for the viewing room pass lands. The pass
-        // is not a reading, so it has no page under the reading index.
+        // Where the viewing room lives: where a cancelled pass checkout lands
+        // and where the pass receipt sends its holder. The pass is not a
+        // reading, so it has no page under the reading index.
         'viewing_room' => env('FRONTEND_VIEWING_ROOM_PATH', 'viewing-room'),
 
         // Where somebody spends a gift code. One page for every reading rather

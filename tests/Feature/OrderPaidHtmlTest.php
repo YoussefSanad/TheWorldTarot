@@ -5,6 +5,7 @@ use App\Mail\OrderPaid;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
+use App\Support\FrontendUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 
@@ -329,6 +330,111 @@ it('still promises delivery on an order holding a pass and a reading together', 
     // the pass box beside it still carries no delivery promise of its own.
     expect(htmlBodySent())->toContain('Your Reading')
         ->and(substr_count(htmlBodySent(), 'Delivery within'))->toBe(1);
+});
+
+/*
+| The pass copy, issue #98.
+*/
+
+function passOrderFor(?string $password, bool $withReading = false): Order
+{
+    $builder = Order::factory()
+        ->for(Customer::factory()->create(['name' => 'Jennifer', 'email' => 'jennifer@example.com', 'password' => $password]))
+        ->forProduct(Product::factory()->pass()->create(['price_usd' => 2900]), 1);
+
+    if ($withReading) {
+        $builder = $builder->forProduct(Product::factory()->create([
+            'key' => ProductKey::InDepth,
+            'name' => ['en' => ProductKey::InDepth->defaultName()],
+            'price_usd' => 12000,
+        ]), 1);
+    }
+
+    return $builder->create();
+}
+
+const PASS_SENTENCE = 'Your Viewing Room pass is yours for good.';
+const PASSWORD_SENTENCE = 'You still need to choose a password. A separate email from us carries the link to set one, or you can ask for a new one from the sign in page at any time.';
+
+it('tells the buyer of a pass it is theirs for good, with a link in, in both parts', function () {
+    $order = passOrderFor(null);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order));
+
+    $url = FrontendUrl::viewingRoom();
+
+    expect(htmlBodySent())->toContain(PASS_SENTENCE)
+        ->and(htmlBodySent())->toContain('href="'.$url.'"')
+        ->and(htmlBodySent())->toContain('Enter the Viewing Room')
+        ->and(textBodySent())->toContain(PASS_SENTENCE)
+        ->and(textBodySent())->toContain($url);
+});
+
+it('says a password is still to be chosen when the customer is unclaimed', function () {
+    $order = passOrderFor(null);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order));
+
+    expect(htmlBodySent())->toContain(PASSWORD_SENTENCE)
+        ->and(textBodySent())->toContain(PASSWORD_SENTENCE);
+});
+
+it('leaves out the password sentence for a claimed customer', function () {
+    $order = passOrderFor('a-long-enough-password');
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order));
+
+    // Anchored on the pass sentence so the absence is not asserted on an empty body.
+    expect(htmlBodySent())->toContain(PASS_SENTENCE)
+        ->and(htmlBodySent())->not->toContain('You still need to choose a password')
+        ->and(textBodySent())->toContain(PASS_SENTENCE)
+        ->and(textBodySent())->not->toContain('You still need to choose a password');
+});
+
+it('never carries a set-password link or token in the receipt', function (?string $password) {
+    $order = passOrderFor($password);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order));
+
+    $setPassword = parse_url(FrontendUrl::setPassword('jennifer@example.com', 'tok'), PHP_URL_PATH);
+
+    expect(htmlBodySent())->toContain(PASS_SENTENCE)
+        ->and(htmlBodySent())->not->toContain($setPassword)
+        ->and(htmlBodySent())->not->toContain('token=')
+        ->and(textBodySent())->toContain(PASS_SENTENCE)
+        ->and(textBodySent())->not->toContain($setPassword)
+        ->and(textBodySent())->not->toContain('token=');
+})->with([[null], ['a-long-enough-password']]);
+
+it('carries no pass copy and no Viewing Room link on a reading-only order', function () {
+    $order = paidOrderFor(ProductKey::MonthAhead, 7500);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order));
+
+    $url = FrontendUrl::viewingRoom();
+
+    // Anchored on the reading so an empty body cannot pass.
+    expect(htmlBodySent())->toContain('MONTH AHEAD')
+        ->and(htmlBodySent())->not->toContain('yours for good')
+        ->and(htmlBodySent())->not->toContain('Enter the Viewing Room')
+        ->and(htmlBodySent())->not->toContain($url)
+        ->and(htmlBodySent())->not->toContain('choose a password')
+        ->and(textBodySent())->toContain('Thank you, your payment has gone through.')
+        ->and(textBodySent())->not->toContain('yours for good')
+        ->and(textBodySent())->not->toContain($url)
+        ->and(textBodySent())->not->toContain('choose a password');
+});
+
+it('carries both the pass copy and the reading copy on an order holding both', function () {
+    $order = passOrderFor(null, withReading: true);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order));
+
+    expect(htmlBodySent())->toContain(PASS_SENTENCE)
+        ->and(htmlBodySent())->toContain('Your Reading')
+        ->and(htmlBodySent())->toContain('Delivery within 48 hours')
+        ->and(textBodySent())->toContain(PASS_SENTENCE)
+        ->and(textBodySent())->toContain(FrontendUrl::viewingRoom());
 });
 
 it('gives every reading a subtitle and a delivery window', function () {

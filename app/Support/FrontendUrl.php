@@ -108,6 +108,18 @@ class FrontendUrl
     }
 
     /**
+     * Where a pass holder watches.
+     *
+     * No query string, because nothing here is a credential: the page asks this
+     * API who is signed in and whether they hold the pass; each film is still
+     * checked when it plays, so the address is the same for everybody.
+     */
+    public static function viewingRoom(): string
+    {
+        return self::to(config('frontend.paths.viewing_room'));
+    }
+
+    /**
      * @param  array<string, string>  $query
      */
     private static function to(string $path, array $query = []): string
