@@ -121,3 +121,38 @@ it('takes the viewing room path from configuration', function (string $configure
 it('defaults the viewing room page to viewing-room', function () {
     expect(config('frontend.paths.viewing_room'))->toBe('viewing-room');
 });
+
+/*
+| Where a pass holder is sent to watch. Issue #98. The website links this page
+| as "/viewing-room/" (theworldtarot-frontend/src/content/home.ts).
+*/
+
+it('sends a pass holder to the viewing room, ending in a slash', function () {
+    expect(FrontendUrl::viewingRoom())
+        ->toBe('https://staging.theworldtarot.com/viewing-room/');
+});
+
+it('follows the configured viewing room path and ends it in a slash however it was spelled', function (string $configured) {
+    config()->set('frontend.paths.viewing_room', $configured);
+
+    expect(FrontendUrl::viewingRoom())
+        ->toBe('https://staging.theworldtarot.com/watch-here/');
+})->with([
+    '/watch-here',
+    '/watch-here/',
+    'watch-here',
+]);
+
+it('does not double the slash when the environment spelled the site with one', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com/');
+
+    expect(FrontendUrl::viewingRoom())
+        ->toBe('https://staging.theworldtarot.com/viewing-room/');
+});
+
+it('follows the environment rather than naming production', function () {
+    config()->set('frontend.url', 'https://www.theworldtarot.com');
+
+    expect(FrontendUrl::viewingRoom())
+        ->toBe('https://www.theworldtarot.com/viewing-room/');
+});

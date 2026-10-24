@@ -25,3 +25,16 @@ and a code for asking their own question. You do not receive the code: it is
 theirs to spend. That address is the one thing here worth checking, because it
 is the one thing nothing else can check for you.
 @endif
+@if ($holdsAPass)
+@if ($awaitsReading || $holdsAGift)
+
+@endif
+Your Viewing Room pass is yours for good. Come back to the films whenever you
+like, on any device.
+
+Enter the Viewing Room: {!! $viewingRoomUrl !!}
+@if ($needsPassword)
+
+You still need to choose a password. A separate email from us carries the link to set one, or you can ask for a new one from the sign in page at any time.
+@endif
+@endif
