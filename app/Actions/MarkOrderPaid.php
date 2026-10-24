@@ -11,7 +11,6 @@ use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderLine;
-use App\Payments\OrderBelongsToNobody;
 use App\Payments\PaidBy;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -73,7 +72,8 @@ class MarkOrderPaid
      * customer charged twice, and it used to overwrite the first payment's
      * intent and amount while reporting success.
      *
-     * - `Settled`: pending, and this call is the one that paid it.
+     * - `Settled`: pending, and this call is the one that paid it,
+     *   and the owner is filled here from `$paidBy` when the order had none.
      * - `AlreadyPaid`: not pending, and `$paidBy` is the intent that settled it.
      *   A success.
      * - `PaidTwice`: not pending, and a different intent. Nothing is written.
@@ -101,27 +101,33 @@ class MarkOrderPaid
                     : Settlement::PaidTwice;
             }
 
-            // **An order with no customer cannot be settled here**, and this
-            // is a fault in the caller rather than a case to handle. Since
-            // 29 August 2026 an order can be placed holding no identity,
-            // because Stripe's hosted page collects the buyer's email after
-            // the order exists. `RecordStripePayment` attaches the buyer
-            // before it reaches this action, precisely so that everything
-            // below has somebody to grant a pass to and somebody to write to.
-            // Arriving here without one would spend the one transition that
-            // delivers all of it on nobody.
-            if ($locked->customer_id === null) {
-                throw OrderBelongsToNobody::soItCannotBeSettled($locked);
-            }
-
-            // One save, so an order is never paid for an amount nobody wrote
-            // down, and the payment that settled it is the one it names.
-            $locked->forceFill([
+            // ~~**An order with no customer cannot be settled here**, and
+            // `OrderBelongsToNobody` was thrown for it.~~ **Struck 24 October
+            // 2026 (step 5a, option A, decided 23 October 2026).** A `PaidBy` always names a customer,
+            // so there is no longer a way to arrive here with nobody.
+            //
+            // **The owner is filled here, in the save that marks the order
+            // paid, and only when there is none.** Since 29 August 2026 an
+            // order can be placed holding no identity, because Stripe's hosted
+            // page collects the email after the order exists. The first intent
+            // to take this lock is the one that settles, so it is also the one
+            // whose buyer owns the order. Writing the owner earlier, outside
+            // the lock, let a different buyer's intent own an order that the
+            // first one settled. An existing owner is never changed.
+            $values = [
                 'status' => OrderStatus::Paid,
                 'paid_at' => now(),
                 'charged_amount' => $paidBy->amount,
                 'stripe_payment_intent_id' => $paidBy->intentId,
-            ])->save();
+            ];
+
+            if ($locked->customer_id === null) {
+                $values['customer_id'] = $paidBy->customerId;
+            }
+
+            // One save, so an order is never paid for an amount nobody wrote
+            // down, and the payment that settled it is the one it names.
+            $locked->forceFill($values)->save();
 
             $this->fulfill($locked);
 

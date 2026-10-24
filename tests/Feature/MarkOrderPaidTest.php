@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\AskForReading;
 use App\Actions\ClaimAccount;
 use App\Actions\MarkOrderPaid;
 use App\Enums\ClaimOutcome;
@@ -16,9 +17,9 @@ use App\Models\Customer;
 use App\Models\Gift;
 use App\Models\Order;
 use App\Models\Product;
-use App\Payments\OrderBelongsToNobody;
 use App\Payments\PaidBy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
@@ -260,7 +261,7 @@ it('answers PaidTwice for a different intent and leaves the first payment exactl
     // **A different amount as well, on purpose.** Replaying the same figure
     // would leave an overwrite invisible: the columns would hold the same
     // numbers either way.
-    $second = app(MarkOrderPaid::class)($order, new PaidBy('pi_second', 1));
+    $second = app(MarkOrderPaid::class)($order, new PaidBy('pi_second', 1, $order->customer_id));
 
     expect($second)->toBe(Settlement::PaidTwice);
 
@@ -312,21 +313,156 @@ it('answers Gone for an order whose row has been deleted', function () {
     Mail::assertNothingQueued();
 });
 
-it('still refuses to settle an order that belongs to nobody, and writes neither column', function () {
-    $order = unownedOrderWorth(2500, 'pi_hosted');
+/*
+| Step 5a: an unowned order belongs to the buyer whose payment settled it.
+|
+| ~~'still refuses to settle an order that belongs to nobody, and writes neither
+| column'~~ **Replaced by decision, 23 October 2026 (open question 5, option
+| A).** `PaidBy::$customerId` is a required int, so a caller can no longer say
+| "nobody" and `OrderBelongsToNobody` is deleted. What is asserted instead is
+| the case that used to throw: an unowned order settles to the buyer the
+| `PaidBy` names, and the owner, the intent and the amount arrive in one save.
+*/
 
-    // The order starts holding the intent a hosted checkout recorded. Neither
-    // column may move when the transition is refused.
+/**
+ * The section 4 invariant, asserted after every case below.
+ */
+function noPaidOrderLacksACustomer(): void
+{
+    expect(Order::where('status', 'paid')->whereNull('customer_id')->doesntExist())->toBeTrue();
+}
+
+it('settles an unowned order to the buyer the payment names, in the one save that marks it paid', function () {
+    $y = Customer::factory()->create(['email' => 'y@example.com', 'password' => null]);
+    $order = unownedOrderWorth(2500, 'pi_hosted', Product::factory()->pass());
+
     $order->forceFill(['stripe_payment_intent_id' => null])->save();
 
-    expect(fn () => app(MarkOrderPaid::class)($order, paidBy($order, 'pi_nobody')))
-        ->toThrow(OrderBelongsToNobody::class);
+    $atTransition = null;
+
+    Order::updated(function (Order $saved) use (&$atTransition): void {
+        if ($saved->wasChanged('status') && $saved->status === OrderStatus::Paid) {
+            $atTransition = $saved->getChanges();
+        }
+    });
+
+    expect(app(MarkOrderPaid::class)($order, paidBy($order, 'pi_y', $y)))->toBe(Settlement::Settled);
+
+    // Owner, intent and amount all in the same save as `status = paid`.
+    expect($atTransition)->not->toBeNull()
+        ->and($atTransition['customer_id'] ?? null)->toBe($y->id)
+        ->and($atTransition['stripe_payment_intent_id'] ?? null)->toBe('pi_y')
+        ->and($atTransition['charged_amount'] ?? null)->toBe(2500);
+
+    $order->refresh();
+
+    expect($order->status)->toBe(OrderStatus::Paid)
+        ->and($order->customer_id)->toBe($y->id)
+        ->and($y->fresh()->hasViewingRoomAccess())->toBeTrue();
+
+    Mail::assertQueued(
+        OrderPaid::class,
+        fn (OrderPaid $mail): bool => $mail->hasTo('y@example.com'),
+    );
+    Mail::assertQueued(OrderPaid::class, 1);
+
+    noPaidOrderLacksACustomer();
+});
+
+// Guard by design (critique, 23 October 2026): green at 8323747 because the
+// baseline ignores the third argument and never touches an owner. It pins the
+// rule so the new write cannot break it. Audit: make the settling forceFill
+// write `customer_id` unconditionally and this must go red.
+it('keeps the owner of a pending order when the payment names somebody else', function () {
+    $x = Customer::factory()->create(['email' => 'x@example.com']);
+    $y = Customer::factory()->create(['email' => 'y@example.com']);
+    $order = orderFor(Product::factory()->pass()->create(), $x);
+
+    expect(app(MarkOrderPaid::class)($order, paidBy($order, 'pi_y', $y)))->toBe(Settlement::Settled);
+
+    expect($order->fresh()->customer_id)->toBe($x->id)
+        ->and($x->fresh()->hasViewingRoomAccess())->toBeTrue()
+        ->and($y->fresh()->hasViewingRoomAccess())->toBeFalse();
+
+    Mail::assertQueued(OrderPaid::class, 1);
+    Mail::assertQueued(
+        OrderPaid::class,
+        fn (OrderPaid $mail): bool => $mail->hasTo('x@example.com') && ! $mail->hasTo('y@example.com'),
+    );
+
+    noPaidOrderLacksACustomer();
+});
+
+// Guard by design, see above. Audit: move the owner write above the
+// not-pending return and this must go red.
+it('answers PaidTwice and leaves the owner alone when a paid order is given another intent naming somebody else', function () {
+    $x = Customer::factory()->create(['email' => 'x@example.com']);
+    $y = Customer::factory()->create(['email' => 'y@example.com']);
+    $order = orderFor(Product::factory()->pass()->create(), $x);
+
+    expect(settle($order, 'pi_first'))->toBe(Settlement::Settled);
+
+    $before = $order->fresh()->getAttributes();
+
+    Mail::fake();
+
+    expect(app(MarkOrderPaid::class)($order, paidBy($order, 'pi_second', $y)))->toBe(Settlement::PaidTwice);
+
+    expect($order->fresh()->getAttributes())->toBe($before)
+        ->and($order->fresh()->customer_id)->toBe($x->id)
+        ->and($y->fresh()->hasViewingRoomAccess())->toBeFalse();
+
+    Mail::assertNothingQueued();
+
+    noPaidOrderLacksACustomer();
+});
+
+// Guard by design, see above. Same audit as the PaidTwice case.
+it('answers AlreadyPaid and leaves the owner alone when the settling intent comes round naming somebody else', function () {
+    $x = Customer::factory()->create();
+    $y = Customer::factory()->create();
+    $order = orderFor(Product::factory()->pass()->create(), $x);
+
+    settle($order, 'pi_first');
+
+    expect(app(MarkOrderPaid::class)($order, paidBy($order, 'pi_first', $y)))->toBe(Settlement::AlreadyPaid);
+
+    expect($order->fresh()->customer_id)->toBe($x->id)
+        ->and($y->fresh()->hasViewingRoomAccess())->toBeFalse();
+
+    noPaidOrderLacksACustomer();
+});
+
+it('throws the asking failure, and leaves an unowned order pending and unowned', function () {
+    $y = Customer::factory()->create(['email' => 'y@example.com']);
+    $order = unownedOrderWorth(2500);
+
+    app()->instance(AskForReading::class, new class extends AskForReading
+    {
+        public function __invoke(Collection $lines, string $querentEmail, ?string $querentName = null): Collection
+        {
+            throw new RuntimeException('the asking failed');
+        }
+    });
+
+    // **The message is what makes this red for the right reason.** At
+    // 8323747 the baseline throws `OrderBelongsToNobody`, a RuntimeException,
+    // before `AskForReading` is reached, so the class alone matches either.
+    expect(fn () => app(MarkOrderPaid::class)($order, paidBy($order, 'pi_y', $y)))
+        ->toThrow(RuntimeException::class, 'the asking failed');
+
+    // A resolved buyer whose settlement failed, not a missing one.
+    expect(Customer::whereKey($y->id)->exists())->toBeTrue();
 
     $order->refresh();
 
     expect($order->status)->toBe(OrderStatus::Pending)
-        ->and($order->charged_amount)->toBeNull()
-        ->and($order->stripe_payment_intent_id)->toBeNull();
+        ->and($order->customer_id)->toBeNull()
+        ->and($order->charged_amount)->toBeNull();
+
+    Mail::assertNothingQueued();
+
+    noPaidOrderLacksACustomer();
 });
 
 /*

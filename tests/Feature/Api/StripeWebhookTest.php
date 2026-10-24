@@ -238,7 +238,10 @@ it('keeps the first payment when a second, different intent succeeds for the sam
     Log::shouldHaveReceived('error')->once()->withArgs(
         fn (string $message, array $context): bool => $context['order_id'] === $order->id
             && $context['settling_intent'] === 'pi_first_attempt'
-            && $context['duplicate_intent'] === 'pi_second_attempt',
+            && $context['duplicate_intent'] === 'pi_second_attempt'
+            // Step 5a: ids, not addresses. An owned order, so both name the owner.
+            && ($context['owner_customer_id'] ?? null) === $customer->id
+            && ($context['duplicate_buyer_customer_id'] ?? null) === $customer->id,
     );
 });
 

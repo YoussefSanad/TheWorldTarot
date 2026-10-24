@@ -1,16 +1,20 @@
 <?php
 
+use App\Actions\AskForReading;
+use App\Actions\MarkOrderFulfilled;
 use App\Actions\MarkOrderPaid;
 use App\Actions\RecordStripePayment;
 use App\Enums\OrderStatus;
 use App\Enums\Recording;
+use App\Enums\Settlement;
 use App\Mail\OrderPaid;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
-use App\Payments\OrderBelongsToNobody;
+use App\Payments\PaidBy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection as LinesCollection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Stripe\Collection;
@@ -224,15 +228,141 @@ it('settles an unowned order exactly once however many times it is redelivered',
     Mail::assertQueued(SetPasswordLink::class, 1);
 });
 
-it('refuses to settle an order that reached the transition holding nobody', function () {
-    // A fault in the caller rather than a state to handle. Everything the
-    // transition does is addressed to somebody.
+// ~~'refuses to settle an order that reached the transition holding nobody'~~
+// **Replaced by decision, 23 October 2026, step 5a (open question 5, option
+// A).** A `PaidBy` always names a customer, so `OrderBelongsToNobody` is gone
+// and so is this test. The case below is what stands in its place: the one
+// failure that can happen inside the settlement of an unowned order, and what
+// it must leave behind.
+it('writes nothing to the order outside the lock when the settlement fails', function () {
     $order = unownedOrderWorth(2500);
+    stripeAnswering([['email' => 'jennifer@example.com', 'name' => 'Jennifer']]);
 
-    expect(fn () => app(MarkOrderPaid::class)($order, paidBy($order)))
-        ->toThrow(OrderBelongsToNobody::class);
+    app()->instance(AskForReading::class, new class extends AskForReading
+    {
+        public function __invoke(LinesCollection $lines, string $querentEmail, ?string $querentName = null): LinesCollection
+        {
+            throw new RuntimeException('the asking failed');
+        }
+    });
 
-    expect($order->refresh()->status)->toBe(OrderStatus::Pending);
+    // Class and message, so the baseline's `OrderBelongsToNobody` cannot match.
+    expect(fn () => app(RecordStripePayment::class)(paymentFor($order)))
+        ->toThrow(RuntimeException::class, 'the asking failed');
+
+    // The buyer was resolved and the row exists, so the run got past
+    // `identify()` and failed inside the settlement.
+    expect(Customer::where('email', 'jennifer@example.com')->exists())->toBeTrue();
+
+    $order->refresh();
+
+    // Red at 8323747: `identify()` wrote the owner before the lock, and the
+    // rolled back settlement left it behind.
+    expect($order->status)->toBe(OrderStatus::Pending)
+        ->and($order->customer_id)->toBeNull();
+
+    Mail::assertNothingQueued();
+});
+
+it('gives an unowned order to the buyer whose payment settled it when two buyers pay at once', function () {
+    // **The race, scripted.** At 8323747 this path is not quite the finding's
+    // step 2. A's `identify()` writes X before `MarkOrderPaid` is called. B's
+    // whole `RecordStripePayment`, run inside A's `__invoke`, then reads the
+    // order, finds X already written and returns from `identify()` with no
+    // Stripe call at all, so the resolver's answer for `pi_b` is never asked
+    // for. B settles with X as owner: X owns an order paid for with Y's money.
+    // After step 5a A's `identify()` writes nothing, so B finds the order
+    // unowned, resolves Y and settles with Y.
+    Log::spy();
+
+    $order = unownedOrderWorth(2500, 'pi_hosted', Product::factory()->pass());
+
+    $sessions = Mockery::mock(SessionService::class);
+    $sessions->shouldReceive('all')->andReturnUsing(function (array $params): Collection {
+        $buyer = ['pi_a' => ['x@example.com', 'X'], 'pi_b' => ['y@example.com', 'Y']][$params['payment_intent']];
+
+        return Collection::constructFrom(['data' => [[
+            'customer_details' => ['email' => $buyer[0], 'name' => $buyer[1]],
+        ]]]);
+    });
+    substitutedStripe(Mockery::mock(PaymentIntentService::class), $sessions);
+
+    $race = new stdClass;
+    $race->second = null;
+
+    // Plain `bind`, not a singleton: `MarkOrderPaid` has constructor
+    // dependencies the container should fill. B's `RecordStripePayment` gets a
+    // fresh instance whose flag is unset, which is harmless because the hook
+    // fires only for `pi_a` and B only ever asks about `pi_b`.
+    app()->bind(MarkOrderPaid::class, function ($app) use ($order, $race) {
+        return new class($app->make(MarkOrderFulfilled::class), $app->make(AskForReading::class), $order, $race) extends MarkOrderPaid
+        {
+            private bool $intercepted = false;
+
+            public function __construct(MarkOrderFulfilled $fulfilled, AskForReading $asks, private Order $raced, private stdClass $race)
+            {
+                parent::__construct($fulfilled, $asks);
+            }
+
+            public function __invoke(Order $order, PaidBy $paidBy): Settlement
+            {
+                if ($paidBy->intentId === 'pi_a' && ! $this->intercepted) {
+                    $this->intercepted = true;
+
+                    $this->race->second = app(RecordStripePayment::class)(paymentFor($this->raced, 'pi_b'));
+                }
+
+                return parent::__invoke($order, $paidBy);
+            }
+        };
+    });
+
+    $first = app(RecordStripePayment::class)(paymentFor($order, 'pi_a'));
+
+    $x = Customer::firstWhere('email', 'x@example.com');
+    $y = Customer::firstWhere('email', 'y@example.com');
+
+    expect($race->second)->toBe(Recording::Settled)
+        ->and($first)->toBe(Recording::PaidTwice)
+        // Both buyers were resolved. At 8323747 Y never is, see the comment above.
+        ->and($x)->not->toBeNull()
+        ->and($y)->not->toBeNull();
+
+    $order->refresh();
+
+    expect($order->stripe_payment_intent_id)->toBe('pi_b')
+        ->and($order->customer_id)->toBe($y->id)
+        // X holds no pass.
+        ->and($x->hasViewingRoomAccess())->toBeFalse()
+        ->and($y->hasViewingRoomAccess())->toBeTrue();
+
+    Log::shouldHaveReceived('error')->once()->withArgs(
+        fn (string $message, array $context): bool => str_contains($message, 'Refund it by hand in Stripe')
+            && ($context['owner_customer_id'] ?? null) === $y->id
+            && ($context['duplicate_buyer_customer_id'] ?? null) === $x->id,
+    );
+
+    Mail::assertQueued(OrderPaid::class, 1);
+    Mail::assertQueued(OrderPaid::class, fn (OrderPaid $mail): bool => $mail->hasTo('y@example.com'));
+});
+
+it('logs the same customer under both keys when an owned order is paid twice, with no Stripe identity call', function () {
+    Log::spy();
+
+    // No Sessions service and no expectations on the intents: reaching for
+    // either to identify an owned order fails the test.
+    substitutedStripe(Mockery::mock(PaymentIntentService::class));
+
+    $order = orderWorth(2500);
+
+    expect(app(RecordStripePayment::class)(paymentFor($order, 'pi_first')))->toBe(Recording::Settled)
+        ->and(app(RecordStripePayment::class)(paymentFor($order, 'pi_second')))->toBe(Recording::PaidTwice);
+
+    Log::shouldHaveReceived('error')->once()->withArgs(
+        fn (string $message, array $context): bool => str_contains($message, 'Refund it by hand in Stripe')
+            && ($context['owner_customer_id'] ?? null) === $order->customer_id
+            && ($context['duplicate_buyer_customer_id'] ?? null) === $order->customer_id,
+    );
 });
 
 /**

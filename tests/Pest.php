@@ -292,10 +292,23 @@ function paymentFor(Order $order, string $intentId = 'pi_hosted'): StripePayment
  * **Name the intent when the question is which payment this is.** The default
  * is one intent, so a test that settles twice with it is a redelivery and not
  * a second payment.
+ *
+ * **Name the buyer when the order has no owner.** Step 5a: `PaidBy` carries the
+ * customer the payment resolved, and `MarkOrderPaid` writes it as the owner of
+ * an unowned order inside its lock. The default is the order's own customer,
+ * which is right for every order somebody placed signed in. With neither, this
+ * throws, so a test about an unowned order says who paid rather than passing
+ * nobody by accident.
  */
-function paidBy(Order $order, string $intent = 'pi_test'): PaidBy
+function paidBy(Order $order, string $intent = 'pi_test', ?Customer $buyer = null): PaidBy
 {
-    return new PaidBy($intent, $order->total_amount);
+    $customerId = $buyer?->getKey() ?? $order->customer_id;
+
+    if ($customerId === null) {
+        throw new LogicException('paidBy() needs a buyer: this order has no customer, so the test must name who paid.');
+    }
+
+    return new PaidBy($intent, $order->total_amount, $customerId);
 }
 
 /**

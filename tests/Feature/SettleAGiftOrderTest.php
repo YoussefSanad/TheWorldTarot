@@ -13,7 +13,6 @@ use App\Models\Gift;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Reading;
-use App\Payments\OrderBelongsToNobody;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
@@ -394,17 +393,10 @@ it('queues no mail and keeps no code when the transaction it minted in rolls bac
     Mail::assertNothingSent();
 });
 
-it('mails nobody and mints nothing when the settlement itself fails', function () {
-    $order = anOrderGifting();
-    $order->forceFill(['customer_id' => null])->save();
-
-    // The one failure reachable inside that transaction: an order nobody owns
-    // cannot be settled, and it throws rather than spending the transition on
-    // nobody. What this proves is where the mail sits relative to it.
-    expect(fn () => settlingAGift($order))->toThrow(OrderBelongsToNobody::class);
-
-    expect(Gift::sole()->code)->toBeNull();
-
-    Mail::assertNothingQueued();
-    Mail::assertNothingSent();
-});
+// ~~'mails nobody and mints nothing when the settlement itself fails'~~
+// **Deleted by decision, 23 October 2026, step 5a (open question 5, option
+// A).** It used `OrderBelongsToNobody` as the one failure reachable inside the
+// transaction. A `PaidBy` always names a customer now and the exception is
+// gone. It is a duplicate of 'queues no mail and keeps no code when the
+// transaction it minted in rolls back' above, which already fails inside the
+// transaction through a throwing `AskForReading`, so nothing is lost.

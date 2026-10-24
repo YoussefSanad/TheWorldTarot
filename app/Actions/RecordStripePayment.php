@@ -107,9 +107,13 @@ class RecordStripePayment
         // **Whose order this is, if it did not already know.** An order paid
         // for through Stripe carries no identity of its own, because both roads
         // collect the email after the order exists. Everything downstream of
-        // the transition addresses a customer, so this has to be settled
-        // before it and not inside it.
-        if (! $this->identify($order, $payment)) {
+        // the transition addresses a customer, so this has to be resolved
+        // before the transition and written inside it (decided 23 October
+        // 2026, built 24 October 2026). ~~It has to be settled before it and
+        // not inside it.~~
+        $customerId = $this->identify($order, $payment);
+
+        if ($customerId === null) {
             // **The one narrow write left, and only while the order is
             // pending.** The sweep finds an order through the intent on its
             // column, so without this the customer who paid is never served.
@@ -132,16 +136,25 @@ class RecordStripePayment
         // of four things happened, so nothing here has to infer one from a
         // `false`. `Gone` is `NotOurs` because the row vanished between the
         // read above and the lock, which is the same answer as never finding it.
-        $settlement = ($this->markPaid)($order, new PaidBy($payment->id, $payment->amount));
+        $settlement = ($this->markPaid)($order, new PaidBy($payment->id, $payment->amount, $customerId));
 
         if ($settlement === Settlement::PaidTwice) {
             // **Somebody has been charged twice, and nothing here can refund
             // it.** The first payment stays on the order untouched. A person
             // has to refund the second in Stripe, so this is loud.
+            //
+            // **Both buyers are named (step 5a, decided 23 October 2026, built 24 October 2026)**, because
+            // the refund goes to the duplicate's payer and that may not be the
+            // owner. One read, so the intent and the owner come from the same
+            // moment.
+            $settled = $order->fresh();
+
             Log::error('A second Stripe payment succeeded for an order that was already paid. Refund it by hand in Stripe.', [
                 'order_id' => $order->id,
-                'settling_intent' => $order->fresh()?->stripe_payment_intent_id,
+                'settling_intent' => $settled?->stripe_payment_intent_id,
                 'duplicate_intent' => $payment->id,
+                'owner_customer_id' => $settled?->customer_id,
+                'duplicate_buyer_customer_id' => $customerId,
             ]);
         }
 
@@ -160,6 +173,7 @@ class RecordStripePayment
      * signed in owns their order from the moment they placed it, and an
      * address typed into a form is the address the account was made from.
      * Stripe's copy is what fills a gap, not what wins an argument.
+     * `MarkOrderPaid` writes the owner only where `customer_id` is null.
      *
      * **Two sources, tried in that order, because there are two roads in.** The
      * hosted page collects the email on a Checkout Session. A wallet payment
@@ -187,12 +201,18 @@ class RecordStripePayment
      * framework catches the unique violation on `email` inside a savepoint and
      * re-reads, exactly as it does when two first orders arrive together.
      *
-     * @return bool Whether this order can now be settled.
+     * **Writes nothing to the order (step 5a, decided 23 October 2026, built 24 October 2026).** ~~It set
+     * `customer_id` while the order was pending.~~ That write ran outside the
+     * row lock, so the first buyer to resolve owned an order that the first
+     * intent to take the lock settled. The id is handed to `MarkOrderPaid`
+     * through `PaidBy` instead, and filled inside its lock.
+     *
+     * @return int|null The customer who paid, or null when nobody can be named.
      */
-    private function identify(Order $order, StripePayment $payment): bool
+    private function identify(Order $order, StripePayment $payment): ?int
     {
         if ($order->customer_id !== null) {
-            return true;
+            return $order->customer_id;
         }
 
         $intentId = $payment->id;
@@ -232,33 +252,17 @@ class RecordStripePayment
                 ],
             );
 
-            return false;
+            return null;
         }
 
-        $customer = Customer::firstOrCreate(
+        // **A `Customer` created here may go unused** when the order turns
+        // out to have an owner already, or is already paid. That is harmless:
+        // the row is keyed by email, so the next payment from this buyer
+        // finds it with `firstOrCreate`, and a customer with no orders costs
+        // nothing.
+        return Customer::firstOrCreate(
             ['email' => $buyer->email],
             ['name' => $buyer->name, 'password' => null],
-        );
-
-        // **A `Customer` created above may go unused** when the write below
-        // loses, because the order already has an owner or is no longer
-        // pending. That is harmless: the row is keyed by email, so the next
-        // payment from this buyer finds it with `firstOrCreate`, and a
-        // customer with no orders costs nothing.
-        //
-        // **Written only while the order has no customer and is still
-        // pending.** This runs outside the row lock on a model read earlier,
-        // so a second intent racing a settlement would otherwise reassign the
-        // paid order's owner. Re-read afterwards so everything downstream
-        // sees whoever actually holds the row.
-        Order::whereKey($order->id)
-            ->whereNull('customer_id')
-            ->where('status', OrderStatus::Pending)
-            ->update(['customer_id' => $customer->getKey()]);
-
-        $order->refresh();
-        $order->load('customer');
-
-        return true;
+        )->getKey();
     }
 }
