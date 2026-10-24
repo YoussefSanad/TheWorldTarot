@@ -91,3 +91,33 @@ it('sends a cancelled checkout back to the reading it started from', function ()
 it('sends a cancelled checkout that named no reading to the index', function () {
     expect(FrontendUrl::readings())->toBe('https://staging.theworldtarot.com/readings/');
 });
+
+/*
+| Where a cancelled checkout lands, by product. Issue #94.
+*/
+
+it('sends a cancelled pass checkout to the viewing room, not a reading page', function () {
+    expect(FrontendUrl::returnPage(ProductKey::ViewingRoomPass))
+        ->toBe('https://staging.theworldtarot.com/viewing-room/');
+});
+
+it('sends each reading back to its own page, unchanged', function (ProductKey $reading) {
+    expect(FrontendUrl::returnPage($reading))
+        ->toBe('https://staging.theworldtarot.com/readings/'.$reading->value.'/')
+        ->and(FrontendUrl::returnPage($reading))->toBe(FrontendUrl::readings($reading));
+})->with(fn () => ProductKey::readings());
+
+it('takes the viewing room path from configuration', function (string $configured) {
+    config()->set('frontend.paths.viewing_room', $configured);
+
+    expect(FrontendUrl::returnPage(ProductKey::ViewingRoomPass))
+        ->toBe('https://staging.theworldtarot.com/the-room/');
+})->with([
+    '/the-room',
+    '/the-room/',
+    'the-room',
+]);
+
+it('defaults the viewing room page to viewing-room', function () {
+    expect(config('frontend.paths.viewing_room'))->toBe('viewing-room');
+});

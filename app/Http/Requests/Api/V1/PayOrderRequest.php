@@ -43,7 +43,7 @@ class PayOrderRequest extends FormRequest
             'method' => ['sometimes', 'string', Rule::in(array_keys(config('payments.methods', [])))],
 
             /*
-            | Which reading page the checkout started from, so a cancelled one
+            | Which page the checkout started from, a reading or the viewing room pass, so a cancelled one
             | lands back on it.
             |
             | **A product key. Not a path, and never a URL.** A caller-supplied
@@ -53,11 +53,22 @@ class PayOrderRequest extends FormRequest
             | frontend's reading-page slugs, so an allowlisted enum means no
             | string from the caller reaches an address at all.
             |
-            | Anything outside the enum is a 422 naming this field, never a
+            | **Only the pass and the four readings.** The rush add-on is a
+            | product key but has no page of its own to return to.
+            |
+            | Anything outside the list is a 422 naming this field, never a
             | quiet fall back to the index.
             */
-            'return_to' => ['sometimes', Rule::enum(ProductKey::class)],
+            'return_to' => ['sometimes', Rule::enum(ProductKey::class)->only(self::returnable())],
         ];
+    }
+
+    /**
+     * @return array<int, ProductKey>
+     */
+    private static function returnable(): array
+    {
+        return [...ProductKey::readings(), ProductKey::ViewingRoomPass];
     }
 
     /**
@@ -67,7 +78,7 @@ class PayOrderRequest extends FormRequest
     {
         return [
             'method.in' => 'That is not a way to pay here.',
-            'return_to' => 'That is not a reading you can return to.',
+            'return_to' => 'That is not a page you can return to.',
         ];
     }
 }

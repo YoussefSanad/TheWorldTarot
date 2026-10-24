@@ -73,6 +73,20 @@ class FrontendUrl
     }
 
     /**
+     * Where a cancelled checkout for this product lands.
+     *
+     * The pass returns to the viewing room and a reading to its own page.
+     * Still named by a `ProductKey`, so nothing a caller typed reaches an
+     * address.
+     */
+    public static function returnPage(ProductKey $product): string
+    {
+        return $product === ProductKey::ViewingRoomPass
+            ? self::to(config('frontend.paths.viewing_room'))
+            : self::readings($product);
+    }
+
+    /**
      * Where a recipient spends the code they were given.
      *
      * **The printed form goes in the link**, `XXXX-XXXX-XXXX`, because the same
