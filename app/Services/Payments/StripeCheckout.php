@@ -94,8 +94,10 @@ class StripeCheckout implements PaymentGateway
             // **Built here from a configured origin, never from anything the
             // caller sent.** A caller-supplied URL is an open redirect
             // available to anybody holding a pay token. All the caller may say
-            // is which reading page it came from, and it says that as an enum.
-            'cancel_url' => FrontendUrl::readings($returnTo),
+            // is which product it came from, and it says that as an enum.
+            'cancel_url' => $returnTo instanceof ProductKey
+                ? FrontendUrl::returnPage($returnTo)
+                : FrontendUrl::readings(),
         ]);
 
         // **Written back before the instruction goes out**, so a payment Stripe

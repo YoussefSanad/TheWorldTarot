@@ -68,6 +68,10 @@ return [
         // said which one that was.
         'readings' => env('FRONTEND_READINGS_PATH', '/readings/'),
 
+        // Where a cancelled checkout for the viewing room pass lands. The pass
+        // is not a reading, so it has no page under the reading index.
+        'viewing_room' => env('FRONTEND_VIEWING_ROOM_PATH', 'viewing-room'),
+
         // Where somebody spends a gift code. One page for every reading rather
         // than one per reading, and **the code arrives as a query parameter and
         // never as a path segment**: the website is a static export, so a path

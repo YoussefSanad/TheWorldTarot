@@ -10,8 +10,12 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Payments\PaymentInstruction;
 use App\Services\Payments\ManualSettlement;
+use App\Services\Payments\StripeCheckout;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
+use Stripe\Checkout\Session;
+use Stripe\Service\Checkout\SessionService;
+use Stripe\Service\PaymentIntentService;
 
 uses(RefreshDatabase::class);
 
@@ -360,3 +364,98 @@ it('refuses anything that is not a reading, and never falls back to one', functi
     'a reading that does not exist' => 'two-card',
     'nothing at all' => '',
 ]);
+
+/*
+| The cancel address Stripe is actually given, issue #94. Through the real
+| StripeCheckout with Stripe's client substituted, because the fake gateway
+| above never builds an address and so cannot see the mapping.
+*/
+
+function payStripeAccepting(array &$sent): void
+{
+    $sessions = Mockery::mock(SessionService::class);
+
+    $sessions->shouldReceive('create')->andReturnUsing(
+        function (array $params) use (&$sent): Session {
+            $sent[] = $params;
+
+            return Session::constructFrom([
+                'id' => 'cs_test_'.count($sent),
+                'url' => 'https://checkout.stripe.com/c/pay/cs_test_'.count($sent),
+                'payment_intent' => 'pi_3Abc_'.count($sent),
+            ]);
+        },
+    );
+
+    substitutedStripe(Mockery::mock(PaymentIntentService::class), $sessions);
+}
+
+it('gives stripe the viewing room as the cancel address for the pass', function () {
+    config()->set('frontend.url', 'https://theworldtarot.com');
+    config()->set('payments.methods.card', StripeCheckout::class);
+
+    $sent = [];
+    payStripeAccepting($sent);
+
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['return_to' => 'viewing-room-pass'])
+        ->assertOk()
+        ->assertJsonPath('type', 'redirect');
+
+    expect($sent)->toHaveCount(1)
+        ->and($sent[0]['cancel_url'])->toBe('https://theworldtarot.com/viewing-room/');
+});
+
+it('gives stripe the reading page as the cancel address for each reading', function (ProductKey $reading) {
+    config()->set('frontend.url', 'https://theworldtarot.com');
+    config()->set('payments.methods.card', StripeCheckout::class);
+
+    $sent = [];
+    payStripeAccepting($sent);
+
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['return_to' => $reading->value])
+        ->assertOk();
+
+    expect($sent[0]['cancel_url'])->toBe('https://theworldtarot.com/readings/'.$reading->value.'/');
+})->with(fn () => ProductKey::readings());
+
+it('refuses the rush add-on as a place to return to, and starts nothing', function () {
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['return_to' => 'rush-24h'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('return_to');
+
+    expect(FakeCheckout::$started)->toBe([]);
+});
+
+it('refuses an unknown key as a place to return to', function () {
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", ['return_to' => 'viewing-room'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('return_to');
+
+    expect(FakeCheckout::$started)->toBe([]);
+});
+
+it('ignores return_to when the method collects nothing', function () {
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", [
+        'method' => 'manual',
+        'return_to' => 'viewing-room-pass',
+    ])->assertOk()->assertExactJson(['type' => 'nothing_to_pay']);
+});
+
+it('ignores return_to when the wallet method answers with a client secret', function () {
+    $order = payableOrder();
+
+    $this->postJson("/api/v1/orders/{$order->pay_token}/pay", [
+        'method' => PaymentMethod::StripeWallet->value,
+        'return_to' => 'viewing-room-pass',
+    ])->assertOk()->assertJsonPath('type', 'client_secret');
+});
