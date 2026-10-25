@@ -19,6 +19,9 @@ use Illuminate\Mail\Mailables\Content;
  * in for yet, so asking them for a password is admin about an account they did
  * not ask for. They still reach one through "forgot password" whenever they
  * want it.
+ *
+ * Multipart: a designed HTML part and the text part. The link is a credential
+ * and is never logged.
  */
 class SetPasswordLink extends QueuedMail
 {
@@ -39,10 +42,12 @@ class SetPasswordLink extends QueuedMail
 
     public function content(): Content
     {
-        return new Content(text: 'mail.set-password', with: [
+        return new Content(html: 'mail.html.set-password', text: 'mail.set-password', with: [
             'name' => $this->customer->name,
             'url' => FrontendUrl::setPassword($this->customer->email, $this->token),
             'minutes' => config('auth.passwords.customers.expire'),
+            'assets' => config('mail.assets.url'),
+            'site' => rtrim((string) config('frontend.url'), '/'),
         ]);
     }
 }
