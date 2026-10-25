@@ -2,6 +2,9 @@
 
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
+use App\Mail\PasswordResetLink;
+use App\Mail\SetPasswordLink;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -76,6 +79,32 @@ it('sends the confirmation from noreply, with no header offering a way back', fu
         ->and($message->getReplyTo())->toBeEmpty()
         ->and($message->getHeaders()->has('Reply-To'))->toBeFalse();
 });
+
+/**
+ * The two link emails leave from support, as they did before they were
+ * multipart (#106, 24 October 2026). Adding an HTML part must not move the
+ * sender. Literal address set here, for the reason given above.
+ */
+it('sends the link email from support, multipart or not', function (string $mailable) {
+    config()->set('mail.senders', [
+        'support' => 'support@example.test',
+        'noreply' => 'noreply@example.test',
+        'fulfillment' => 'fulfillment@example.test',
+    ]);
+
+    $customer = Customer::factory()->create();
+
+    Mail::to($customer->email)->send(new $mailable($customer, 'tok-1'));
+
+    $message = theMessageSent();
+
+    expect($message->getFrom()[0]->getAddress())->toBe('support@example.test')
+        ->and($message->getHtmlBody())->not->toBeNull()
+        ->and($message->getTextBody())->not->toBeEmpty();
+})->with([
+    'password reset' => [PasswordResetLink::class],
+    'set password' => [SetPasswordLink::class],
+]);
 
 /**
  * The present, whose subject says what has actually arrived.

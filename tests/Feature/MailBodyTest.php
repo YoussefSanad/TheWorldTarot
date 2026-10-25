@@ -3,6 +3,7 @@
 use App\Enums\ProductKey;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
+use App\Mail\PasswordResetLink;
 use App\Mail\ReadingOnItsWay;
 use App\Mail\ReadingToWrite;
 use App\Mail\SetPasswordLink;
@@ -706,7 +707,8 @@ it('tells the recipient nothing of the price, the buyer, or any clock', function
  *
  * ~~Asserted of both documents at once~~ **of all three, from 4 September 2026**
  * (#85), because the whole point of the frame is that none of them can have a
- * different answer.
+ * different answer. **Of all five, from 24 October 2026** (#106), when
+ * `PasswordResetLink` and `SetPasswordLink` became multipart.
  */
 it('draws every designed message in one frame', function () {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');
@@ -725,10 +727,14 @@ it('draws every designed message in one frame', function () {
     Mail::to('jodie@example.com')->send(new OrderPaid($order));
     Mail::to('sam@example.com')->send(new GiftToRedeem($gift));
     Mail::to('sam@example.com')->send(new ReadingOnItsWay(aReadingAskedInAwkwardWords($gift)));
+    // The two link emails, from 24 October 2026 (#106).
+    $querent = $order->customer;
+    Mail::to($querent->email)->send(new PasswordResetLink($querent, passwordTokenFor($querent)));
+    Mail::to($querent->email)->send(new SetPasswordLink($querent, passwordTokenFor($querent)));
 
     $bodies = htmlBodiesSent();
 
-    expect($bodies)->toHaveCount(3);
+    expect($bodies)->toHaveCount(5);
 
     foreach ($bodies as $index => $body) {
         expect($body)->not->toBeNull("Message {$index} was sent without a markup part");
@@ -748,7 +754,7 @@ it('draws every designed message in one frame', function () {
             ->and($body)->toContain('>staging.theworldtarot.com</a>')
             ->and($body)->toContain('https://staging.theworldtarot.com/privacy-policy')
             ->and($body)->toContain('https://staging.theworldtarot.com/terms-of-service')
-            // The heading slot, filled by both and by neither the same way.
+            // The heading slot, filled differently by each of the five, and by none of them left out.
             ->and($body)->toMatch('/class="gold head"/');
     }
 });
@@ -1021,7 +1027,8 @@ it('gives every message a text part, and takes markup only from the checked dire
  *
  * **Residual, stated rather than left implied**: a view that `@include`s or
  * `@extends` one from outside `mail/` is still unchecked. Nothing does today.
- * `mail.html.frame`, which both designed messages extend since #81, is inside
+ * `mail.html.frame`, which ~~both~~ **all five** designed messages extend
+ * (**five from 24 October 2026**, #106; two when #81 wrote this), is inside
  * it and so is scanned like any other. The fix if anything ever does is to
  * move the partial in.
  */
