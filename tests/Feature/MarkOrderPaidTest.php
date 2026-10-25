@@ -214,7 +214,13 @@ it('invites an unclaimed account to choose a password', function () {
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
     Mail::assertQueued(SetPasswordLink::class, function (SetPasswordLink $mail): bool {
-        $rendered = $mail->render();
+        // The mail is multipart now, so `render()` answers the HTML part, where
+        // the separator is correctly `&amp;`. The raw `&` lives in the text
+        // part, which is rendered here directly; the HTML part is asserted to
+        // carry the escaped form.
+        $content = $mail->content();
+        $rendered = view($content->text, $content->with)->render();
+        $html = $mail->render();
 
         // Its own page, not the reset page. "Reset your password" is confusing
         // wording for somebody who has never had one.
@@ -232,6 +238,7 @@ it('invites an unclaimed account to choose a password', function () {
         //
         // `MailBodyTest` is the authority on this, off the transport rather
         // than off `render()`. This is the near assertion, kept honest.
+        //
         // From support@, which is where account and access mail comes from.
         // Asserted here rather than left to the enum, because #47 moved one
         // message to a different sender and nothing would have failed if it had
@@ -240,7 +247,9 @@ it('invites an unclaimed account to choose a password', function () {
         return $mail->hasFrom('support@example.test')
             && str_contains($rendered, 'https://staging.theworldtarot.com/set-password/?')
             && str_contains($rendered, 'token=')
-            && str_contains($rendered, '&email=');
+            && str_contains($rendered, '&email=')
+            && ! str_contains($rendered, '&amp;')
+            && str_contains($html, '&amp;email=');
     });
 });
 
