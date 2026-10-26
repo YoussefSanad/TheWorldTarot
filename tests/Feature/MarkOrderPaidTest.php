@@ -366,6 +366,126 @@ it('never sends a claim link to a claimed account that has just bought a pass', 
     Mail::assertQueued(OrderPaid::class);
 });
 
+/*
+| Where the claim link lands, issue 102 step 2.
+|
+| A pass buyer who sets a password should arrive in the Viewing Room.
+| `FrontendUrl::setPassword` adds `next` for the pass and nothing else (step
+| 1). Proved here: the mail is given the product, taken from the paid order.
+| The claimed-account case above already pins that nothing changes for them.
+|
+| **Signature:** `new SetPasswordLink($customer, $token, ?ProductKey $product = null)`.
+| Optional because MailBodyTest and LinkEmailsHtmlTest build it with two
+| arguments, and null means no `next`.
+*/
+
+function setPasswordLinkText(SetPasswordLink $mail): string
+{
+    $content = $mail->content();
+
+    return view($content->text, $content->with)->render();
+}
+
+it('sends a pass buyer a set-password link that lands in the Viewing Room', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+    $unclaimed = Customer::factory()->create(['password' => null]);
+
+    settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
+
+    Mail::assertQueued(SetPasswordLink::class, function (SetPasswordLink $mail): bool {
+        return str_contains(setPasswordLinkText($mail), 'next=%2Fviewing-room%2F')
+            && str_contains($mail->render(), 'next=%2Fviewing-room%2F');
+    });
+});
+
+it('still lands in the Viewing Room when the pass was bought beside a reading', function () {
+    $unclaimed = Customer::factory()->create(['password' => null]);
+    $order = Order::factory()->for($unclaimed)->create();
+
+    // The reading goes first, so a mail taking the first line's product would
+    // carry the wrong one. Created one at a time, in order, so the integer
+    // ids fix the sequence; it is asserted below rather than assumed.
+    $reading = Product::factory()->create();
+    $pass = Product::factory()->pass()->create();
+
+    foreach ([$reading, $pass] as $product) {
+        $order->lines()->create([
+            'product_id' => $product->id,
+            'product_key' => $product->key,
+            'unit_amount' => $product->price_usd,
+            'quantity' => 1,
+        ]);
+    }
+
+    expect($order->lines()->orderBy('id')->first()->product_id)->toBe($reading->id)
+        ->and($order->lines()->orderBy('id')->first()->product_id)->not->toBe($pass->id);
+
+    settle($order);
+
+    Mail::assertQueued(
+        SetPasswordLink::class,
+        fn (SetPasswordLink $mail): bool => str_contains(setPasswordLinkText($mail), 'next=%2Fviewing-room%2F'),
+    );
+});
+
+it('adds no `next` to a set-password link for any product but the pass', function (ProductKey $key) {
+    $customer = Customer::factory()->create(['password' => null]);
+
+    $mail = new SetPasswordLink($customer, 'a-token', $key);
+
+    expect(setPasswordLinkText($mail))->toContain('token=')
+        ->not->toContain('next=')
+        ->and($mail->render())->not->toContain('next=');
+})->with(array_values(array_filter(
+    ProductKey::cases(),
+    fn (ProductKey $key): bool => $key !== ProductKey::ViewingRoomPass,
+)));
+
+it('adds no `next` when the mail is given no product at all', function () {
+    $mail = new SetPasswordLink(Customer::factory()->create(['password' => null]), 'a-token');
+
+    expect(setPasswordLinkText($mail))->not->toContain('next=');
+});
+
+it('still renders, with no `next`, a mail queued before `product` existed', function () {
+    $customer = Customer::factory()->create(['password' => null]);
+    $serialized = serialize(new SetPasswordLink($customer, 'a-token', ProductKey::ViewingRoomPass));
+
+    // Strip the property the way an old payload would lack it. The property
+    // is private, so its serialized name is "\0App\Mail\SetPasswordLink\0product".
+    $name = "\0".SetPasswordLink::class."\0product";
+    $entry = 's:'.strlen($name).':"'.$name.'";';
+    $start = strpos($serialized, $entry);
+    expect($start)->not->toBeFalse();
+
+    // The value that follows is an enum: E:<len>:"<Class:Case>";
+    preg_match('/\GE:\d+:"[^"]+";/', $serialized, $m, 0, $start + strlen($entry));
+    expect($m)->not->toBeEmpty();
+
+    $stripped = substr($serialized, 0, $start).substr($serialized, $start + strlen($entry) + strlen($m[0]));
+    $stripped = preg_replace_callback(
+        '/^(O:\d+:"[^"]+":)(\d+)(:\{)/',
+        fn (array $p): string => $p[1].((int) $p[2] - 1).$p[3],
+        $stripped,
+    );
+
+    $mail = unserialize($stripped);
+
+    expect($mail)->toBeInstanceOf(SetPasswordLink::class)
+        ->and(setPasswordLinkText($mail))->toContain('token=')->not->toContain('next=')
+        ->and($mail->render())->not->toContain('next=');
+});
+
+it('carries `next` when the mail is given the pass', function () {
+    $mail = new SetPasswordLink(
+        Customer::factory()->create(['password' => null]),
+        'a-token',
+        ProductKey::ViewingRoomPass,
+    );
+
+    expect(setPasswordLinkText($mail))->toContain('next=%2Fviewing-room%2F');
+});
+
 it('tells Jennifer a reading is waiting, with the question', function () {
     // The three senders are set apart so the from-address below fails when this
     // message changes sender, rather than passing because two keys happen to

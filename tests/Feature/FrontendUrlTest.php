@@ -156,3 +156,73 @@ it('follows the environment rather than naming production', function () {
     expect(FrontendUrl::viewingRoom())
         ->toBe('https://www.theworldtarot.com/viewing-room/');
 });
+
+/*
+| Where somebody who bought the pass before they had an account lands after
+| setting a password. Issue #102.
+|
+| **`next` is a same-origin relative path the frontend reads, and it comes only
+| from an allowlist inside `FrontendUrl`.** The parameter is typed as a
+| `ProductKey`, so no caller text can reach it.
+*/
+
+function setPasswordQuery(string $url): array
+{
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+    return $query;
+}
+
+it('sends a pass buyer on to the viewing room once the password is set', function () {
+    $url = FrontendUrl::setPassword('jane@example.com', 'a-token', ProductKey::ViewingRoomPass);
+
+    // Correctly encoded in the raw string, and decoding to the relative path.
+    expect($url)->toContain('next=%2Fviewing-room%2F')
+        ->and(setPasswordQuery($url)['next'])->toBe('/viewing-room/')
+        ->and($url)->toStartWith('https://staging.theworldtarot.com/set-password/?');
+});
+
+it('keeps the token and email on the pass link', function () {
+    $query = setPasswordQuery(
+        FrontendUrl::setPassword('jane+pass@example.com', 'a-token', ProductKey::ViewingRoomPass),
+    );
+
+    expect($query)->toMatchArray([
+        'token' => 'a-token',
+        'email' => 'jane+pass@example.com',
+        'next' => '/viewing-room/',
+    ])->and($query)->toHaveCount(3);
+});
+
+it('adds no next to the link for any product but the pass', function (ProductKey $product) {
+    $url = FrontendUrl::setPassword('jane@example.com', 'a-token', $product);
+
+    expect($url)->toBe('https://staging.theworldtarot.com/set-password/?token=a-token&email=jane%40example.com')
+        ->and($url)->not->toContain('next');
+})->with(fn () => array_values(array_filter(
+    ProductKey::cases(),
+    fn (ProductKey $case) => $case !== ProductKey::ViewingRoomPass,
+)));
+
+it('adds no next when no product is named, exactly as before', function () {
+    $expected = 'https://staging.theworldtarot.com/set-password/?token=a-token&email=jane%40example.com';
+
+    expect(FrontendUrl::setPassword('jane@example.com', 'a-token'))->toBe($expected)
+        ->and(FrontendUrl::setPassword('jane@example.com', 'a-token', null))->toBe($expected);
+});
+
+it('refuses a string for the product, so a caller cannot choose where next points', function () {
+    FrontendUrl::setPassword('jane@example.com', 'a-token', 'https://evil.example/');
+})->throws(TypeError::class);
+
+it('points next at the viewing room with a trailing slash however its path was spelled', function (string $configured) {
+    config()->set('frontend.paths.viewing_room', $configured);
+
+    $url = FrontendUrl::setPassword('jane@example.com', 'a-token', ProductKey::ViewingRoomPass);
+
+    expect(setPasswordQuery($url)['next'])->toBe('/viewing-room/');
+})->with([
+    '/viewing-room',
+    'viewing-room/',
+    'viewing-room',
+]);

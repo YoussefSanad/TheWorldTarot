@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
+use App\Enums\ProductKey;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
 use App\Mail\SetPasswordLink;
@@ -299,6 +300,17 @@ class MarkOrderPaid
     }
 
     /**
+     * The access-granting product on the order, so the claim link can carry the
+     * buyer on to it. Null when the order grants no access.
+     */
+    private function accessProduct(Order $order): ?ProductKey
+    {
+        return $order->lines
+            ->first(fn ($line): bool => $line->product?->fulfillment === Fulfillment::AccessGrant)
+            ?->product->key;
+    }
+
+    /**
      * Whether an unspent claim link is already sitting in this person's inbox.
      *
      * **Minting a second one kills the first**, and that is Laravel's
@@ -369,6 +381,8 @@ class MarkOrderPaid
                 Mail::to($customer->email)->send(new SetPasswordLink(
                     $customer,
                     Password::broker('customers')->createToken($customer),
+                    // Read from the paid order's own lines, never from input.
+                    $this->accessProduct($order),
                 ));
             }
 
