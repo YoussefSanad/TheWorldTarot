@@ -412,7 +412,7 @@ The platform invokes `schedule:run` every five minutes, measured on staging on 2
 | Mailable | When |
 |---|---|
 | `OrderPaid` | The receipt, on payment. Carries the pass copy and a Viewing Room link when the order holds a pass |
-| `SetPasswordLink` | On payment of an order that grants Viewing Room access, when the account has never had a password. Sends HTML and text parts |
+| `SetPasswordLink` | On payment of an order that grants Viewing Room access, when the account has never had a password. Sends HTML and text parts. For a pass, the link carries `next=/viewing-room/`, chosen by `FrontendUrl::setPassword()` from the `ProductKey`, #102 |
 | `ReadingToWrite` | To the client, whenever somebody asks: on settlement for a line nobody gifted, and on redemption for a line somebody did |
 | `GiftToRedeem` | To the recipient, on payment, carrying the code and the `/redeem/` link. Rendered in `gifts.locale`, and the buyer never receives a copy |
 | `PasswordResetLink` | A reset request. Sends HTML and text parts |
@@ -467,7 +467,7 @@ Beyond the Laravel defaults:
 | `config/viewing-room.php` | Which `FilmSource` the pass buys |
 | `config/newsletter.php` | Which `NewsletterList` implementation is live |
 | `config/translatable.php` | Which models are database-translatable |
-| `config/frontend.php` | The frontend URL and its reset and set-password paths |
+| `config/frontend.php` | The frontend URL and its page paths: reset and set-password, plus the Viewing Room path that the pass's cancel URL and its claim link's `next` are built from |
 | `config/services.php` | Bunny, Stripe, Mailchimp, Resend credentials and timeouts |
 | `config/mail.php` | The three named senders, and where internal mail lands |
 | `config/filesystems.php` | `media` and `uploads` disk names. Rows store paths, never URLs |

@@ -34,13 +34,25 @@ class FrontendUrl
      *
      * A different page from the reset, and deliberately so. "Reset your
      * password" is confusing wording for a person who has never had one.
+     *
+     * **`next` is a same-origin relative path the frontend reads, and it is
+     * chosen here from the `ProductKey`.** Only `ViewingRoomPass` gets one,
+     * because it is the only purchase whose buyer is waiting for somewhere to
+     * go. It is never accepted as a string, so nothing a caller typed can
+     * become a redirect target.
      */
-    public static function setPassword(string $email, string $token): string
+    public static function setPassword(string $email, string $token, ?ProductKey $product = null): string
     {
-        return self::to(config('frontend.paths.set_password'), [
+        $query = [
             'token' => $token,
             'email' => $email,
-        ]);
+        ];
+
+        if ($product === ProductKey::ViewingRoomPass) {
+            $query['next'] = '/'.self::page(config('frontend.paths.viewing_room'));
+        }
+
+        return self::to(config('frontend.paths.set_password'), $query);
     }
 
     /**

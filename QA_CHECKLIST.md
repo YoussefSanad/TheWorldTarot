@@ -420,6 +420,7 @@ Run this section from a browser on the real frontend origin as well as from `cur
 | Try to sign in as the unclaimed customer before following the link | **Refused**, with the ordinary indistinguishable message |
 | Try every other route into that account: reset password, then sign in with an empty password, then any credential at all | **Refused every time.** An account with no password cannot be entered, and this is the invariant the whole flow rests on |
 | Follow the set-password link | The password is set, and it signs in |
+| Read the set-password link in a pass buyer's mail | Added 26 October 2026, #102. It ends `&next=%2Fviewing-room%2F`. Once frontend #132 is live, setting the password lands in the Viewing Room. A reset link never carries `next`. The pass is the only access-granting product today, so no other claim link exists yet; one added later would not carry `next` until it is added in `FrontendUrl::setPassword()` |
 | Follow the same link again | **422.** It works once, and afterwards it is worth nothing even inside its hour |
 | Ask for a **reset** on the same account now | Works normally. Once claimed, it is an ordinary account |
 

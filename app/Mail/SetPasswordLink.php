@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Enums\ProductKey;
 use App\Enums\Sender;
 use App\Models\Customer;
 use App\Support\FrontendUrl;
@@ -28,6 +29,7 @@ class SetPasswordLink extends QueuedMail
     public function __construct(
         public readonly Customer $customer,
         private readonly string $token,
+        private readonly ?ProductKey $product = null,
     ) {}
 
     protected function sender(): Sender
@@ -42,9 +44,15 @@ class SetPasswordLink extends QueuedMail
 
     public function content(): Content
     {
+        // A message queued before `product` existed unserializes with the
+        // property uninitialized, and a constructor default does not run on
+        // unserialize. `??` reads an uninitialized property as null instead of
+        // throwing, so those in-flight messages still send.
+        $product = $this->product ?? null;
+
         return new Content(html: 'mail.html.set-password', text: 'mail.set-password', with: [
             'name' => $this->customer->name,
-            'url' => FrontendUrl::setPassword($this->customer->email, $this->token),
+            'url' => FrontendUrl::setPassword($this->customer->email, $this->token, $product),
             'minutes' => config('auth.passwords.customers.expire'),
             'assets' => config('mail.assets.url'),
             'site' => rtrim((string) config('frontend.url'), '/'),
