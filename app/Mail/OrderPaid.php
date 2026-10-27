@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Enums\Fulfillment;
+use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Enums\Sender;
 use App\Models\Order;
@@ -13,9 +14,15 @@ use Illuminate\Mail\Mailables\Content;
 /**
  * Telling a customer their payment went through.
  *
- * Goes to everybody who buys, claimed account or not. The invitation to set a
- * password is a separate message, because a confirmation can be resent by
- * support at any time and a credential must not be.
+ * Goes to everybody who buys, claimed account or not.
+ *
+ * **One message, since issue #108.** A buyer of a pass with no password yet used
+ * to get this receipt and, beside it, a `SetPasswordLink` mail, and two mails
+ * for one payment read as one too many. `MarkOrderPaid` now mints the token and
+ * hands it here, and the receipt carries "Set your password" as its only call to
+ * action. A receipt built without a token (a claimed customer, a repeat order
+ * while an earlier link is still live, or support resending one) carries no
+ * credential and sends the buyer to the sign in page for a new link.
  *
  * **From noreply@ since 30 August 2026, and it carries no Reply-To.** It came
  * from orders@ until then, which is now the mailbox the internal new order
@@ -27,12 +34,17 @@ use Illuminate\Mail\Mailables\Content;
  * **A pass on the order adds a paragraph and a link into the Viewing Room.**
  * The pass is open the moment it is paid for, so the receipt is the first
  * place a buyer is told so and sent in. A customer with no password yet is also
- * told one is still to be chosen, in words only: the link to set it stays in
- * `SetPasswordLink`, and this message never carries it.
+ * told one is still to be chosen. With a token the link to set it is the button,
+ * and the Viewing Room button is left out, because the link's `next` lands them
+ * in the room once the password is set.
  */
 class OrderPaid extends QueuedMail
 {
-    public function __construct(public readonly Order $order) {}
+    public function __construct(
+        public readonly Order $order,
+        private readonly ?string $token = null,
+        private readonly ?ProductKey $product = null,
+    ) {}
 
     protected function sender(): Sender
     {
@@ -68,6 +80,14 @@ class OrderPaid extends QueuedMail
         $holdsAPass = $this->order->lines->loadMissing('product')->contains(
             fn (OrderLine $line): bool => $line->product?->fulfillment === Fulfillment::AccessGrant,
         );
+
+        // A message queued before `token` and `product` existed unserializes
+        // with those properties uninitialized, and a constructor default does
+        // not run on unserialize. `??` reads an uninitialized property as null
+        // instead of throwing, so those in-flight messages still send, as a
+        // receipt with no link.
+        $token = $this->token ?? null;
+        $product = $this->product ?? null;
 
         return new Content(
             html: 'mail.html.order-paid',
@@ -120,10 +140,19 @@ class OrderPaid extends QueuedMail
                 'viewingRoomUrl' => FrontendUrl::viewingRoom(),
 
                 // **Only a customer with no password yet is told one is still
-                // to come.** The sentence points at the separate invitation and
-                // the receipt carries no set-password link, because support
-                // can resend a receipt and a credential must not be resent.
+                // to be chosen.** Without a token the sentence sends them to the
+                // sign in page for a new link and promises none in another email.
                 'needsPassword' => $holdsAPass && $this->order->customer->isUnclaimed(),
+
+                // **The credential, present only when `MarkOrderPaid` minted
+                // one for this send.** Null means the receipt carries no link
+                // and keeps the Viewing Room button. Gated on `needsPassword`
+                // as well, so a token handed to a claimed customer or to an
+                // order with no pass is never printed.
+                'setPasswordUrl' => $token !== null && $holdsAPass && $this->order->customer->isUnclaimed()
+                    ? FrontendUrl::setPassword($this->order->customer->email, $token, $product)
+                    : null,
+                'minutes' => config('auth.passwords.customers.expire'),
 
                 // The same lookup the panel's product table does. Falling back
                 // to the code means an order in a currency somebody adds to

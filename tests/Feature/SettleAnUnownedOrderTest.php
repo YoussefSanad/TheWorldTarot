@@ -89,10 +89,15 @@ it('everything downstream of settlement works for an identity that arrived late'
 
     app(RecordStripePayment::class)(paymentFor($order));
 
-    // The receipt, and the invitation to choose a password for the pass that
-    // was just granted.
-    Mail::assertQueued(OrderPaid::class);
-    Mail::assertQueued(SetPasswordLink::class);
+    // One receipt, which is also the invitation to choose a password for the
+    // pass that was just granted (#108). There is no second message.
+    Mail::assertQueued(OrderPaid::class, 1);
+    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(OrderPaid::class, function (OrderPaid $mail): bool {
+        $content = $mail->content();
+
+        return str_contains(view($content->text, $content->with)->render(), '/set-password/?token=');
+    });
 });
 
 it('grants the pass to the customer who turned out to have bought it', function () {
@@ -212,10 +217,10 @@ it('settles an unowned order exactly once however many times it is redelivered',
         ->and(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::AlreadySettled)
         ->and(Customer::count())->toBe(1);
 
-    // One receipt and one claim link. Not two of either. Nothing goes to
-    // Jennifer here, because a pass has no reading to write.
+    // One receipt, carrying the claim link. Not two of anything. Nothing goes
+    // to Jennifer here, because a pass has no reading to write.
     Mail::assertQueued(OrderPaid::class, 1);
-    Mail::assertQueued(SetPasswordLink::class, 1);
+    Mail::assertNotQueued(SetPasswordLink::class);
 });
 
 it('refuses to settle an order that reached the transition holding nobody', function () {

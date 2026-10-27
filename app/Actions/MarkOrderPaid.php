@@ -7,7 +7,6 @@ use App\Enums\OrderStatus;
 use App\Enums\ProductKey;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
-use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderLine;
@@ -324,8 +323,8 @@ class MarkOrderPaid
      * which only ever existed inside the mail, and `recentlyCreatedToken()`
      * answers about the 60 second throttle rather than the hour a link lives.
      *
-     * The consequence, taken knowingly: the second receipt carries no claim
-     * link at all. The first one still works for the rest of its hour, and
+     * The consequence, taken knowingly: the second receipt is sent without a
+     * token and carries no claim link at all. The first one still works for the rest of its hour, and
      * after that a further order mints a fresh link normally. Somebody who has
      * lost both mails asks for a reset link, which sets a first password just
      * as well.
@@ -356,35 +355,38 @@ class MarkOrderPaid
         // already use on the same road, and it runs the callback immediately
         // when nothing is open, so both live callers today are unchanged.
         DB::afterCommit(function () use ($order, $customer): void {
-            Mail::to($customer->email)->send(new OrderPaid($order));
-
-            // **The claim link follows the Viewing Room, not the money.** A
-            // password is what gets somebody back to the films, so it is asked
-            // for on the order that grants them and on no other. A reading is
-            // written by hand and arrives as a PDF, and needs no account to
-            // read, so a reading buyer never hears the word. An order holding
-            // both does send it: it contains a pass, and the pass is what the
-            // password is for.
+            // **One receipt, and the claim link rides in it.** Issue #108: the
+            // set-password invitation used to be a second mail beside this one.
+            // The link follows the Viewing Room, not the money. A password is
+            // what gets somebody back to the films, so it is minted on the
+            // order that grants them and on no other. A reading is written by
+            // hand and arrives as a PDF, and needs no account to read, so a
+            // reading buyer never hears the word. An order holding both does
+            // get it: it contains a pass, and the pass is what the password is
+            // for.
             //
             // Somebody who wants to sign in without ever having bought a pass
             // asks for a reset link, which sets a first password just as well.
             //
             // **A claim link goes only to an account nobody has claimed.**
             // Sending one to an address that already has an account would mean
-            // a stranger who knows your email can cause a set-a-password
-            // message to land in your inbox. It hands them nothing, and it is
-            // still a phishing shaped tool pointed at our own customers.
+            // a stranger who knows your email can cause a set-a-password link
+            // to land in your inbox. It hands them nothing, and it is still a
+            // phishing shaped tool pointed at our own customers.
             //
             // **And only when there is not already one in their inbox**, for
-            // the reason in `holdsALiveClaimLink`.
-            if ($this->grantsAccess($order) && $customer->isUnclaimed() && ! $this->holdsALiveClaimLink($customer)) {
-                Mail::to($customer->email)->send(new SetPasswordLink(
-                    $customer,
-                    Password::broker('customers')->createToken($customer),
-                    // Read from the paid order's own lines, never from input.
-                    $this->accessProduct($order),
-                ));
-            }
+            // the reason in `holdsALiveClaimLink`. Such a receipt is sent with
+            // no token and says where to ask for a new link.
+            $mintsALink = $this->grantsAccess($order)
+                && $customer->isUnclaimed()
+                && ! $this->holdsALiveClaimLink($customer);
+
+            Mail::to($customer->email)->send(new OrderPaid(
+                $order,
+                $mintsALink ? Password::broker('customers')->createToken($customer) : null,
+                // Read from the paid order's own lines, never from input.
+                $mintsALink ? $this->accessProduct($order) : null,
+            ));
 
             // **And whoever was given a present.** B6 (#72), and it is the
             // second of the two mails a settled gift order sends. **The buyer
@@ -415,7 +417,7 @@ class MarkOrderPaid
         // arrange both. Redemption reaches the same action months later, which
         // is the whole reason it is no longer payment's.
         //
-        // What stays here is what payment itself has to say: the receipt, and
-        // the invitation to a password when a pass is what was bought.
+        // What stays here is what payment itself has to say: the receipt, which
+        // carries the invitation to a password when a pass is what was bought.
     }
 }

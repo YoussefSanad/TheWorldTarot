@@ -354,44 +354,118 @@ function passOrderFor(?string $password, bool $withReading = false): Order
 }
 
 const PASS_SENTENCE = 'Your Viewing Room pass is yours for good.';
-const PASSWORD_SENTENCE = 'You still need to choose a password. A separate email from us carries the link to set one, or you can ask for a new one from the sign in page at any time.';
+const SEPARATE_EMAIL_PROMISE = 'A separate email from us carries the link';
+const SET_CTA = 'Set your password';
+const NEW_LINK_WORDING = 'sign in page';
 
-it('tells the buyer of a pass it is theirs for good, with a link in, in both parts', function () {
+/*
+| One mail, issue #108.
+|
+| **Intended constructor:** `new OrderPaid(Order $order, ?string $token = null,
+| ?ProductKey $product = null)`, the last two private and read with `??` in
+| `content()`, as `SetPasswordLink` does. A token means the receipt IS the
+| set-password invitation: its only CTA is "Set your password", the Viewing
+| Room button is gone, and nothing promises a second email.
+*/
+
+it('carries the set-password link as the only call to action when it is given a token', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+    $order = passOrderFor(null);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order, 'tok-abc123', ProductKey::ViewingRoomPass));
+
+    $url = FrontendUrl::setPassword('jennifer@example.com', 'tok-abc123', ProductKey::ViewingRoomPass);
+    $viewingRoom = FrontendUrl::viewingRoom();
+
+    expect($url)->toContain('next=%2Fviewing-room%2F')
+        ->and(htmlBodySent())->toContain(PASS_SENTENCE)
+        // Escaped in markup, raw in text, which is the rule this file opens with.
+        ->and(htmlBodySent())->toContain('href="'.e($url).'"')
+        ->and(htmlBodySent())->not->toContain('href="'.$url.'"')
+        ->and(htmlBodySent())->toContain(SET_CTA)
+        ->and(htmlBodySent())->not->toContain('Enter the Viewing Room')
+        ->and(htmlBodySent())->not->toContain('href="'.$viewingRoom.'"')
+        ->and(htmlBodySent())->not->toContain(SEPARATE_EMAIL_PROMISE)
+        ->and(textBodySent())->toContain(PASS_SENTENCE)
+        ->and(textBodySent())->toContain($url)
+        ->and(textBodySent())->not->toContain('&amp;')
+        ->and(textBodySent())->not->toContain('Enter the Viewing Room')
+        // The bare Viewing Room address is a prefix of nothing in the link:
+        // the link carries it only percent-encoded, in `next`.
+        ->and(textBodySent())->not->toContain($viewingRoom)
+        ->and(textBodySent())->not->toContain(SEPARATE_EMAIL_PROMISE);
+});
+
+it('states how long the link in the receipt works, from the broker configuration', function () {
+    config()->set('auth.passwords.customers.expire', 47);
+    $order = passOrderFor(null);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order, 'tok-abc123', ProductKey::ViewingRoomPass));
+
+    expect(htmlBodySent())->toContain('47 minutes')
+        ->and(textBodySent())->toContain('47 minutes');
+});
+
+it('says nothing of a link in another email when there is no token, and tells the buyer where to ask for one', function () {
     $order = passOrderFor(null);
 
     Mail::to($order->customer->email)->send(new OrderPaid($order));
 
     $url = FrontendUrl::viewingRoom();
 
+    // Anchored on the pass sentence so the absences are not asserted on an empty body.
     expect(htmlBodySent())->toContain(PASS_SENTENCE)
         ->and(htmlBodySent())->toContain('href="'.$url.'"')
         ->and(htmlBodySent())->toContain('Enter the Viewing Room')
+        ->and(htmlBodySent())->toContain(NEW_LINK_WORDING)
+        ->and(htmlBodySent())->not->toContain(SEPARATE_EMAIL_PROMISE)
+        ->and(htmlBodySent())->not->toContain(SET_CTA)
+        ->and(htmlBodySent())->not->toContain('token=')
         ->and(textBodySent())->toContain(PASS_SENTENCE)
-        ->and(textBodySent())->toContain($url);
+        ->and(textBodySent())->toContain($url)
+        ->and(textBodySent())->toContain(NEW_LINK_WORDING)
+        ->and(textBodySent())->not->toContain(SEPARATE_EMAIL_PROMISE)
+        ->and(textBodySent())->not->toContain(SET_CTA)
+        ->and(textBodySent())->not->toContain('token=');
 });
 
-it('says a password is still to be chosen when the customer is unclaimed', function () {
-    $order = passOrderFor(null);
-
-    Mail::to($order->customer->email)->send(new OrderPaid($order));
-
-    expect(htmlBodySent())->toContain(PASSWORD_SENTENCE)
-        ->and(textBodySent())->toContain(PASSWORD_SENTENCE);
-});
-
-it('leaves out the password sentence for a claimed customer', function () {
+it('keeps the Viewing Room button and carries no link for a claimed customer', function () {
     $order = passOrderFor('a-long-enough-password');
 
     Mail::to($order->customer->email)->send(new OrderPaid($order));
 
-    // Anchored on the pass sentence so the absence is not asserted on an empty body.
+    $url = FrontendUrl::viewingRoom();
+
     expect(htmlBodySent())->toContain(PASS_SENTENCE)
+        ->and(htmlBodySent())->toContain('Enter the Viewing Room')
+        ->and(htmlBodySent())->toContain('href="'.$url.'"')
+        ->and(htmlBodySent())->not->toContain(SEPARATE_EMAIL_PROMISE)
         ->and(htmlBodySent())->not->toContain('You still need to choose a password')
+        ->and(htmlBodySent())->not->toContain('/set-password/')
+        ->and(htmlBodySent())->not->toContain('token=')
         ->and(textBodySent())->toContain(PASS_SENTENCE)
-        ->and(textBodySent())->not->toContain('You still need to choose a password');
+        ->and(textBodySent())->toContain($url)
+        ->and(textBodySent())->not->toContain(SEPARATE_EMAIL_PROMISE)
+        ->and(textBodySent())->not->toContain('/set-password/')
+        ->and(textBodySent())->not->toContain('token=');
 });
 
-it('never carries a set-password link or token in the receipt', function (?string $password) {
+it('puts the reading and the set-password link in one receipt for a pass bought with a reading', function () {
+    $order = passOrderFor(null, withReading: true);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order, 'tok-abc123', ProductKey::ViewingRoomPass));
+
+    $url = FrontendUrl::setPassword('jennifer@example.com', 'tok-abc123', ProductKey::ViewingRoomPass);
+
+    expect(htmlBodySent())->toContain('Your Reading')
+        ->and(htmlBodySent())->toContain('Delivery within 48 hours')
+        ->and(htmlBodySent())->toContain('href="'.e($url).'"')
+        ->and(htmlBodySent())->not->toContain('Enter the Viewing Room')
+        ->and(textBodySent())->toContain($url)
+        ->and(textBodySent())->not->toContain('Enter the Viewing Room');
+});
+
+it('never shows a token or set-password link on a receipt that was given none', function (?string $password) {
     $order = passOrderFor($password);
 
     Mail::to($order->customer->email)->send(new OrderPaid($order));
@@ -405,6 +479,130 @@ it('never carries a set-password link or token in the receipt', function (?strin
         ->and(textBodySent())->not->toContain($setPassword)
         ->and(textBodySent())->not->toContain('token=');
 })->with([[null], ['a-long-enough-password']]);
+
+it('never shows a set-password link on a reading-only receipt', function () {
+    $order = paidOrderFor(ProductKey::MonthAhead, 7500);
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order));
+
+    expect(htmlBodySent())->toContain('MONTH AHEAD')
+        ->and(htmlBodySent())->not->toContain(SET_CTA)
+        ->and(htmlBodySent())->not->toContain(SEPARATE_EMAIL_PROMISE)
+        ->and(textBodySent())->not->toContain('/set-password/');
+});
+
+/**
+ * Renders both parts of a mailable the way the transport would, returning the
+ * `with` data as well so the gate itself can be asserted, not only its effect.
+ *
+ * @return array{0: array<string, mixed>, 1: string, 2: string}
+ */
+function renderedParts(OrderPaid $mail): array
+{
+    $content = $mail->content();
+
+    return [
+        $content->with,
+        view($content->html, $content->with)->render(),
+        view($content->text, $content->with)->render(),
+    ];
+}
+
+it('suppresses a supplied token for a claimed customer, whatever the caller handed over', function () {
+    $order = passOrderFor('a-long-enough-password');
+
+    [$with, $html, $text] = renderedParts(new OrderPaid($order, 'tok-leak-1', ProductKey::ViewingRoomPass));
+
+    // Anchored on the pass sentence so the absences are not on an empty body.
+    expect($with['setPasswordUrl'])->toBeNull()
+        ->and($html)->toContain(PASS_SENTENCE)
+        ->and($html)->toContain('Enter the Viewing Room')
+        ->and($html)->not->toContain('tok-leak-1')
+        ->and($html)->not->toContain('set-password')
+        ->and($text)->toContain(PASS_SENTENCE)
+        ->and($text)->not->toContain('tok-leak-1')
+        ->and($text)->not->toContain('set-password');
+});
+
+it('suppresses a supplied token on a reading-only order for an unclaimed customer', function () {
+    $order = paidOrderFor(ProductKey::MonthAhead, 7500);
+
+    expect($order->customer->isUnclaimed())->toBeTrue();
+
+    [$with, $html, $text] = renderedParts(new OrderPaid($order, 'tok-leak-2', ProductKey::ViewingRoomPass));
+
+    expect($with['setPasswordUrl'])->toBeNull()
+        ->and($html)->toContain('MONTH AHEAD')
+        ->and($html)->not->toContain('tok-leak-2')
+        ->and($html)->not->toContain('set-password')
+        ->and($html)->not->toContain(SET_CTA)
+        ->and($text)->not->toContain('tok-leak-2')
+        ->and($text)->not->toContain('set-password');
+});
+
+it('prints no token when the account was claimed between queueing and sending', function () {
+    $order = passOrderFor(null);
+    $serialized = serialize(new OrderPaid($order, 'tok-leak-3', ProductKey::ViewingRoomPass));
+
+    // The buyer sets a password by some other route while the mail waits.
+    Customer::query()->whereKey($order->customer_id)->update(['password' => bcrypt('a-long-enough-password')]);
+
+    $mail = unserialize($serialized);
+    [$with, $html, $text] = renderedParts($mail);
+
+    expect($mail->order->customer->isUnclaimed())->toBeFalse()
+        ->and($with['setPasswordUrl'])->toBeNull()
+        ->and($html)->toContain(PASS_SENTENCE)
+        ->and($html)->toContain('Enter the Viewing Room')
+        ->and($html)->not->toContain('tok-leak-3')
+        ->and($html)->not->toContain('set-password')
+        ->and($html)->not->toContain(SET_CTA)
+        ->and($text)->toContain(PASS_SENTENCE)
+        ->and($text)->toContain(FrontendUrl::viewingRoom())
+        ->and($text)->not->toContain('tok-leak-3')
+        ->and($text)->not->toContain('set-password');
+});
+
+it('still renders a receipt serialized before token and product existed', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+    $order = passOrderFor(null);
+    $serialized = serialize(new OrderPaid($order, 'tok-abc123', ProductKey::ViewingRoomPass));
+
+    // Strip both properties the way an in-flight payload would lack them. They
+    // are private, so serialized as "\0App\Mail\OrderPaid\0token" and "...product".
+    $count = 0;
+    foreach (['token' => '/\Gs:\d+:"[^"]*";/', 'product' => '/\GE:\d+:"[^"]+";/'] as $property => $valuePattern) {
+        $name = "\0".OrderPaid::class."\0".$property;
+        $entry = 's:'.strlen($name).':"'.$name.'";';
+        $start = strpos($serialized, $entry);
+        expect($start)->not->toBeFalse("OrderPaid has no private `{$property}` property");
+
+        preg_match($valuePattern, $serialized, $m, 0, $start + strlen($entry));
+        expect($m)->not->toBeEmpty();
+
+        $serialized = substr($serialized, 0, $start).substr($serialized, $start + strlen($entry) + strlen($m[0]));
+        $count++;
+    }
+
+    $serialized = preg_replace_callback(
+        '/^(O:\d+:"[^"]+":)(\d+)(:\{)/',
+        fn (array $p): string => $p[1].((int) $p[2] - $count).$p[3],
+        $serialized,
+    );
+
+    $mail = unserialize($serialized);
+    $content = $mail->content();
+    $text = view($content->text, $content->with)->render();
+    $html = view($content->html, $content->with)->render();
+
+    // Rendered as a receipt with no token: the old payload cannot have had one.
+    expect($mail)->toBeInstanceOf(OrderPaid::class)
+        ->and($html)->toContain(PASS_SENTENCE)
+        ->and($html)->toContain('Enter the Viewing Room')
+        ->and($html)->not->toContain('token=')
+        ->and($text)->toContain(PASS_SENTENCE)
+        ->and($text)->not->toContain('token=');
+});
 
 it('carries no pass copy and no Viewing Room link on a reading-only order', function () {
     $order = paidOrderFor(ProductKey::MonthAhead, 7500);

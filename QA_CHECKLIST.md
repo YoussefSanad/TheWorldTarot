@@ -404,7 +404,7 @@ Run this section from a browser on the real frontend origin as well as from `cur
 | Check | Expected |
 |---|---|
 | The customer's inbox | ~~An order confirmation from `orders@theworldtarot.com`~~ **Changed 30 August 2026, issue #47.** An order confirmation from `noreply@theworldtarot.com`, carrying no Reply-To and inviting no reply |
-| A buyer who had **no account** | Also a set-a-password invitation from `support@theworldtarot.com` |
+| An eligible first-time Viewing Room pass buyer with an **unclaimed account (no password) and no live claim link** | One `noreply@theworldtarot.com` receipt, with "Set your password" as its only CTA and no Viewing Room button. No separate set-password email. The link expires after 60 minutes |
 | A buyer who **already had an account** | **The confirmation only.** No claim link, ever, or a stranger who knows an address can cause a password mail to land in it |
 | Jennifer's inbox, for an order with a reading | One notification from `fulfillment@theworldtarot.com` carrying the question |
 | **Which inbox that notification arrives in** | **`orders@theworldtarot.com`.** Added 30 August 2026, issue #47; it landed at fulfillment@ until then. **Open the mailbox and read it there.** This row is the one check that catches the failure this issue exists to prevent, and config cannot stand in for it: sending from an address is not receiving at one, and on 13 August 2026 this same notification was addressed to an empty string, delivered nowhere, and reported as a success |
@@ -419,8 +419,8 @@ Run this section from a browser on the real frontend origin as well as from `cur
 |---|---|
 | Try to sign in as the unclaimed customer before following the link | **Refused**, with the ordinary indistinguishable message |
 | Try every other route into that account: reset password, then sign in with an empty password, then any credential at all | **Refused every time.** An account with no password cannot be entered, and this is the invariant the whole flow rests on |
-| Follow the set-password link | The password is set, and it signs in |
-| Read the set-password link in a pass buyer's mail | Added 26 October 2026, #102. It ends `&next=%2Fviewing-room%2F`. Once frontend #132 is live, setting the password lands in the Viewing Room. A reset link never carries `next`. The pass is the only access-granting product today, so no other claim link exists yet; one added later would not carry `next` until it is added in `FrontendUrl::setPassword()` |
+| Follow the set-password link and submit | The password is set. The current frontend shows a success screen and requires sign-in; frontend #150 pairs this backend change with setting the password and landing in the room signed in |
+| Read the set-password link in a pass buyer's receipt | Added 26 October 2026, #102. It ends `&next=%2Fviewing-room%2F`. Pair this backend change with frontend #150: set the password, then land in the room signed in. Until #150 ships, these buyers have no Viewing Room button in the receipt and #132's success screen still requires sign-in. A reset link never carries `next`. The pass is the only access-granting product today, so no other claim link exists yet; one added later would not carry `next` until it is added in `FrontendUrl::setPassword()` |
 | Follow the same link again | **422.** It works once, and afterwards it is worth nothing even inside its hour |
 | Ask for a **reset** on the same account now | Works normally. Once claimed, it is an ordinary account |
 
