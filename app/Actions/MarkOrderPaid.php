@@ -323,11 +323,15 @@ class MarkOrderPaid
      * which only ever existed inside the mail, and `recentlyCreatedToken()`
      * answers about the 60 second throttle rather than the hour a link lives.
      *
-     * The consequence, taken knowingly: the second receipt is sent without a
+     * ~~The consequence, taken knowingly: the second receipt is sent without a
      * token and carries no claim link at all. The first one still works for the rest of its hour, and
      * after that a further order mints a fresh link normally. Somebody who has
      * lost both mails asks for a reset link, which sets a first password just
-     * as well.
+     * as well.~~ Reworded 27 October 2026, issue #110: the check now runs under
+     * the customer lock through the mint, so concurrent settlements also leave
+     * the first link alive. A later receipt carries no link while it lives;
+     * after it expires another order can mint one, and a buyer who lost the
+     * mails can ask for a reset link to set a first password.
      */
     private function holdsALiveClaimLink(Customer $customer): bool
     {
@@ -377,15 +381,32 @@ class MarkOrderPaid
             // **And only when there is not already one in their inbox**, for
             // the reason in `holdsALiveClaimLink`. Such a receipt is sent with
             // no token and says where to ask for a new link.
-            $mintsALink = $this->grantsAccess($order)
-                && $customer->isUnclaimed()
-                && ! $this->holdsALiveClaimLink($customer);
+            // **The check and mint share the customer lock**, issue #110. Two
+            // settlements otherwise both see no link and either invalidate one
+            // another's token or collide on the broker table's email key. This
+            // callback runs after the order commit, so this is a real
+            // transaction, not a savepoint, and the lock holds until the mint
+            // commits. The receipt and gift mails stay outside it.
+            $claim = $this->grantsAccess($order)
+                ? DB::transaction(function () use ($customer): ?array {
+                    $locked = Customer::whereKey($customer->getKey())->lockForUpdate()->first();
 
-            Mail::to($customer->email)->send(new OrderPaid(
+                    if ($locked === null || ! $locked->isUnclaimed() || $this->holdsALiveClaimLink($locked)) {
+                        return null;
+                    }
+
+                    // The token and its recipient must use the same locked email.
+                    return [Password::broker('customers')->createToken($locked), $locked->email];
+                })
+                : null;
+
+            [$token, $recipient] = $claim ?? [null, $customer->email];
+
+            Mail::to($recipient)->send(new OrderPaid(
                 $order,
-                $mintsALink ? Password::broker('customers')->createToken($customer) : null,
+                $token,
                 // Read from the paid order's own lines, never from input.
-                $mintsALink ? $this->accessProduct($order) : null,
+                $token !== null ? $this->accessProduct($order) : null,
             ));
 
             // **And whoever was given a present.** B6 (#72), and it is the
