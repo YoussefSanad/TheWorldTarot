@@ -163,10 +163,15 @@ it('everything downstream of settlement works for a wallet identity', function (
 
     app(RecordStripePayment::class)(paymentFor($order, 'pi_wallet'));
 
-    // The receipt, and the invitation to choose a password for the pass that
-    // was just granted.
-    Mail::assertQueued(OrderPaid::class);
-    Mail::assertQueued(SetPasswordLink::class);
+    // One receipt, which is also the invitation to choose a password for the
+    // pass that was just granted (#108). There is no second message.
+    Mail::assertQueued(OrderPaid::class, 1);
+    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(OrderPaid::class, function (OrderPaid $mail): bool {
+        $content = $mail->content();
+
+        return str_contains(view($content->text, $content->with)->render(), '/set-password/?token=');
+    });
 });
 
 it('settles a wallet payment exactly once however many times it is redelivered', function () {
@@ -180,7 +185,7 @@ it('settles a wallet payment exactly once however many times it is redelivered',
         ->and(Customer::count())->toBe(1);
 
     Mail::assertQueued(OrderPaid::class, 1);
-    Mail::assertQueued(SetPasswordLink::class, 1);
+    Mail::assertNotQueued(SetPasswordLink::class);
 });
 
 /**

@@ -310,7 +310,7 @@ Small invokable classes holding the transitions that matter.
 | Action | What it does |
 |---|---|
 | `PlaceOrder` | Builds a basket, runs the purchasability guard, captures prices at purchase time, and creates the order and its lines in a transaction |
-| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, refuses anything not `pending`, stamps `paid_at`, grants the Viewing Room pass for any `access_grant` line, **mints a code for every gift on the order**, asks `AskForReading` about the lines that are waiting for a person, then asks the order itself whether everything it owes has gone. Then it sends the receipt, a set-password link if the order grants access and the account has no password, and a `GiftToRedeem` to each recipient |
+| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, refuses anything not `pending`, stamps `paid_at`, grants the Viewing Room pass for any `access_grant` line, **mints a code for every gift on the order**, asks `AskForReading` about the lines that are waiting for a person, then asks the order itself whether everything it owes has gone. Then it sends the receipt, embedding a set-password link only for an unclaimed pass buyer with no live claim link, and a `GiftToRedeem` to each recipient |
 | `AskForReading` | **The one moment a reading starts existing**, and the note to the client that follows it. Two roads reach it: settlement for a line nobody gifted, and `forGift` for a line somebody did. One message per asking, not per reading |
 | `RedeemGift` | Spends a code. Re-reads the gift **under `lockForUpdate` inside the transaction**, refuses one already spent with a 409, stamps `redeemed_at`, and calls `AskForReading::forGift` in the same transaction. The mail waits for the commit |
 | `DeliverReading` | Stamps `readings.delivered_at` once, then asks `MarkOrderFulfilled` whether the order it belongs to is now finished |
@@ -411,8 +411,8 @@ The platform invokes `schedule:run` every five minutes, measured on staging on 2
 
 | Mailable | When |
 |---|---|
-| `OrderPaid` | The receipt, on payment. Carries the pass copy and a Viewing Room link when the order holds a pass |
-| `SetPasswordLink` | On payment of an order that grants Viewing Room access, when the account has never had a password. Sends HTML and text parts. For a pass, the link carries `next=/viewing-room/`, chosen by `FrontendUrl::setPassword()` from the `ProductKey`, #102 |
+| `OrderPaid` | The receipt, on payment. Carries the pass copy. When the order holds a pass, it carries a Viewing Room link, **or, for an unclaimed buyer who was handed a token (#108), a "Set your password" link as the only CTA and no Viewing Room button.** The token and product are private, optional constructor arguments read with `??`, so a receipt queued before #108 still renders |
+| `SetPasswordLink` | Retained for mail queued before #108 deploy, not dispatched for new payments. A newly eligible unclaimed pass buyer gets the link in `OrderPaid` instead. Legacy messages send HTML and text parts; the pass link carries `next=/viewing-room/`, chosen by `FrontendUrl::setPassword()` from the `ProductKey`, #102 |
 | `ReadingToWrite` | To the client, whenever somebody asks: on settlement for a line nobody gifted, and on redemption for a line somebody did |
 | `GiftToRedeem` | To the recipient, on payment, carrying the code and the `/redeem/` link. Rendered in `gifts.locale`, and the buyer never receives a copy |
 | `PasswordResetLink` | A reset request. Sends HTML and text parts |

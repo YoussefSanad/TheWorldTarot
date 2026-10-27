@@ -189,6 +189,33 @@ it('sends a claim link a browser can read the address out of', function () {
         ->and(array_keys($query))->toBe(['token', 'email']);
 });
 
+it('sends a receipt whose claim link a browser can read the address out of', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+
+    $order = Order::factory()
+        ->for(Customer::factory()->create(['email' => 'jennifer+pass@example.com', 'password' => null]))
+        ->forProduct(Product::factory()->pass()->create())
+        ->create();
+
+    // #108: the receipt is the invitation, so it is held to the claim link's rule.
+    Mail::to($order->customer->email)->send(new OrderPaid($order, 'tok-abc123', ProductKey::ViewingRoomPass));
+
+    $body = bodyMentioning('/set-password/');
+    // The set-password link specifically, since a receipt may name other addresses first.
+    preg_match('#https://\S+/set-password/\?\S+#', $body, $link);
+    parse_str((string) parse_url($link[0] ?? '', PHP_URL_QUERY), $query);
+
+    expect($link)->not->toBeEmpty()
+        ->and($body)->not->toContain('&amp;')
+        ->and(array_keys($query))->toBe(['token', 'email', 'next'])
+        ->and($query['token'])->toBe('tok-abc123')
+        ->and($query['email'])->toBe('jennifer+pass@example.com')
+        ->and($query['next'])->toBe('/viewing-room/')
+        // The markup part escapes the same link, and the text part is raw.
+        ->and(theHtmlSent())->toContain('&amp;email=')
+        ->and(theHtmlSent())->not->toContain('&email=');
+});
+
 it('sends a reset link a browser can read the address out of', function () {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');
 

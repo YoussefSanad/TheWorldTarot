@@ -22,6 +22,8 @@ Status: in use as of 22 October 2026. The frontend builds against it, so changes
 
 **Updated 2 September 2026 with gifting, and the headline is a withdrawal.** ~~`gift_code` as a payment method~~ is gone from this document before anybody built a button for it: a redemption collects nothing, so there was never a payment for a third method to make. The sentences that promised one are struck where they stood, in sections 2 and 9. **What gifting is instead** is a `gift` object on an order line, `is_giftable` on `/products`, and two endpoints of its own under "Gifts" in section 2. ~~**None of it is live yet**~~ **struck 3 September 2026: the two endpoints under "Gifts" answer now**, and each piece says where it stands where it is documented. The reasoning is `docs/adr/0004-a-reading-is-a-row-of-its-own.md` on our side and `docs/adr/0003-redemption-is-a-page-of-its-own.md` on yours.
 
+**Updated 27 October 2026, issue #108.** The claim invitation is now embedded in the order receipt for an eligible first-time Viewing Room pass buyer, not sent as a separate email. Every buyer still receives a receipt; only the qualifying receipt contains the set-password link.
+
 **What has not changed is the order of the calls and the shape of everything else.** You still place an order, you still POST the token to `/pay`, and you still read `type` before you read anything else.
 
 ---
@@ -355,7 +357,7 @@ Who you are talking to. Requires authentication. **401** when not signed in, whi
 
 #### POST /api/v1/set-password
 
-The same body as a reset, and a **different endpoint on purpose**: this is somebody claiming the account that was created for them when they bought something, following the link in the mail that arrives once their order is paid. **Since 30 August 2026 that mail is sent only for an order that grants Viewing Room access**, so in practice this is a pass buyer choosing their first password. A reading buyer is never sent one and reaches the same place through `/api/v1/forgot-password`, which sets a first password just as well.
+The same body as a reset, and a **different endpoint on purpose**: this is somebody claiming the account that was created for them when they bought something, following the link in their receipt after an order is paid. **Since 30 August 2026 the invitation is for an order that grants Viewing Room access**, so in practice this is a pass buyer choosing their first password. Every buyer receives the receipt, but only an unclaimed pass buyer with no live claim link gets the set-password link embedded in it; no separate invitation email is sent. A reading buyer is never sent one and reaches the same place through `/api/v1/forgot-password`, which sets a first password just as well.
 
 **200** on success. **422** on a used or expired token, and equally on an account that already has a password.
 

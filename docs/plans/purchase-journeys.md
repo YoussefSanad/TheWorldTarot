@@ -71,7 +71,7 @@ The journey the earlier document does not cover, and the one with a real problem
 | Order placed | As above. `viewing-room-pass` is `type: pass` and `fulfillment: access_grant` |
 | Payment lands | `MarkOrderPaid` calls `grantViewingRoomAccess()` **inside the transaction**, so a half failure cannot leave somebody holding a pass for an order that never went paid. Granting twice keeps the first date, so a redelivered webhook cannot rewrite when they got in |
 | Fulfilled | **Immediately, and by itself.** The pass is delivered in the same instant the money lands, so the order never appears on Jennifer's list. `needsAPerson` already gets this right |
-| Emails | `OrderPaid` to the customer. **A set-password link too, if the account has never been claimed** |
+| Emails | ~~`OrderPaid` to the customer. A set-password link too, if the account has never been claimed~~ **Reversed 27 October 2026 by #108:** every buyer receives the `OrderPaid` receipt; an unclaimed pass buyer with no live claim link gets the 60-minute set-password link embedded in it. No separate invitation is sent |
 | Watching | Every film, every time, is checked at the moment of asking. `has_viewing_room_access` on `me` only decides which door to draw |
 
 ### The problem, and it is structural rather than a bug
@@ -84,7 +84,7 @@ So **the guest who buys a pass has bought something they cannot use until they s
 
 Three ways to answer it, and this needs a decision:
 
-- **Lean on the link that already exists.** The set-password mail is already sent by `MarkOrderPaid` for an unclaimed account. The return page detects a pass in the order, says plainly that the library is waiting behind a password, and offers to resend. **Cheapest, and it is the current behaviour plus wording**
+- **Lean on the link that already exists.** ~~The set-password mail is already sent by `MarkOrderPaid` for an unclaimed account.~~ **Since #108 (27 October 2026), the link is embedded in the pass receipt** for an unclaimed buyer with no live claim link. The return page detects a pass in the order, says plainly that the library is waiting behind a password, and offers to resend. **Cheapest, and it is the current behaviour plus wording**
 - **Ask for a password during checkout when the basket holds a pass.** Removes the gap entirely and puts friction before the money instead of after, which is the trade this whole design has avoided everywhere else
 - **Sign them in automatically on return**, by having the payment path mint a session for the customer the order belongs to. **Smoothest and the most dangerous**, since it means a completed checkout is a way to become signed in as whoever owns that email address. It would need the session bound to the checkout session and short lived, and it is still a login without a credential
 
