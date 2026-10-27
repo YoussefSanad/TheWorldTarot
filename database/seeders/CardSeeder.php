@@ -28,7 +28,7 @@ class CardSeeder extends Seeder
      *
      * @var array<int, string>
      */
-    private const MAJOR_ARCANA = [
+    public const MAJOR_ARCANA = [
         0 => 'The Fool',
         1 => 'The Magician',
         2 => 'The High Priestess',
