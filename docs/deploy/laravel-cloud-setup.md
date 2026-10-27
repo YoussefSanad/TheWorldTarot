@@ -177,6 +177,12 @@ Failed jobs appear in the Queues tab with the payload, exception and a retry but
 
 No scheduler is needed yet. Nothing is scheduled.
 
+### Deploy window and the receipt's set-password link (#110)
+
+Since #108, PR #111, the set-password token is minted when the order settles in the web process and travels inside the queued `OrderPaid` mail. An old-code worker picking up a new-shape receipt during a deploy or rollback silently drops the token. The `??` fallback in `OrderPaid::content()` handles the opposite direction, an old-shape receipt on new code, not this one. The token row stays, and `holdsALiveClaimLink` blocks another mint for 60 minutes. Nothing is exposed, but the buyer loses the link and can recover through forgot-password.
+
+**Decided 27 October 2026, accepted:** deploy and roll back while the queue is empty when that is cheap, otherwise accept this window.
+
 ---
 
 ## 6. Domains
