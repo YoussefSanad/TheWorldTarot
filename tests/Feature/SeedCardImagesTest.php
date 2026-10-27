@@ -343,3 +343,99 @@ it('reports a conflict and does not revive a card deleted mid-run', function () 
 
     $this->disk->assertExists(seedImagesExpectedPath($this->source, 5));
 });
+
+// Step 2a: a set the command cannot fully apply. Each case below starts from a
+// full set of 22 and breaks exactly one thing, so the exit code and the
+// "everything else was uploaded" assertions mean something.
+
+it('reports a file with no card as missing card, uploads nothing for it, and exits 0', function () {
+    $cards = seedImagesMakeCards();
+    $cards[9]->forceDelete();
+    seedImagesWriteFiles($this->source);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor($output, 9))->toContain('missing card')
+        ->and(seedImagesRowFor($output, 9))->toContain(seedImagesName(9))
+        ->and(Card::withTrashed()->where('number', 9)->exists())->toBeFalse();
+
+    $this->disk->assertMissing(seedImagesExpectedPath($this->source, 9));
+
+    // The rest of the set went through: 21 uploads, not a silent no-op.
+    expect($this->disk->allFiles())->toHaveCount(21)
+        ->and(seedImagesRowFor($output, 10))->toMatch('/uploaded\s*\|\s*$/');
+});
+
+it('reports a file whose only card is in the trash as missing card and exits 0', function () {
+    $cards = seedImagesMakeCards();
+    $cards[7]->delete();
+    seedImagesWriteFiles($this->source);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor($output, 7))->toContain('missing card')
+        ->and(Card::withTrashed()->find($cards[7]->getKey())->image_path)->toBeNull()
+        ->and($this->disk->allFiles())->toHaveCount(21)
+        ->and(seedImagesRowFor($output, 8))->toMatch('/uploaded\s*\|\s*$/');
+});
+
+it('reports a major arcana number with no file as missing file and exits non-zero', function () {
+    $cards = seedImagesMakeCards();
+    $numbers = array_values(array_diff(array_keys(CardSeeder::MAJOR_ARCANA), [4]));
+    seedImagesWriteFiles($this->source, $numbers);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    $output = Artisan::output();
+
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 4))->toContain('missing file')
+        ->and($cards[4]->fresh()->image_path)->toBeNull()
+        // The card with the gap does not stop the other 21.
+        ->and($cards[5]->fresh()->image_path)->toBe(seedImagesExpectedPath($this->source, 5))
+        ->and($this->disk->allFiles())->toHaveCount(21);
+});
+
+it('reports two files for one number, uploads neither, leaves the row alone and exits non-zero', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    file_put_contents($this->source.'/12-card-12-alt.webp', 'a second picture for card 12');
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    $output = Artisan::output();
+
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 12))->toContain('more than one file')
+        ->and($cards[12]->fresh()->image_path)->toBeNull()
+        ->and($cards[11]->fresh()->image_path)->toBe(seedImagesExpectedPath($this->source, 11))
+        ->and($this->disk->allFiles())->toHaveCount(21);
+
+    $this->disk->assertMissing(seedImagesExpectedPath($this->source, 12));
+});
+
+it('warns once about stray files, ignores them, and still exits 0', function () {
+    seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    file_put_contents($this->source.'/README.md', 'naming rule');
+    file_put_contents($this->source.'/notes.txt', 'scratch');
+    // Matches the pattern but is no major arcana number: a stray, not a missing card.
+    file_put_contents($this->source.'/22-extra.webp', 'not a card');
+    file_put_contents($this->source.'/.gitkeep', '');
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and($output)->toContain('ignored')
+        ->and(substr_count($output, 'README.md'))->toBe(1)
+        ->and(substr_count($output, 'notes.txt'))->toBe(1)
+        ->and(substr_count($output, '22-extra.webp'))->toBe(1)
+        // .gitkeep lives there on purpose and must not read as a problem.
+        ->and($output)->not->toContain('.gitkeep')
+        ->and($output)->not->toContain('missing')
+        ->and(seedImagesRowFor($output, 22))->toBe('')
+        ->and($this->disk->allFiles())->toHaveCount(22);
+});

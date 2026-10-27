@@ -31,7 +31,7 @@ class SeedCardImages extends Command
         }
 
         try {
-            $files = File::files($this->option('source') ?: database_path('seed-images/cards'));
+            $files = File::files($this->option('source') ?: database_path('seed-images/cards'), true);
         } catch (Throwable $e) {
             $this->components->error('Could not read the source directory: '.$e->getMessage());
 
@@ -39,28 +39,57 @@ class SeedCardImages extends Command
         }
 
         $byNumber = [];
+        $strays = [];
 
         foreach ($files as $file) {
-            if (preg_match('/^(\d{2})-[a-z0-9-]+\.webp$/', $file->getFilename(), $match)) {
-                $byNumber[(int) $match[1]][] = $file;
+            $name = $file->getFilename();
+
+            if ($name === '.gitkeep') {
+                continue;
             }
+
+            if (preg_match('/^(\d{2})-[a-z0-9-]+\.webp$/', $name, $match)
+                && array_key_exists((int) $match[1], CardSeeder::MAJOR_ARCANA)) {
+                $byNumber[(int) $match[1]][] = $file;
+            } else {
+                $strays[] = $name;
+            }
+        }
+
+        if ($strays !== []) {
+            $this->warn('Stray files ignored: '.implode(', ', $strays));
         }
 
         $rows = [];
         $failed = false;
 
         foreach (array_keys(CardSeeder::MAJOR_ARCANA) as $number) {
-            if (count($byNumber[$number] ?? []) !== 1) {
+            $card = Card::where('number', $number)->first();
+            $cardFiles = $byNumber[$number] ?? [];
+
+            if (count($cardFiles) === 0) {
+                $rows[] = [$number, $card?->translationLabel() ?? '', '', 'missing file'];
+                $failed = true;
+
                 continue;
             }
 
-            $card = Card::where('number', $number)->first();
+            if (count($cardFiles) > 1) {
+                $names = array_map(fn ($file) => $file->getFilename(), $cardFiles);
+                $rows[] = [$number, $card?->translationLabel() ?? '', implode(', ', $names), 'more than one file'];
+                $failed = true;
+
+                continue;
+            }
+
+            $file = $cardFiles[0];
 
             if ($card === null) {
+                $rows[] = [$number, '', $file->getFilename(), 'missing card'];
+
                 continue;
             }
 
-            $file = $byNumber[$number][0];
             $result = 'skipped';
 
             if (! $card->hasImage()) {
