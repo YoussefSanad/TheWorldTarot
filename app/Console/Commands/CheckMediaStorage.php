@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\MediaDiskGuard;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -77,29 +78,19 @@ class CheckMediaStorage extends Command
             return false;
         }
 
-        // Before touching the disk, because building an s3 disk with no bucket
-        // throws a type error from inside Flysystem, and a stack trace is a
-        // poor way to be told an environment variable is missing.
-        if ($driver === 's3' && blank($bucket)) {
-            $this->components->error('This environment has no bucket configured, so uploads cannot work at all.');
-            $this->reportEnvironment();
+        $refusal = app(MediaDiskGuard::class)->refusalFor($name);
+
+        if ($refusal !== null) {
+            $this->components->error($refusal);
+
+            if ($driver === 's3') {
+                $this->reportEnvironment();
+            }
 
             return false;
         }
 
         $disk = Storage::disk($name);
-
-        // The whole point of the command. A local driver anywhere but a
-        // developer's machine means uploads are being written to a filesystem
-        // that does not survive a deploy.
-        if ($driver === 'local' && ! app()->environment('local', 'testing')) {
-            $this->components->error(
-                'These files are going to this machine\'s own filesystem, which is wiped on every deploy. '
-                .'This environment needs a bucket attached for them.'
-            );
-
-            return false;
-        }
 
         $path = 'health/media-check-'.now()->timestamp.'.txt';
         $written = 'written at '.now()->toIso8601String();
