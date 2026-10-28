@@ -439,3 +439,191 @@ it('warns once about stray files, ignores them, and still exits 0', function () 
         ->and(seedImagesRowFor($output, 22))->toBe('')
         ->and($this->disk->allFiles())->toHaveCount(22);
 });
+
+// Step 3: --force replaces a picture, and leaves identical bytes alone. Each
+// case seeds once for real, then changes exactly one thing before the rerun.
+
+it('with --force replaces a picture whose bytes changed and keeps the old object', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Artisan::call('cards:seed-images', ['--source' => $this->source]);
+
+    $oldPath = $cards[3]->fresh()->image_path;
+    $oldUpdatedAt = $cards[3]->fresh()->updated_at;
+    file_put_contents(seedImagesFile($this->source, 3), 'a repainted card 3');
+    $newPath = seedImagesExpectedPath($this->source, 3);
+
+    $this->travel(5)->minutes();
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and($newPath)->not->toBe($oldPath)
+        ->and(seedImagesRowFor($output, 3))->toMatch('/replaced\s*\|\s*$/')
+        ->and($cards[3]->fresh()->image_path)->toBe($newPath)
+        ->and($cards[3]->fresh()->updated_at->greaterThan($oldUpdatedAt))->toBeTrue();
+
+    // The old URL keeps answering until she decides otherwise.
+    $this->disk->assertExists($oldPath);
+    $this->disk->assertExists($newPath);
+    expect($this->disk->getVisibility($newPath))->toBe('public');
+});
+
+it('with --force leaves a card whose bytes are identical unchanged and writes no row', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Artisan::call('cards:seed-images', ['--source' => $this->source]);
+
+    $before = $cards[4]->fresh();
+    $expected = seedImagesExpectedPath($this->source, 4);
+
+    // Time moves, so a row write would show in updated_at.
+    $this->travel(5)->minutes();
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and($before->image_path)->toBe($expected)
+        ->and(seedImagesRowFor($output, 4))->toMatch('/unchanged\s*\|\s*$/')
+        ->and($cards[4]->fresh()->image_path)->toBe($expected)
+        ->and($cards[4]->fresh()->updated_at->equalTo($before->updated_at))->toBeTrue()
+        ->and(now()->greaterThan($before->updated_at))->toBeTrue();
+
+    $this->disk->assertExists($expected);
+    expect($this->disk->allFiles())->toHaveCount(22);
+});
+
+it('with --force restores an object that went missing and still says unchanged', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Artisan::call('cards:seed-images', ['--source' => $this->source]);
+
+    $expected = seedImagesExpectedPath($this->source, 4);
+    $before = $cards[4]->fresh();
+    $this->disk->delete($expected);
+    $this->disk->assertMissing($expected);
+
+    $this->travel(5)->minutes();
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor($output, 4))->toMatch('/unchanged\s*\|\s*$/')
+        ->and($cards[4]->fresh()->image_path)->toBe($expected)
+        ->and($cards[4]->fresh()->updated_at->equalTo($before->updated_at))->toBeTrue();
+
+    $this->disk->assertExists($expected);
+    expect($this->disk->getVisibility($expected))->toBe('public');
+});
+
+it('skips her panel picture without --force and replaces it, keeping her object, with --force', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Artisan::call('cards:seed-images', ['--source' => $this->source]);
+
+    // Jennifer replaces card 6's picture in the panel.
+    $this->disk->put('cards/panel-upload.webp', 'her upload');
+    $cards[6]->forceFill(['image_path' => 'cards/panel-upload.webp'])->saveQuietly();
+    $expected = seedImagesExpectedPath($this->source, 6);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source]);
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor(Artisan::output(), 6))->toMatch('/skipped\s*\|\s*$/')
+        ->and($cards[6]->fresh()->image_path)->toBe('cards/panel-upload.webp');
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor(Artisan::output(), 6))->toMatch('/replaced\s*\|\s*$/')
+        ->and($cards[6]->fresh()->image_path)->toBe($expected);
+
+    $this->disk->assertExists($expected);
+    $this->disk->assertExists('cards/panel-upload.webp');
+});
+
+it('with --force reports a conflict and keeps her picture when the panel replaced it mid-run', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    $id = $cards[5]->getKey();
+
+    // New bytes, so the stored name differs from the observed path and the
+    // command takes the conditional update with a filled observed value.
+    file_put_contents(seedImagesFile($this->source, 5), 'a repainted card 5');
+    $double = seedImagesDiskDouble($this->disk, function (string $name) use ($id) {
+        if (str_starts_with($name, '05-')) {
+            Card::query()->whereKey($id)->update(['image_path' => 'cards/panel-upload.webp']);
+        }
+    });
+    Storage::set(config('filesystems.media'), $double);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 5))->toMatch('/conflict\s*\|\s*$/')
+        ->and($cards[5]->fresh()->image_path)->toBe('cards/panel-upload.webp');
+
+    $this->disk->assertExists(seedImagesExpectedPath($this->source, 5));
+    // The others were not in anyone's way.
+    expect(seedImagesRowFor($output, 6))->toMatch('/unchanged\s*\|\s*$/');
+});
+
+it('with --force reports a conflict and does not revive a card deleted mid-run', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    $id = $cards[5]->getKey();
+    $oldPath = $cards[5]->fresh()->image_path;
+
+    file_put_contents(seedImagesFile($this->source, 5), 'a repainted card 5');
+    $double = seedImagesDiskDouble($this->disk, function (string $name) use ($id) {
+        if (str_starts_with($name, '05-')) {
+            Card::query()->whereKey($id)->update(['deleted_at' => now()]);
+        }
+    });
+    Storage::set(config('filesystems.media'), $double);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+    $output = Artisan::output();
+
+    $row = Card::withTrashed()->find($id);
+
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 5))->toMatch('/conflict\s*\|\s*$/')
+        ->and($row->trashed())->toBeTrue()
+        ->and($row->image_path)->toBe($oldPath);
+
+    $this->disk->assertExists(seedImagesExpectedPath($this->source, 5));
+});
+
+it('with --force never touches a soft-deleted card, even one that has a picture', function () {
+    $cards = seedImagesMakeCards();
+    $cards[7]->forceFill(['image_path' => 'cards/old-seven.webp'])->saveQuietly();
+    $cards[7]->delete();
+    seedImagesWriteFiles($this->source);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+
+    // Real behaviour first: every live card got its picture.
+    expect($exit)->toBe(0)
+        ->and($cards[8]->fresh()->image_path)->toBe(seedImagesExpectedPath($this->source, 8))
+        ->and(Card::withTrashed()->find($cards[7]->getKey())->image_path)->toBe('cards/old-seven.webp')
+        ->and($this->disk->allFiles())->toHaveCount(21);
+
+    $this->disk->assertMissing(seedImagesExpectedPath($this->source, 7));
+});
+
+it('with --force changes only the live card when a trashed one shares its number', function () {
+    $cards = seedImagesMakeCards();
+    $cards[7]->forceFill(['image_path' => 'cards/old-seven.webp'])->saveQuietly();
+    $cards[7]->delete();
+    $live = Card::factory()->withoutImage()->create(['number' => 7]);
+    seedImagesWriteFiles($this->source);
+
+    Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+
+    expect(Card::withTrashed()->find($cards[7]->getKey())->image_path)->toBe('cards/old-seven.webp')
+        ->and($live->fresh()->image_path)->toBe(seedImagesExpectedPath($this->source, 7));
+});

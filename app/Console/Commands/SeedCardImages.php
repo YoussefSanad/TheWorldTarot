@@ -13,7 +13,7 @@ use Throwable;
 
 class SeedCardImages extends Command
 {
-    protected $signature = 'cards:seed-images {--source= : Directory to read from, default database_path(\'seed-images/cards\')}';
+    protected $signature = 'cards:seed-images {--source= : Directory to read from, default database_path(\'seed-images/cards\')} {--force : Replace a picture a card already has}';
 
     protected $description = 'Seed card pictures from a directory';
 
@@ -92,7 +92,7 @@ class SeedCardImages extends Command
 
             $result = 'skipped';
 
-            if (! $card->hasImage()) {
+            if ($this->option('force') || ! $card->hasImage()) {
                 $observed = $card->image_path;
 
                 try {
@@ -103,12 +103,17 @@ class SeedCardImages extends Command
                     }
 
                     $storedName = substr($file->getFilename(), 0, -5).'-'.substr($hash, 0, 8).'.webp';
+                    $storedPath = 'cards/'.$storedName;
+                    // Comparing paths is enough only because the name carries the content hash.
+                    $unchanged = $storedPath === $observed;
                     $stored = Storage::disk(config('filesystems.media'))->putFileAs(
                         'cards', $file, $storedName, ['visibility' => 'public'],
                     );
 
                     if (! is_string($stored) || $stored === '') {
                         $result = 'failed: disk rejected the write';
+                    } elseif ($unchanged) {
+                        $result = 'unchanged';
                     } else {
                         // A panel edit or deletion during the upload must win.
                         // The builder skips model events, which is safe here:
@@ -125,7 +130,7 @@ class SeedCardImages extends Command
 
                         // Keep the object on conflict: deleting it could race
                         // another writer just as the row update could.
-                        $result = $written === 1 ? 'uploaded' : 'conflict';
+                        $result = $written === 1 ? ($observed === null ? 'uploaded' : 'replaced') : 'conflict';
                     }
                 } catch (Throwable $e) {
                     $result = 'failed: '.$e->getMessage();
