@@ -4,8 +4,11 @@ use App\Models\Card;
 use Database\Seeders\CardSeeder;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
@@ -31,7 +34,9 @@ beforeEach(function () {
     // The fake disk defaults to private writes, so a file only reads as public
     // when the command passes the explicit 'public' visibility itself. Without
     // this, the fake's own default made dropping that option invisible.
-    $this->disk = Storage::fake(config('filesystems.media'), ['visibility' => 'private']);
+    // Step 5: the url makes Storage::url() absolute, which Http can request.
+    // Without it the fake returns a relative /storage/... path.
+    $this->disk = Storage::fake(config('filesystems.media'), ['visibility' => 'private', 'url' => 'https://media.test']);
     $this->source = sys_get_temp_dir().'/seed-images-'.bin2hex(random_bytes(6));
     File::ensureDirectoryExists($this->source);
 });
@@ -626,4 +631,451 @@ it('with --force changes only the live card when a trashed one shares its number
 
     expect(Card::withTrashed()->find($cards[7]->getKey())->image_path)->toBe('cards/old-seven.webp')
         ->and($live->fresh()->image_path)->toBe(seedImagesExpectedPath($this->source, 7));
+});
+
+// Step 3a: --dry-run computes every row and writes nothing. It is still a real
+// check: the guard and the set checks run exactly as in a real run.
+
+it('with --dry-run says would upload for every card and writes nothing', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    $before = Card::query()->pluck('updated_at', 'number')->all();
+
+    $this->travel(5)->minutes();
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--dry-run' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and($output)->not->toContain('uploaded');
+
+    foreach (CardSeeder::MAJOR_ARCANA as $number => $name) {
+        expect(seedImagesRowFor($output, $number))->toMatch('/would upload\s*\|\s*$/')
+            ->and($cards[$number]->fresh()->image_path)->toBeNull()
+            ->and($cards[$number]->fresh()->updated_at->equalTo($before[$number]))->toBeTrue();
+    }
+
+    $this->disk->assertDirectoryEmpty('cards');
+    expect($this->disk->allFiles())->toBeEmpty();
+    Queue::assertNothingPushed();
+
+    // Control: the same set, run for real, does upload all 22. Without this a
+    // command that never finds a file would also leave the disk empty.
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source]);
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor(Artisan::output(), 0))->toMatch('/uploaded\s*\|\s*$/')
+        ->and($this->disk->allFiles())->toHaveCount(22)
+        ->and($cards[0]->fresh()->image_path)->toBe(seedImagesExpectedPath($this->source, 0));
+});
+
+it('with --dry-run says would skip for a card that has a picture and touches nothing', function () {
+    $cards = seedImagesMakeCards();
+    $cards[3]->forceFill(['image_path' => 'cards/her-own.webp'])->saveQuietly();
+    $before = $cards[3]->fresh();
+    seedImagesWriteFiles($this->source);
+
+    $this->travel(5)->minutes();
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--dry-run' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor($output, 3))->toMatch('/would skip\s*\|\s*$/')
+        // The neighbours have no picture, so they are the real "would upload".
+        ->and(seedImagesRowFor($output, 4))->toMatch('/would upload\s*\|\s*$/')
+        ->and($cards[3]->fresh()->image_path)->toBe('cards/her-own.webp')
+        ->and($cards[3]->fresh()->updated_at->equalTo($before->updated_at))->toBeTrue()
+        ->and($this->disk->allFiles())->toBeEmpty();
+});
+
+it('with --dry-run --force says would replace or unchanged and writes nothing', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Artisan::call('cards:seed-images', ['--source' => $this->source]);
+
+    $oldPath = $cards[3]->fresh()->image_path;
+    $unchangedPath = $cards[4]->fresh()->image_path;
+    file_put_contents(seedImagesFile($this->source, 3), 'a repainted card 3');
+    $newPath = seedImagesExpectedPath($this->source, 3);
+
+    // An object that went missing: a real --force would restore it, a dry run must not.
+    $this->disk->delete($unchangedPath);
+    $files = $this->disk->allFiles();
+    sort($files);
+    $updatedAt = Card::query()->pluck('updated_at', 'number')->all();
+
+    $this->travel(5)->minutes();
+    $exit = Artisan::call('cards:seed-images', [
+        '--source' => $this->source,
+        '--dry-run' => true,
+        '--force' => true,
+    ]);
+    $output = Artisan::output();
+
+    $after = $this->disk->allFiles();
+    sort($after);
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor($output, 3))->toMatch('/would replace\s*\|\s*$/')
+        ->and(seedImagesRowFor($output, 4))->toMatch('/unchanged\s*\|\s*$/')
+        ->and(seedImagesRowFor($output, 5))->toMatch('/unchanged\s*\|\s*$/')
+        ->and($cards[3]->fresh()->image_path)->toBe($oldPath)
+        ->and($cards[4]->fresh()->image_path)->toBe($unchangedPath)
+        ->and($after)->toBe($files)
+        ->and($files)->toHaveCount(21);
+
+    foreach (Card::query()->get() as $card) {
+        expect($card->updated_at->equalTo($updatedAt[$card->number]))->toBeTrue();
+    }
+
+    $this->disk->assertMissing($newPath);
+    // unchanged must not rewrite the object in a dry run.
+    $this->disk->assertMissing($unchangedPath);
+});
+
+it('with --dry-run still reports a missing file and exits non-zero', function () {
+    $cards = seedImagesMakeCards();
+    $numbers = array_values(array_diff(array_keys(CardSeeder::MAJOR_ARCANA), [4]));
+    seedImagesWriteFiles($this->source, $numbers);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--dry-run' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 4))->toContain('missing file')
+        ->and(seedImagesRowFor($output, 5))->toMatch('/would upload\s*\|\s*$/')
+        ->and($cards[5]->fresh()->image_path)->toBeNull()
+        ->and($this->disk->allFiles())->toBeEmpty();
+});
+
+it('with --dry-run still reports two files for one number and exits non-zero', function () {
+    seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    file_put_contents($this->source.'/12-card-12-alt.webp', 'a second picture for card 12');
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--dry-run' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 12))->toContain('more than one file')
+        ->and(seedImagesRowFor($output, 11))->toMatch('/would upload\s*\|\s*$/')
+        ->and($this->disk->allFiles())->toBeEmpty();
+});
+
+it('with --dry-run reports a file with no card as missing card and exits 0', function () {
+    $cards = seedImagesMakeCards();
+    $cards[9]->forceDelete();
+    seedImagesWriteFiles($this->source);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--dry-run' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor($output, 9))->toContain('missing card')
+        ->and(seedImagesRowFor($output, 10))->toMatch('/would upload\s*\|\s*$/')
+        ->and($this->disk->allFiles())->toBeEmpty();
+});
+
+it('refuses a dry run on a local disk outside local and testing before reading anything', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    app()->detectEnvironment(fn (): string => 'production');
+
+    // The source does not exist: a command that read it before the guard would
+    // fail with another message, and one that skipped the guard would print rows.
+    $this->artisan('cards:seed-images', [
+        '--source' => $this->source.'/does-not-exist',
+        '--dry-run' => true,
+    ])
+        ->expectsOutputToContain('wiped on every deploy')
+        ->doesntExpectOutputToContain('would upload')
+        ->assertFailed();
+
+    // And with a real source, the same refusal and no table.
+    $this->artisan('cards:seed-images', ['--source' => $this->source, '--dry-run' => true])
+        ->expectsOutputToContain('wiped on every deploy')
+        ->doesntExpectOutputToContain('would upload')
+        ->assertFailed();
+
+    expect($this->disk->allFiles())->toBeEmpty();
+
+    foreach ($cards as $card) {
+        expect($card->fresh()->image_path)->toBeNull();
+    }
+});
+
+it('with --dry-run never reaches the write, so it never reports a conflict', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    $id = $cards[5]->getKey();
+
+    // A double that would change the row on write. A dry run must never call it.
+    $calls = 0;
+    $double = seedImagesDiskDouble($this->disk, function (string $name) use ($id, &$calls) {
+        $calls++;
+        Card::query()->whereKey($id)->update(['image_path' => 'cards/panel-upload.webp']);
+    });
+    Storage::set(config('filesystems.media'), $double);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--dry-run' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and($calls)->toBe(0)
+        ->and($output)->not->toContain('conflict')
+        ->and(seedImagesRowFor($output, 5))->toMatch('/would upload\s*\|\s*$/')
+        ->and($cards[5]->fresh()->image_path)->toBeNull()
+        ->and($this->disk->allFiles())->toBeEmpty();
+
+    $calls = 0;
+    $exit = Artisan::call('cards:seed-images', [
+        '--source' => $this->source,
+        '--dry-run' => true,
+        '--force' => true,
+    ]);
+
+    expect($exit)->toBe(0)
+        ->and($calls)->toBe(0)
+        ->and(Artisan::output())->not->toContain('conflict');
+});
+
+// Step 5: --verify sends one HEAD per matched live card that has a picture
+// after the run, to the disk's public URL. Http is always faked here, and
+// preventStrayRequests makes any request the fake does not cover throw, so the
+// suite can never reach a real network.
+
+function seedImagesUrl(string $path): string
+{
+    return 'https://media.test/'.$path;
+}
+
+function seedImagesAssertHead(string $path): void
+{
+    Http::assertSent(fn (Request $request) => $request->method() === 'HEAD' && $request->url() === seedImagesUrl($path));
+}
+
+function seedImagesAssertNoRequestFor(string $path): void
+{
+    Http::assertNotSent(fn (Request $request) => $request->url() === seedImagesUrl($path));
+}
+
+it('with --verify sends one HEAD to the exact public URL of every uploaded picture and exits 0 on 2xx', function () {
+    seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Http::preventStrayRequests();
+    Http::fake(['https://media.test/*' => Http::response('', 200)]);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--verify' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and($output)->toContain('Verify')
+        ->and(seedImagesRowFor($output, 5))->toContain('200');
+
+    foreach (CardSeeder::MAJOR_ARCANA as $number => $name) {
+        seedImagesAssertHead(seedImagesExpectedPath($this->source, $number));
+    }
+
+    Http::assertSentCount(22);
+});
+
+it('with --verify reports a 403 in the table, names the bucket as the likely cause and exits non-zero', function () {
+    seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    $blocked = seedImagesExpectedPath($this->source, 5);
+    Http::preventStrayRequests();
+    Http::fake([
+        seedImagesUrl($blocked) => Http::response('', 403),
+        'https://media.test/*' => Http::response('', 200),
+    ]);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--verify' => true]);
+    $output = Artisan::output();
+
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 5))->toContain('403')
+        ->and(seedImagesRowFor($output, 4))->toContain('200')
+        ->and(seedImagesRowFor($output, 4))->not->toContain('403')
+        // media:check's wording: "A 403 means the bucket is not publicly readable".
+        ->and($output)->toContain('not publicly readable');
+});
+
+it('with --verify fails on a connection error and still checks the other cards', function () {
+    seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    $unreachable = seedImagesUrl(seedImagesExpectedPath($this->source, 5));
+    Http::preventStrayRequests();
+    Http::fake(function (Request $request) use ($unreachable) {
+        if ($request->url() === $unreachable) {
+            throw new ConnectionException('could not resolve host');
+        }
+
+        return Http::response('', 200);
+    });
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--verify' => true]);
+    $output = Artisan::output();
+
+    // A thrown exception that escaped would also be non-zero, so the next
+    // card's row proves the command caught it and carried on.
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 5))->not->toContain('200')
+        ->and(seedImagesRowFor($output, 6))->toContain('200');
+});
+
+it('with --verify does not request a card with no picture', function () {
+    $cards = seedImagesMakeCards();
+    $cards[9]->forceDelete();
+    $cards[7]->delete();
+    $numbers = array_values(array_diff(array_keys(CardSeeder::MAJOR_ARCANA), [4]));
+    seedImagesWriteFiles($this->source, $numbers);
+    // Two files for number 12: neither is uploaded.
+    file_put_contents($this->source.'/12-card-12-alt.webp', 'a second picture for card 12');
+    Http::preventStrayRequests();
+    Http::fake(['https://media.test/*' => Http::response('', 200)]);
+
+    Artisan::call('cards:seed-images', ['--source' => $this->source, '--verify' => true]);
+
+    // Real requests first, or a command that verifies nothing would pass.
+    // 22 cards less missing file (4), missing card (9), trashed (7), duplicate (12).
+    Http::assertSentCount(18);
+    seedImagesAssertHead(seedImagesExpectedPath($this->source, 5));
+
+    // Card 4 has no file, so there are no bytes to hash into an expected path:
+    // assert on its path prefix instead.
+    foreach ([7, 9, 12] as $number) {
+        seedImagesAssertNoRequestFor(seedImagesExpectedPath($this->source, $number));
+    }
+
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '04-card-04'));
+
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '12-card-12'));
+});
+
+it('with --verify checks the picture a skipped card already has, not the seed file', function () {
+    $cards = seedImagesMakeCards();
+    $cards[3]->forceFill(['image_path' => 'cards/her-own.webp'])->saveQuietly();
+    seedImagesWriteFiles($this->source);
+    Http::preventStrayRequests();
+    Http::fake(['https://media.test/*' => Http::response('', 200)]);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--verify' => true]);
+
+    expect($exit)->toBe(0);
+    seedImagesAssertHead('cards/her-own.webp');
+    seedImagesAssertNoRequestFor(seedImagesExpectedPath($this->source, 3));
+    Http::assertSentCount(22);
+});
+
+it('with --verify on a dry run checks what is already there and writes nothing', function () {
+    $cards = seedImagesMakeCards();
+    $cards[3]->forceFill(['image_path' => 'cards/her-own.webp'])->saveQuietly();
+    seedImagesWriteFiles($this->source);
+    Http::preventStrayRequests();
+    Http::fake(['https://media.test/*' => Http::response('', 200)]);
+
+    $exit = Artisan::call('cards:seed-images', [
+        '--source' => $this->source,
+        '--dry-run' => true,
+        '--verify' => true,
+    ]);
+    $output = Artisan::output();
+
+    // Only card 3 has a picture. The 21 "would upload" cards have nothing to ask for.
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor($output, 3))->toContain('200')
+        ->and(seedImagesRowFor($output, 4))->toContain('would upload')
+        ->and($this->disk->allFiles())->toBeEmpty()
+        ->and($cards[4]->fresh()->image_path)->toBeNull();
+
+    Http::assertSentCount(1);
+    seedImagesAssertHead('cards/her-own.webp');
+});
+
+it('with --verify on a dry run still fails on a 403', function () {
+    $cards = seedImagesMakeCards();
+    $cards[3]->forceFill(['image_path' => 'cards/her-own.webp'])->saveQuietly();
+    seedImagesWriteFiles($this->source);
+    Http::preventStrayRequests();
+    Http::fake(['https://media.test/*' => Http::response('', 403)]);
+
+    $exit = Artisan::call('cards:seed-images', [
+        '--source' => $this->source,
+        '--dry-run' => true,
+        '--verify' => true,
+    ]);
+
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor(Artisan::output(), 3))->toContain('403');
+});
+
+it('with --verify checks whatever picture the other writer left on a conflict row', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    $id = $cards[5]->getKey();
+    $double = seedImagesDiskDouble($this->disk, function (string $name) use ($id) {
+        if (str_starts_with($name, '05-')) {
+            Card::query()->whereKey($id)->update(['image_path' => 'cards/panel-upload.webp']);
+        }
+    });
+    Storage::set(config('filesystems.media'), $double);
+    Http::preventStrayRequests();
+    Http::fake(['https://media.test/*' => Http::response('', 200)]);
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source, '--verify' => true]);
+    $output = Artisan::output();
+
+    // Non-zero because of the conflict, not the verify.
+    expect($exit)->not->toBe(0)
+        ->and(seedImagesRowFor($output, 5))->toContain('conflict');
+
+    seedImagesAssertHead('cards/panel-upload.webp');
+    // The seed object exists on the disk but no row points at it.
+    seedImagesAssertNoRequestFor(seedImagesExpectedPath($this->source, 5));
+});
+
+it('with --verify and --force checks the current path on a replaced row and on an unchanged row', function () {
+    $cards = seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    $oldPath = $cards[3]->fresh()->image_path;
+    $unchangedPath = $cards[4]->fresh()->image_path;
+    file_put_contents(seedImagesFile($this->source, 3), 'a repainted card 3');
+    $newPath = seedImagesExpectedPath($this->source, 3);
+    Http::preventStrayRequests();
+    Http::fake(['https://media.test/*' => Http::response('', 200)]);
+
+    $exit = Artisan::call('cards:seed-images', [
+        '--source' => $this->source,
+        '--force' => true,
+        '--verify' => true,
+    ]);
+    $output = Artisan::output();
+
+    expect($exit)->toBe(0)
+        ->and(seedImagesRowFor($output, 3))->toContain('replaced')
+        ->and(seedImagesRowFor($output, 4))->toContain('unchanged');
+
+    seedImagesAssertHead($newPath);
+    seedImagesAssertHead($unchangedPath);
+    // The old object stays on the disk but is no longer the card's picture.
+    seedImagesAssertNoRequestFor($oldPath);
+    Http::assertSentCount(22);
+});
+
+it('without --verify sends no request on a real run, a forced run or a dry run', function () {
+    seedImagesMakeCards();
+    seedImagesWriteFiles($this->source);
+    Http::preventStrayRequests();
+    Http::fake();
+
+    $exit = Artisan::call('cards:seed-images', ['--source' => $this->source]);
+    expect($exit)->toBe(0)
+        ->and(Artisan::output())->not->toContain('Verify');
+
+    Artisan::call('cards:seed-images', ['--source' => $this->source, '--force' => true]);
+    Artisan::call('cards:seed-images', ['--source' => $this->source, '--dry-run' => true]);
+
+    // Control: the runs did their work, so "nothing sent" is not an idle command.
+    expect($this->disk->allFiles())->toHaveCount(22);
+    Http::assertNothingSent();
 });
