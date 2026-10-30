@@ -23,6 +23,9 @@ API=https://staging-api.theworldtarot.com
 | `php artisan media:check` from the environment's console | Passes, names the bucket, and prints a public URL |
 | `php artisan config:cache`, then `media:check`, then `config:clear` | It says the cache is hiding everything, rather than listing variables as missing. This branch cannot be covered by an automated test |
 | That URL, opened in a browser | Loads. A **403** means the bucket is not publicly readable |
+| After `media:check`, `php artisan cards:seed-images --dry-run` | All 22 numbers are accounted for. No objects or card rows are written; resolve missing or duplicate files before proceeding |
+| `php artisan cards:seed-images` | Pictures are uploaded for cards without one; existing pictures are skipped. Read every result and resolve failures or conflicts |
+| `php artisan cards:seed-images --verify` | Account for 0 to 21: `uploaded`, `skipped` or `unchanged` with a 2xx, or `missing card` checked against the panel's trash and recorded as deliberately deleted. Exit 0 alone is not enough: `missing card` exits 0. See `docs/deploy/media-storage.md` |
 | `php artisan availability:check` from the environment's console | Passes. Every card and reading answers the same whether the rule is asked as a listing, as a record in hand, or as the panel's explanation. A failure names the row and what disagreed |
 | `php artisan availability:check --explain` | Lists what each unfinished card and reading is waiting for. Read a few: they have to say something Jennifer can act on, not something only a developer understands |
 | Visit `$API` in a browser | No stack trace, no environment variables on screen |
@@ -152,9 +155,10 @@ Navigation is **Tarot cards**.
 
 | Check | Expected |
 |---|---|
-| Open the list | 22 cards, numbered 0 to 21, in deck order, none on the website, no pictures |
+| Open the list before pictures and copy are supplied | 22 cards, numbered 0 to 21, in deck order, none on the website, no pictures |
 | Above the list | "Spanish: 0 of 22 translated" |
 | Open a card with no picture | It says it needs a picture |
+| Open a seeded card, then replace its picture by hand and save | The seeded picture shows in the panel. The replacement saves and shows instead |
 | Upload a picture on a written card | It appears in the list and the card goes on the website |
 | Upload a picture, then deploy again and reload | **The picture is still there.** If it vanishes, the environment is writing to its own filesystem instead of the bucket |
 | Switch to the Spanish tab | **The picture section is not there.** One picture serves every language |

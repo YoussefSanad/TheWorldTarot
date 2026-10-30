@@ -54,6 +54,40 @@ It writes a file, reads it back, prints the public URL, deletes the file, and fa
 
 6. **Open the URL it prints in a browser.** A 403 means the bucket is not public, from step 2. The command cannot tell the difference from the inside: writing works, reading works, and every visitor sees a broken image
 
+## Seeding the card pictures
+
+Run these by hand from the environment's console, after attaching the bucket and deploying. The default source is `database/seed-images/cards/`, with one `NN-slug.webp` file for each card number 00 to 21. The number matches the card; the slug is for people, not a match on its name. The command does not create cards and does not touch deleted cards.
+
+1. Run `php artisan media:check` first and stop if it fails. Its temporary file is deleted before the command exits, so use the Verify column below to check public access
+2. Run `php artisan cards:seed-images --dry-run`. Read all 22 rows and resolve missing or duplicate files before proceeding. This writes no objects and changes no cards
+3. Run `php artisan cards:seed-images`. It uploads pictures for cards without one and leaves existing pictures alone
+4. Run `php artisan cards:seed-images --verify`. This is another real run, not a read-only check: it uploads for any matched card still without a picture, then sends a HEAD request to the current public picture URL of each matched live card with a picture
+
+Production is seeded by the user when the pictures land; seeding puts any card that is already written and published on the live site at once.
+
+**Read the Result column:**
+
+| Result | Meaning |
+|---|---|
+| `uploaded` | A card with no picture got the seed picture |
+| `skipped` | The card already had a picture, so it was left alone |
+| `replaced` | With `--force`, the seed picture replaced the existing path |
+| `unchanged` | With `--force`, the seed path already matched. The object was written again at the same path, but the card row was not changed. In a dry run nothing is written |
+| `would upload`, `would skip`, `would replace` | The action a dry run would take. `would replace` requires `--force` |
+| `conflict` | Jennifer changed the picture or deleted the card during the upload. Her change stands, the uploaded object is kept, and the run exits non-zero. Rerun without `--force` to see the card's state: normally `skipped` after her replacement or `missing card` after her deletion |
+| `missing card` | The file has no live card at that number, including a card in the trash. Nothing is uploaded for it and the run still exits 0 |
+| `missing file` | No matching file for that number. The run exits non-zero |
+| `more than one file` | More than one file has that number. Nothing is uploaded for it and the run exits non-zero |
+| `failed: <reason>` | The file could not be read or hashed, or the upload failed. The run exits non-zero |
+
+Stray files, including names outside the pattern or numbers outside 00 to 21, are listed in one warning and ignored. They do not fail the run; `.gitkeep` is silent. The folder's README is a stray too.
+
+**Read the Verify column against every number 0 to 21.** For staging, each row must say `uploaded`, `skipped` or `unchanged` and have a 2xx status, or say `missing card` for a deliberately deleted card checked against the panel's trash and named in the report. Resolve `missing file`, `more than one file`, `conflict` and `failed` before signing off. Exit 0 alone does not prove a full set: `missing card` exits 0 and has no picture to check. A blank Verify cell is not a successful check. A non-2xx response or `connection error` fails the run; a 403 means the bucket is probably not publicly readable. A dry run with `--verify` checks only pictures already present, not the pictures it would upload.
+
+**Use `--force` rarely.** It replaces existing pictures, including Jennifer's hand uploads. The old objects remain in the bucket, as do objects uploaded before a conflict. Orphaned objects are kept and nothing cleans them. To try a different directory, add `--source=/path/to/folder` to each command, including the dry run and verification.
+
+Cards 00 and 01 are placeholders until the originals arrive. Replace those source files with the originals using the same names, then rerun with `--force`, knowing it applies to every matched card and can replace hand uploads too. Check the result and verification table afterwards.
+
 ## Verifying it end to end
 
 The only test that actually proves this is a deploy.
