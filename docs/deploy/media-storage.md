@@ -82,7 +82,17 @@ Production is seeded by the user when the pictures land; seeding puts any card t
 
 Stray files, including names outside the pattern or numbers outside 00 to 21, are listed in one warning and ignored. They do not fail the run; `.gitkeep` is silent. The folder's README is a stray too.
 
-**Read the Verify column against every number 0 to 21.** For staging, each row must say `uploaded`, `skipped` or `unchanged` and have a 2xx status, or say `missing card` for a deliberately deleted card checked against the panel's trash and named in the report. Resolve `missing file`, `more than one file`, `conflict` and `failed` before signing off. Exit 0 alone does not prove a full set: `missing card` exits 0 and has no picture to check. A blank Verify cell is not a successful check. A non-2xx response or `connection error` fails the run; a 403 means the bucket is probably not publicly readable. A dry run with `--verify` checks only pictures already present, not the pictures it would upload.
+**Read the Verify column against every number 0 to 21.** For staging, each row must say `uploaded`, `skipped` or `unchanged` and have a 2xx status, or say `missing card` for a deliberately deleted card ~~checked against the panel's trash~~ (6 Nov 2026) checked in the trash with tinker, see "A card that says missing card" and named in the report. Resolve `missing file`, `more than one file`, `conflict` and `failed` before signing off. Exit 0 alone does not prove a full set: `missing card` exits 0 and has no picture to check. A blank Verify cell is not a successful check. A non-2xx response or `connection error` fails the run; a 403 means the bucket is probably not publicly readable. A dry run with `--verify` checks only pictures already present, not the pictures it would upload.
+
+**A card that says `missing card`.** Added 6 November 2026, after card 0 said it on staging. It means no card with that number is live. **The panel cannot show a deleted card**: the Cards screen can delete one but has no view of deleted cards and no restore, and `CardSeeder` never recreates a deleted card, so a card deleted in the panel stays missing on every deploy. Check from the environment's console:
+
+```sh
+php artisan tinker --execute="echo App\Models\Card::onlyTrashed()->where('number', 0)->get(['id','number','deleted_at','name'])->toJson(JSON_PRETTY_PRINT);"
+```
+
+- **One row with a `deleted_at` date**: it is in the trash. If it was deleted on purpose, leave it and name it in the report as deliberately deleted. If not, restore it, keeping what it held: `php artisan tinker --execute="App\Models\Card::onlyTrashed()->where('number', 0)->first()?->restore();"`, then rerun both commands
+- **`[]`**: it was deleted for good. `php artisan db:seed --class=CardSeeder --force` recreates it with an empty description, then rerun both commands
+- Replace `0` with the card's number
 
 **Use `--force` rarely.** It replaces existing pictures, including Jennifer's hand uploads. The old objects remain in the bucket, as do objects uploaded before a conflict. Orphaned objects are kept and nothing cleans them. To try a different directory, add `--source=/path/to/folder` to each command, including the dry run and verification.
 
@@ -97,7 +107,7 @@ Added 6 November 2026 (#95). The first English short and long description of the
 1. Run `php artisan cards:seed-copy --dry-run`. It decides every card exactly as a real run would and writes nothing: no row, no backup. Read all 22 rows. Note every `keep` cell and the text that card holds in the panel's English tab, because a `keep` field is left as it is
 2. Run `php artisan cards:seed-copy`. Without `--force` it fills only empty English fields; text already there is kept
 3. Run it once more. Every card should say `unchanged`, or `kept` for a card with a kept field. Nothing is written
-4. **Account for every number 0 to 21.** Each row must say `written`, `kept` or `unchanged`, or `missing card` for a card deliberately deleted, checked against the panel's trash and named in the report. Exit 0 alone does not prove a full set: `missing card` exits 0
+4. **Account for every number 0 to 21.** Each row must say `written`, `kept` or `unchanged`, or `missing card` for a card deliberately deleted, ~~checked against the panel's trash~~ (6 Nov 2026) checked in the trash with tinker, see "A card that says missing card" and named in the report. Exit 0 alone does not prove a full set: `missing card` exits 0
 5. Check `GET /api/v1/en/cards`: it lists exactly the cards whose `Live?` said `yes`
 
 The command never writes a name, another language, `is_published`, a picture or a deleted card. It matches cards by number only.
