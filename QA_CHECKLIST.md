@@ -240,6 +240,21 @@ curl -s -D- $API/api/v1/en/cards/draw
 | Upload something that is not a video | Refused, saying an MP4 or QuickTime file is expected |
 | Switch to the Spanish tab | **No video field.** One film serves every language |
 
+### Video from the Cards list
+
+| Check | Expected |
+|---|---|
+| A card with no video, in the list | Its row offers **Add video** |
+| **Add video**, choose a 20 to 40MB MP4, **Upload** | A progress bar, then the modal closes with "is uploaded". The row shows **Waiting to be sent**, no refresh |
+| Leave the list open | The badge moves to **Being prepared**, then **Ready to watch**, without reloading the page |
+| Start the next card while the first is still being prepared | Allowed. Nothing waits on the first card's job |
+| A card that is ready, **Replace video** | The modal says the film customers see keeps playing until the new one is ready. After upload, the card stays in the Viewing Room the whole time, and the old master is gone from the private bucket within a minute |
+| A card that is still being prepared | **Replace video** is offered |
+| Click beside the modal mid-upload | It stays open. **Cancel** or the X closes it and the card is unchanged |
+| Upload a PDF, or a file over 200MB | Refused with the same messages as the edit page, card unchanged |
+| **Upload** with no file chosen | Refused, saying to choose the video file. The list can never remove a video |
+| Look for **Remove video** in the list | **It does not exist.** Removing stays on the edit page, where the warning is |
+
 ---
 
 ## 6d. The Viewing Room over the API
