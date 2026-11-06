@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Enums\Fulfillment;
 use App\Enums\OrderStatus;
+use App\Enums\PasswordLink;
 use App\Enums\ProductKey;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
@@ -310,40 +311,6 @@ class MarkOrderPaid
     }
 
     /**
-     * Whether an unspent claim link is already sitting in this person's inbox.
-     *
-     * **Minting a second one kills the first**, and that is Laravel's
-     * behaviour rather than ours: `DatabaseTokenRepository::create()` calls
-     * `deleteExisting()` before it inserts. So a customer who bought twice
-     * held two receipts, one of them carrying a link that had been dead since
-     * the moment the other arrived, with nothing in either saying which.
-     *
-     * Asked by querying the broker's table rather than through the broker,
-     * which offers no way to ask this: `exists()` needs the plaintext token,
-     * which only ever existed inside the mail, and `recentlyCreatedToken()`
-     * answers about the 60 second throttle rather than the hour a link lives.
-     *
-     * ~~The consequence, taken knowingly: the second receipt is sent without a
-     * token and carries no claim link at all. The first one still works for the rest of its hour, and
-     * after that a further order mints a fresh link normally. Somebody who has
-     * lost both mails asks for a reset link, which sets a first password just
-     * as well.~~ Reworded 27 October 2026, issue #110: the check now runs under
-     * the customer lock through the mint, so concurrent settlements also leave
-     * the first link alive. A later receipt carries no link while it lives;
-     * after it expires another order can mint one, and a buyer who lost the
-     * mails can ask for a reset link to set a first password.
-     */
-    private function holdsALiveClaimLink(Customer $customer): bool
-    {
-        $broker = config('auth.passwords.'.config('auth.defaults.passwords'));
-
-        return DB::table($broker['table'])
-            ->where('email', $customer->email)
-            ->where('created_at', '>', now()->subMinutes($broker['expire']))
-            ->exists();
-    }
-
-    /**
      * Everybody who needs to know, once the payment is definitely recorded.
      */
     private function tell(Order $order): void
@@ -372,41 +339,78 @@ class MarkOrderPaid
             // Somebody who wants to sign in without ever having bought a pass
             // asks for a reset link, which sets a first password just as well.
             //
-            // **A claim link goes only to an account nobody has claimed.**
+            // ~~**A claim link goes only to an account nobody has claimed.**
             // Sending one to an address that already has an account would mean
             // a stranger who knows your email can cause a set-a-password link
             // to land in your inbox. It hands them nothing, and it is still a
-            // phishing shaped tool pointed at our own customers.
+            // phishing shaped tool pointed at our own customers.~~ Reversed 6
+            // November 2026, issue #114, by decision in refinement.
             //
-            // **And only when there is not already one in their inbox**, for
+            // **Every pass order now mints a link, claimed account or not.** A
+            // repeat buyer who had forgotten their password used to get a
+            // receipt with no way back in. An unclaimed account gets a
+            // set-password link and a claimed one gets a reset link, because
+            // set-password refuses an account that already has a password
+            // (`ClaimAccount` answers `AlreadyClaimed`). Which kind is decided
+            // here, under the lock, and carried to the mail as `PasswordLink`,
+            // so the mail never re-decides from an account that has changed
+            // while the message waited in the queue.
+            //
+            // **The risk this accepts, written down because it is the same shape
+            // as the one struck above.** Anybody who pays full price for a pass
+            // at Stripe's hosted page, typing somebody else's email, causes a
+            // reset link to land in that person's own inbox. It hands the buyer
+            // nothing: the link goes to the owner, and the endpoints that spend
+            // it answer the same whether an address has an account or not. What
+            // it costs the owner is any reset link they already held, since the
+            // broker keeps one token per address. The price of a pass is what
+            // stands in the way, and nothing cheaper reaches this branch.
+            //
+            // ~~**And only when there is not already one in their inbox**, for
             // the reason in `holdsALiveClaimLink`. Such a receipt is sent with
-            // no token and says where to ask for a new link.
-            // **The check and mint share the customer lock**, issue #110. Two
-            // settlements otherwise both see no link and either invalidate one
-            // another's token or collide on the broker table's email key. This
-            // callback runs after the order commit, so this is a real
-            // transaction, not a savepoint, and the lock holds until the mint
-            // commits. The receipt and gift mails stay outside it.
-            $claim = $this->grantsAccess($order)
+            // no token and says where to ask for a new link.~~ Reversed 6
+            // November 2026, issue #114. `holdsALiveClaimLink` is gone. Minting
+            // a second token still kills the first, which is Laravel's
+            // behaviour (`DatabaseTokenRepository::create()` calls
+            // `deleteExisting()` before it inserts), and that is now the
+            // accepted cost: the newest receipt always carries a working link,
+            // and the older mail's link stops working. A person reaches for the
+            // latest mail, and #110's alternative left the latest mail with no
+            // link at all.
+            //
+            // **The mint still holds the customer lock**, issue #110. Without it
+            // two settlements can interleave inside the broker's
+            // delete-then-insert and collide on the table's email key, which
+            // throws before that order's receipt is sent. This callback runs
+            // after the order commit, so this is a real transaction, not a
+            // savepoint, and the lock holds until the mint commits. The receipt
+            // and gift mails stay outside it.
+            $minted = $this->grantsAccess($order)
                 ? DB::transaction(function () use ($customer): ?array {
                     $locked = Customer::whereKey($customer->getKey())->lockForUpdate()->first();
 
-                    if ($locked === null || ! $locked->isUnclaimed() || $this->holdsALiveClaimLink($locked)) {
+                    if ($locked === null) {
                         return null;
                     }
 
-                    // The token and its recipient must use the same locked email.
-                    return [Password::broker('customers')->createToken($locked), $locked->email];
+                    // The token, its recipient and its kind all come from the
+                    // same locked row.
+                    return [
+                        Password::broker('customers')->createToken($locked),
+                        $locked->email,
+                        $locked->isUnclaimed() ? PasswordLink::Set : PasswordLink::Reset,
+                    ];
                 })
                 : null;
 
-            [$token, $recipient] = $claim ?? [null, $customer->email];
+            [$token, $recipient, $link] = $minted ?? [null, $customer->email, PasswordLink::Set];
 
             Mail::to($recipient)->send(new OrderPaid(
                 $order,
                 $token,
                 // Read from the paid order's own lines, never from input.
                 $token !== null ? $this->accessProduct($order) : null,
+                $link,
             ));
 
             // **And whoever was given a present.** B6 (#72), and it is the

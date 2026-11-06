@@ -39,7 +39,12 @@ Set your password: {!! $setPasswordUrl !!}
 This link works for {!! $minutes !!} minutes, and only once. If it expires before you get to it, you can ask for a new one from the sign in page at any time.
 @else
 Enter the Viewing Room: {!! $viewingRoomUrl !!}
-@if ($needsPassword)
+@if ($resetPasswordUrl)
+
+Forgotten your password? Choose a new one here: {!! $resetPasswordUrl !!}
+
+This link works for {!! $minutes !!} minutes, and only once. If it expires before you get to it, you can ask for a new one from the sign in page at any time.
+@elseif ($needsPassword)
 
 You still need to choose a password. You can ask for a link to set one from the sign in page at any time.
 @endif

@@ -170,7 +170,15 @@ function settlingTogether(array $orderIds): array
     return $read;
 }
 
-it('leaves exactly one live claim link and both receipts sent when two pass orders settle at once', function () {
+/*
+| ~~Exactly one of the two receipts carries a link.~~ Reversed 6 November 2026,
+| issue #114: every pass receipt carries a fresh link, so both racers mint and
+| the later mint replaces the earlier. What the lock still buys is that the two
+| mints never interleave inside the broker's delete-then-insert, so neither
+| racer dies on the primary key and exactly one of the mailed tokens is live.
+*/
+
+it('sends both receipts with a link and leaves exactly one of them live when two pass orders settle at once', function () {
     // Named rather than skipped: a skip reads as a pass.
     expect(extension_loaded('pcntl'))->toBeTrue()
         ->and(function_exists('posix_kill'))->toBeTrue();
@@ -202,18 +210,23 @@ it('leaves exactly one live claim link and both receipts sent when two pass orde
             ->where('email', $customer->email)
             ->count())->toBe(1, "round {$round}");
 
-        // (c) Both receipts went out, and exactly one of them carries the
-        // link. The other is the one `holdsALiveClaimLink` turned away.
+        // (c) Both receipts went out, and ~~exactly one of them carries the
+        // link. The other is the one `holdsALiveClaimLink` turned away.~~
+        // both carry one (#114).
         expect(array_column($answers, 'receipts'))->toBe([1, 1], "round {$round}")
-            ->and(array_sum(array_column($answers, 'links')))->toBe(1, "round {$round}");
+            ->and(array_column($answers, 'links'))->toBe([1, 1], "round {$round}");
 
-        // (d) The link that was emailed is the live one. One row in the table
-        // is not enough: a racer could have mailed a token the other racer's
-        // mint then deleted.
+        // (d) Exactly one of the two mailed tokens is live: the later mint's.
+        // The broker keeps one row per address, so two live is impossible and
+        // none live means the row holds a token nobody was mailed.
         $tokens = array_merge(...array_column($answers, 'tokens'));
+        $live = array_filter(
+            $tokens,
+            fn (string $token): bool => Password::broker('customers')->tokenExists($customer->fresh(), $token),
+        );
 
-        expect($tokens)->toHaveCount(1, "round {$round}")
-            ->and(Password::broker('customers')->tokenExists($customer->fresh(), $tokens[0]))
-            ->toBeTrue("round {$round}");
+        expect($tokens)->toHaveCount(2, "round {$round}")
+            ->and($tokens[0])->not->toBe($tokens[1], "round {$round}")
+            ->and($live)->toHaveCount(1, "round {$round}");
     }
 });
