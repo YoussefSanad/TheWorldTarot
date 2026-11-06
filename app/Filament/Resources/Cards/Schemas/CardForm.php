@@ -80,23 +80,13 @@ class CardForm
                     // translation tab is emptied by the language switcher.
                     ->visible(fn (mixed $livewire): bool => self::onOriginalLanguage($livewire))
                     ->schema([
-                        FileUpload::make('video_master_path')
-                            ->label('Card video')
+                        self::videoUpload()
                             // Says what saving costs, because saving is the
                             // point of no return and the X on its own is not.
                             // Removing the film deletes it for good, and this
                             // is the only place she is told before it happens.
                             ->helperText('It takes a few minutes to be prepared for playing after you save. You can carry on working while it does. Removing the film here takes the card out of the Viewing Room and deletes the film for good when you save, so keep your own copy.')
-                            ->disk(config('filesystems.uploads'))
-                            ->directory('masters')
-                            ->visibility('private')
-                            ->acceptedFileTypes(['video/mp4', 'video/quicktime'])
-                            ->maxSize(204800)
-                            ->dehydrated(fn (mixed $livewire): bool => self::onOriginalLanguage($livewire))
-                            ->validationMessages([
-                                'max' => 'That file is too large. Videos should be under 200MB.',
-                                'mimetypes' => 'That is not a video file. An MP4 or a QuickTime file is expected.',
-                            ]),
+                            ->dehydrated(fn (mixed $livewire): bool => self::onOriginalLanguage($livewire)),
                     ]),
 
                 Section::make('Where it sits in the deck')
@@ -119,6 +109,30 @@ class CardForm
                                 'unique' => 'There is already a card with this number.',
                             ]),
                     ]),
+            ]);
+    }
+
+    /**
+     * The one definition of where a card's film goes and what is accepted.
+     *
+     * Shared by this form and the upload on the Cards list, so the two can
+     * never disagree about the disk, the size limit or what she is told when a
+     * file is refused. Saving the path is all either of them does: the card's
+     * own hooks send it to Bunny and throw the old master away.
+     */
+    public static function videoUpload(): FileUpload
+    {
+        return FileUpload::make('video_master_path')
+            ->label('Card video')
+            ->disk(config('filesystems.uploads'))
+            ->directory('masters')
+            ->visibility('private')
+            ->acceptedFileTypes(['video/mp4', 'video/quicktime'])
+            ->maxSize(204800)
+            ->validationMessages([
+                'required' => 'Choose the video file to upload.',
+                'max' => 'That file is too large. Videos should be under 200MB.',
+                'mimetypes' => 'That is not a video file. An MP4 or a QuickTime file is expected.',
             ]);
     }
 
