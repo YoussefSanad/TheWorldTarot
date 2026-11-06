@@ -15,6 +15,8 @@ CLAUDE.md
 /.vscode
 /.zed
 /auth.json
+# Local JPEG originals of the card art, never committed.
+/card-images/
 /node_modules
 /public/build
 /public/fonts-manifest.dev.json

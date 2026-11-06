@@ -8,7 +8,9 @@
  *
  * ## Why there are only names here
  *
- * **The English descriptions do not exist yet.** `CardSeeder` seeds names only
+ * ~~**The English descriptions do not exist yet.**~~ (6 Nov 2026, #95) The English
+ * descriptions now exist in `database/seed-copy/cards.en.json`, written by
+ * `php artisan cards:seed-copy`; what follows was true until then. `CardSeeder` seeds names only
  * and leaves `short_description` and `long_description` empty on purpose. A
  * card is on the website once it is written, and a freshly seeded deck is
  * invisible without anything having to be switched off. Checked against the
@@ -21,7 +23,10 @@
  * the result would be a **Spanish library holding 22 cards and an English one
  * holding none.** That is a worse failure than the one it would fix.
  *
- * **These 44 strings are Jennifer's to write, in English, first.** The seeder
+ * ~~**These 44 strings are Jennifer's to write, in English, first.**~~ (6 Nov
+ * 2026, #95) The 44 English strings are seeded once by `cards:seed-copy` and are
+ * hers to edit from then on; the Spanish ones wait for a translation of them,
+ * which this file does not hold yet. The seeder
  * reports them rather than throwing, because a field with no English is not a
  * gap in this file. Until they exist, Spanish cannot go live: every published
  * card counts against the gate whether or not a customer can reach it today,
@@ -29,6 +34,8 @@
  *
  * The names below are the established Spanish titles for the Rider-Waite deck,
  * matching the numbering `CardSeeder` uses: Strength at 8, Justice at 11.
+ * (6 Nov 2026, #95) Except card 5, ~~El Hierofante~~ El Sumo Sacerdote, because
+ * its picture's plaque reads The High Priest.
  *
  * @return array<int, array<string, string>>
  */
@@ -38,7 +45,7 @@ return [
     2 => ['name' => 'La Suma Sacerdotisa'],
     3 => ['name' => 'La Emperatriz'],
     4 => ['name' => 'El Emperador'],
-    5 => ['name' => 'El Hierofante'],
+    5 => ['name' => 'El Sumo Sacerdote'],
     6 => ['name' => 'Los Enamorados'],
     7 => ['name' => 'El Carro'],
     8 => ['name' => 'La Fuerza'],

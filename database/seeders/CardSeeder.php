@@ -10,8 +10,14 @@ use Illuminate\Database\Seeder;
  *
  * Cards are the one thing Jennifer creates herself, so this is not a definition
  * of what may exist, the way the product catalogue is. It is a starting deck,
- * placed once so nobody has to type 22 rows, and everything about a card
- * afterwards belongs to her, its name included.
+ * placed once so nobody has to type 22 rows, and ~~everything about a card
+ * afterwards belongs to her, its name included~~ (6 Nov 2026, #95) everything
+ * about a card afterwards belongs to her, its name included, except that its
+ * first English short and long description are written once, by hand, by
+ * `php artisan cards:seed-copy` from `database/seed-copy/cards.en.json`, and
+ * that command's `--force` overwrites English copy only on the owner's explicit
+ * decision, after a backup. Never from here. Runbook:
+ * `docs/deploy/media-storage.md`.
  *
  * That is why nothing here is re-applied on a later run: unlike a product,
  * which has a type and a fulfillment mode that code owns and corrects, a card
@@ -28,13 +34,15 @@ class CardSeeder extends Seeder
      *
      * @var array<int, string>
      */
-    private const MAJOR_ARCANA = [
+    public const MAJOR_ARCANA = [
         0 => 'The Fool',
         1 => 'The Magician',
         2 => 'The High Priestess',
         3 => 'The Empress',
         4 => 'The Emperor',
-        5 => 'The Hierophant',
+        // (6 Nov 2026) ~~The Hierophant~~: the picture's plaque reads The High
+        // Priest, and the name follows the picture (#95).
+        5 => 'The High Priest',
         6 => 'The Lovers',
         7 => 'The Chariot',
         8 => 'Strength',
@@ -68,7 +76,10 @@ class CardSeeder extends Seeder
             // The copy starts empty on purpose. A card is on the website only
             // once it is written, so a freshly seeded deck is invisible without
             // anything having to be switched off, and the language gate can
-            // already name every card that is waiting on her.
+            // already name every card that is waiting on her. (6 Nov 2026, #95)
+            // It still starts empty here: the first English copy arrives only
+            // when a person runs `cards:seed-copy`, which no deploy does, and a
+            // test pins that this seeder never writes it.
             $card->fill([
                 'name' => ['en' => $name],
                 'short_description' => [],
