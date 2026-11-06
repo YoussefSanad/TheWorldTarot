@@ -34,7 +34,9 @@ class CardSeeder extends Seeder
         2 => 'The High Priestess',
         3 => 'The Empress',
         4 => 'The Emperor',
-        5 => 'The Hierophant',
+        // (6 Nov 2026) ~~The Hierophant~~: the picture's plaque reads The High
+        // Priest, and the name follows the picture (#95).
+        5 => 'The High Priest',
         6 => 'The Lovers',
         7 => 'The Chariot',
         8 => 'Strength',

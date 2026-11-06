@@ -38,7 +38,7 @@ return [
     2 => ['name' => 'La Suma Sacerdotisa'],
     3 => ['name' => 'La Emperatriz'],
     4 => ['name' => 'El Emperador'],
-    5 => ['name' => 'El Hierofante'],
+    5 => ['name' => 'El Sumo Sacerdote'],
     6 => ['name' => 'Los Enamorados'],
     7 => ['name' => 'El Carro'],
     8 => ['name' => 'La Fuerza'],
