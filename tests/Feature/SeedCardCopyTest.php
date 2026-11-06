@@ -2,6 +2,7 @@
 
 use App\Models\Card;
 use Database\Seeders\CardSeeder;
+use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -18,7 +19,7 @@ uses(RefreshDatabase::class);
  * implementer must match:
  *  - the command is `cards:seed-copy --file=<path>`, and only that option
  *  - it prints a table with the columns `#`, `Card`, `Short`, `Long`, `Result`
- *    (no `Live?`, that arrives in step 12), one row per number in
+ *    (step 12 adds `Live?` as a sixth; these tests compare the first five), one row per number in
  *    CardSeeder::MAJOR_ARCANA, the number in the first cell and the result last
  *  - field cells: `fill`, `keep`, `same`; results: `written`, `kept`,
  *    `unchanged`, `conflict`, `missing card`, `no entry`,
@@ -77,17 +78,18 @@ function seedCopyRun(string $file): array
 }
 
 /**
- * The cells of one table row, trimmed. When the row is missing it returns five
+ * The cells of one table row, trimmed. When the row is missing it returns six
  * nulls, so a test indexing a cell fails on its assertion instead of erroring
  * with "Undefined array key" (a red test must fail on an assertion).
  */
 function seedCopyRow(string $output, int $number): array
 {
     if (! preg_match('/^\|\s*'.$number.'\s*\|.*$/m', $output, $match)) {
-        return array_fill(0, 5, null);
+        return array_fill(0, 6, null);
     }
 
-    return array_map('trim', explode('|', substr(rtrim($match[0]), 1, -1)));
+    // Padded to six, so a table without the Live? column fails on an assertion.
+    return array_pad(array_map('trim', explode('|', substr(rtrim($match[0]), 1, -1))), 6, null);
 }
 
 /** Places a raw jsonb value on the live card with this number, as DB::table would, bypassing Spatie. */
@@ -195,13 +197,14 @@ it('writes the English copy of all 22 cards the seeder placed, and says written'
     expect($exit)->toBe(0)
         ->and($output)->toContain('Short')
         ->and($output)->toContain('Long')
-        ->and($output)->not->toContain('Live?');
+        ->and($output)->toContain('Live?')
+        ->and(seedCopyRow($output, 0))->toHaveCount(6);
 
     foreach ($entries as $key => $entry) {
         $number = (int) $key;
         $card = Card::where('number', $number)->first();
 
-        expect(seedCopyRow($output, $number))->toBe([(string) $number, CardSeeder::MAJOR_ARCANA[$number], 'fill', 'fill', 'written'])
+        expect(array_slice(seedCopyRow($output, $number), 0, 5))->toBe([(string) $number, CardSeeder::MAJOR_ARCANA[$number], 'fill', 'fill', 'written'])
             ->and($card->getTranslation('short_description', 'en', false))->toBe($entry['short'])
             ->and($card->getTranslation('long_description', 'en', false))->toBe($entry['long'])
             ->and($card->getTranslations('short_description'))->toBe(['en' => $entry['short']])
@@ -309,7 +312,7 @@ it('accepts JSON null as a top-level value and a null English key, and fills bot
     [$exit, $output] = seedCopyRun($this->file);
 
     expect($exit)->toBe(0)
-        ->and(seedCopyRow($output, 4))->toBe(['4', CardSeeder::MAJOR_ARCANA[4], 'fill', 'fill', 'written'])
+        ->and(array_slice(seedCopyRow($output, 4), 0, 5))->toBe(['4', CardSeeder::MAJOR_ARCANA[4], 'fill', 'fill', 'written'])
         ->and(json_decode(seedCopyRaw(4, 'short_description'), true))->toBe(['en' => $entries['4']['short']])
         ->and(json_decode(seedCopyRaw(4, 'long_description'), true))->toEqual(['en' => $entries['4']['long'], 'es' => 'Largo']);
 });
@@ -322,7 +325,7 @@ it('keeps an English field that is not empty and still fills its empty sibling',
     [$exit, $output] = seedCopyRun($this->file);
 
     expect($exit)->toBe(0)
-        ->and(seedCopyRow($output, 2))->toBe(['2', CardSeeder::MAJOR_ARCANA[2], 'keep', 'fill', 'written'])
+        ->and(array_slice(seedCopyRow($output, 2), 0, 5))->toBe(['2', CardSeeder::MAJOR_ARCANA[2], 'keep', 'fill', 'written'])
         ->and(json_decode(seedCopyRaw(2, 'short_description'), true))->toEqual(['en' => 'Jennifer wrote this', 'es' => 'Hola'])
         ->and(seedCopyEn(2, 'long_description'))->toBe($entries['2']['long']);
 });
@@ -333,7 +336,7 @@ it('says same for an English field equal to the file, and fills the empty one', 
 
     [, $output] = seedCopyRun($this->file);
 
-    expect(seedCopyRow($output, 4))->toBe(['4', CardSeeder::MAJOR_ARCANA[4], 'same', 'fill', 'written'])
+    expect(array_slice(seedCopyRow($output, 4), 0, 5))->toBe(['4', CardSeeder::MAJOR_ARCANA[4], 'same', 'fill', 'written'])
         ->and(seedCopyEn(4, 'long_description'))->toBe($entries['4']['long']);
 });
 
@@ -347,7 +350,7 @@ it('says kept and writes no row for a card with nothing to fill and something ke
     [$exit, $output] = seedCopyRun($this->file);
 
     expect($exit)->toBe(0)
-        ->and(seedCopyRow($output, 3))->toBe(['3', CardSeeder::MAJOR_ARCANA[3], 'keep', 'keep', 'kept'])
+        ->and(array_slice(seedCopyRow($output, 3), 0, 5))->toBe(['3', CardSeeder::MAJOR_ARCANA[3], 'keep', 'keep', 'kept'])
         ->and(seedCopyUpdatedAt()[3])->toBe($before[3])
         ->and([seedCopyRaw(3, 'short_description'), seedCopyRaw(3, 'long_description')])->toBe($beforeRaw)
         ->and(seedCopyRow($output, 4)[4])->toBe('written');
@@ -384,7 +387,7 @@ it('says unchanged for every card on a second run and writes no row', function (
         ->and(seedCopySnapshot())->toBe($beforeRows);
 
     foreach (array_keys(CardSeeder::MAJOR_ARCANA) as $number) {
-        expect(seedCopyRow($output, $number))->toBe([(string) $number, CardSeeder::MAJOR_ARCANA[$number], 'same', 'same', 'unchanged']);
+        expect(array_slice(seedCopyRow($output, $number), 0, 5))->toBe([(string) $number, CardSeeder::MAJOR_ARCANA[$number], 'same', 'same', 'unchanged']);
     }
 });
 
@@ -1097,8 +1100,8 @@ it('replaces her English text in both fields with --force, and fills the rest', 
     [$exit, $output] = seedCopyRunForce($this->file);
 
     expect($exit)->toBe(0)
-        ->and(seedCopyRow($output, 2))->toBe(['2', CardSeeder::MAJOR_ARCANA[2], 'replace', 'replace', 'written'])
-        ->and(seedCopyRow($output, 1))->toBe(['1', CardSeeder::MAJOR_ARCANA[1], 'fill', 'fill', 'written'])
+        ->and(array_slice(seedCopyRow($output, 2), 0, 5))->toBe(['2', CardSeeder::MAJOR_ARCANA[2], 'replace', 'replace', 'written'])
+        ->and(array_slice(seedCopyRow($output, 1), 0, 5))->toBe(['1', CardSeeder::MAJOR_ARCANA[1], 'fill', 'fill', 'written'])
         ->and(seedCopyEn(2, 'short_description'))->toBe($entries['2']['short'])
         ->and(seedCopyEn(2, 'long_description'))->toBe($entries['2']['long'])
         ->and(seedCopyWrittenNumbers($entries))->toBe(array_keys(CardSeeder::MAJOR_ARCANA))
@@ -1132,9 +1135,9 @@ it('says same and unchanged for a card already equal to the file under --force, 
     [$exit, $output] = seedCopyRunForce($this->file);
 
     expect($exit)->toBe(0)
-        ->and(seedCopyRow($output, 4))->toBe(['4', CardSeeder::MAJOR_ARCANA[4], 'same', 'same', 'unchanged'])
+        ->and(array_slice(seedCopyRow($output, 4), 0, 5))->toBe(['4', CardSeeder::MAJOR_ARCANA[4], 'same', 'same', 'unchanged'])
         ->and((array) DB::table('cards')->where('number', 4)->first())->toBe($before4)
-        ->and(seedCopyRow($output, 5))->toBe(['5', CardSeeder::MAJOR_ARCANA[5], 'same', 'replace', 'written'])
+        ->and(array_slice(seedCopyRow($output, 5), 0, 5))->toBe(['5', CardSeeder::MAJOR_ARCANA[5], 'same', 'replace', 'written'])
         ->and(seedCopyEn(5, 'short_description'))->toBe($entries['5']['short'])
         ->and(seedCopyEn(5, 'long_description'))->toBe($entries['5']['long']);
 
@@ -1153,9 +1156,9 @@ it('leaves every row and writes no backup for a forced run whose cards are all s
     [$exit, $output] = seedCopyRunForce($this->file);
 
     expect($exit)->toBe(0)
-        ->and(seedCopyRow($output, 7))->toBe(['7', CardSeeder::MAJOR_ARCANA[7], 'same', 'same', 'unchanged'])
-        ->and(seedCopyRow($output, 0))->toBe(['0', CardSeeder::MAJOR_ARCANA[0], 'same', 'same', 'unchanged'])
-        ->and(seedCopyRow($output, 21))->toBe(['21', CardSeeder::MAJOR_ARCANA[21], 'same', 'same', 'unchanged'])
+        ->and(array_slice(seedCopyRow($output, 7), 0, 5))->toBe(['7', CardSeeder::MAJOR_ARCANA[7], 'same', 'same', 'unchanged'])
+        ->and(array_slice(seedCopyRow($output, 0), 0, 5))->toBe(['0', CardSeeder::MAJOR_ARCANA[0], 'same', 'same', 'unchanged'])
+        ->and(array_slice(seedCopyRow($output, 21), 0, 5))->toBe(['21', CardSeeder::MAJOR_ARCANA[21], 'same', 'same', 'unchanged'])
         ->and(seedCopySnapshot())->toBe($snapshot)
         ->and(seedCopyBackupFiles())->toBe([])
         ->and($output)->not->toContain('wiped on deploy');
@@ -1508,3 +1511,325 @@ it('reports a conflict under --force and keeps what the other writer left', func
         },
     ],
 ]);
+
+/*
+ * Step 12 of the card pictures plan (card copy amendment): `--dry-run`, the
+ * `Live?` column, and the deploy leaving copy alone. Assumptions the
+ * implementer must match:
+ *  - `--dry-run` combines with `--file` and `--force`
+ *  - the table gains a sixth column, `Live?`, holding `yes`, or `no: ` followed
+ *    by what Card::availability()->unmetBy($card, Locales::default()) names,
+ *    joined by `, `, and empty for `missing card`
+ *  - a dry run says `would write` where a real run says `written`, and prints
+ *    no `Backup:` line
+ */
+
+function seedCopyRunDry(string $file, bool $force = false): array
+{
+    $options = ['--file' => $file, '--dry-run' => true];
+
+    if ($force) {
+        $options['--force'] = true;
+    }
+
+    $exit = Artisan::call('cards:seed-copy', $options);
+
+    return [$exit, Artisan::output()];
+}
+
+function seedCopyGivePicture(int $number): void
+{
+    DB::update('update cards set image_path = ? where number = ? and deleted_at is null', ['cards/'.$number.'.webp', $number]);
+}
+
+/** What the gate names for a card holding both English fields and no picture. */
+function seedCopyNoPicture(): string
+{
+    return 'no: a picture';
+}
+
+// Criterion 29: a dry run writes nothing and reads as a real run would.
+it('writes no row and no backup on a dry run, and says would write where a real run writes', function (bool $force) {
+    seedCopyFreezeAndFake();
+    $before = seedCopySnapshot();
+    $updatedAt = seedCopyUpdatedAt();
+
+    [$exit, $output] = seedCopyRunDry($this->file, $force);
+
+    expect($exit)->toBe(0)
+        ->and(seedCopySnapshot())->toEqual($before)
+        ->and(seedCopyUpdatedAt())->toEqual($updatedAt)
+        ->and(seedCopyBackupFiles())->toBe([])
+        ->and($output)->not->toContain('Backup:')
+        ->and($output)->not->toContain('written');
+
+    foreach (array_keys(CardSeeder::MAJOR_ARCANA) as $number) {
+        expect(array_slice(seedCopyRow($output, $number), 2, 3))->toBe(['fill', 'fill', 'would write']);
+    }
+})->with(['without --force' => false, 'with --force' => true]);
+
+it('says replace and would write for her text on a forced dry run, and keeps it and writes no backup', function () {
+    seedCopyFreezeAndFake();
+    seedCopySetRaw(4, 'short_description', '{"en":"Her short"}');
+    seedCopySetRaw(4, 'long_description', '{"en":"Her long"}');
+    $before = seedCopySnapshot();
+
+    [$exit, $output] = seedCopyRunDry($this->file, force: true);
+
+    expect($exit)->toBe(0)
+        ->and(array_slice(seedCopyRow($output, 4), 2, 3))->toBe(['replace', 'replace', 'would write'])
+        ->and(seedCopySnapshot())->toEqual($before)
+        ->and(seedCopyBackupFiles())->toBe([])
+        ->and($output)->not->toContain('Backup:');
+});
+
+it('reads kept, unchanged, missing card, no entry and failed on a dry run as a real run does', function () {
+    seedCopyFreezeAndFake();
+    $entries = seedCopyEntries();
+    // 1: kept (her short, the file's long already there).
+    seedCopySetRaw(1, 'short_description', '{"en":"Her short"}');
+    seedCopySetRaw(1, 'long_description', json_encode(['en' => $entries['1']['long']]));
+    // 2: unchanged.
+    seedCopySetRaw(2, 'short_description', json_encode(['en' => $entries['2']['short']]));
+    seedCopySetRaw(2, 'long_description', json_encode(['en' => $entries['2']['long']]));
+    // 3: failed, a scalar where an object belongs.
+    seedCopySetRaw(3, 'short_description', '"plain"');
+    // 5: missing card.
+    Card::where('number', 5)->first()->delete();
+    // 6: no entry.
+    unset($entries['6']);
+    seedCopyWriteFile($this->file, $entries);
+    $before = seedCopySnapshot();
+
+    [$exit, $output] = seedCopyRunDry($this->file);
+
+    expect($exit)->not->toBe(0)
+        ->and(seedCopySnapshot())->toEqual($before)
+        ->and(array_slice(seedCopyRow($output, 1), 2, 3))->toBe(['keep', 'same', 'kept'])
+        ->and(array_slice(seedCopyRow($output, 2), 2, 3))->toBe(['same', 'same', 'unchanged'])
+        ->and(seedCopyRow($output, 3)[4])->toBe('failed: unexpected value in short_description')
+        ->and(seedCopyRow($output, 5)[4])->toBe('missing card')
+        ->and(seedCopyRow($output, 6)[4])->toBe('no entry')
+        ->and(seedCopyRow($output, 7)[4])->toBe('would write');
+});
+
+it('exits non-zero on a dry run with only a failed card, and with only a missing entry', function (Closure $break) {
+    $break($this->file);
+
+    [$exit] = seedCopyRunDry($this->file);
+
+    expect($exit)->not->toBe(0);
+})->with([
+    'a failed card' => [fn () => seedCopySetRaw(3, 'short_description', '"plain"')],
+    'a missing entry' => [function (string $file) {
+        $entries = seedCopyEntries();
+        unset($entries['6']);
+        seedCopyWriteFile($file, $entries);
+    }],
+]);
+
+it('refuses an invalid file on a dry run, before reading any card', function () {
+    file_put_contents($this->file, '{not json');
+    $reads = seedCopyCardReads();
+
+    [$exit, $output] = seedCopyRunDry($this->file);
+
+    expect($exit)->not->toBe(0)
+        ->and($reads->count)->toBe(0)
+        ->and($output)->not->toContain('would write');
+});
+
+it('never says conflict on a dry run, even when the card changes after it was read', function () {
+    seedCopyListenOnce(8, fn (Card $card) => DB::update('update cards set short_description = ?::jsonb where id = ?', ['{"en":"Edited meanwhile"}', $card->getKey()]));
+
+    [$exit, $output] = seedCopyRunDry($this->file);
+
+    expect($exit)->toBe(0)
+        ->and($output)->not->toContain('conflict')
+        ->and(seedCopyRow($output, 8)[4])->toBe('would write')
+        ->and(seedCopyEn(8, 'short_description'))->toBe('Edited meanwhile');
+});
+
+// Criterion 30: the Live? column.
+it('says yes for a published card with a picture, on the dry run that would fill it and on the real run', function () {
+    seedCopyGivePicture(0);
+
+    [, $dry] = seedCopyRunDry($this->file);
+    [$exit, $real] = seedCopyRun($this->file);
+
+    expect(seedCopyRow($dry, 0)[5])->toBe('yes')
+        ->and($exit)->toBe(0)
+        ->and(seedCopyRow($real, 0)[5])->toBe('yes');
+});
+
+it('names the picture for a card without one, and the planned copy is not named on a dry run', function () {
+    [, $dry] = seedCopyRunDry($this->file);
+    [, $real] = seedCopyRun($this->file);
+
+    expect(seedCopyRow($dry, 1)[5])->toBe(seedCopyNoPicture())
+        ->and(seedCopyRow($real, 1)[5])->toBe(seedCopyNoPicture());
+});
+
+it('never saves the in-memory copy a dry run computes Live? from', function () {
+    seedCopyGivePicture(0);
+    $updatedAt = seedCopyUpdatedAt();
+
+    [, $dry] = seedCopyRunDry($this->file);
+
+    expect(seedCopyRow($dry, 0)[5])->toBe('yes')
+        ->and(seedCopyUpdatedAt())->toEqual($updatedAt)
+        ->and(seedCopyEn(0, 'short_description'))->toBeNull()
+        ->and(Card::where('number', 0)->first()->getTranslation('short_description', 'en', false))->toBe('');
+});
+
+it('names publishing for an unpublished card', function () {
+    seedCopyGivePicture(2);
+    DB::table('cards')->where('number', 2)->update(['is_published' => false]);
+
+    [, $dry] = seedCopyRunDry($this->file);
+    [, $real] = seedCopyRun($this->file);
+
+    expect(seedCopyRow($dry, 2)[5])->toBe('no: to be published')
+        ->and(seedCopyRow($real, 2)[5])->toBe('no: to be published');
+});
+
+it('joins several missing things with a comma, in the order the gate names them', function () {
+    DB::table('cards')->where('number', 2)->update(['is_published' => false]);
+
+    [, $real] = seedCopyRun($this->file);
+
+    expect(seedCopyRow($real, 2)[5])->toBe('no: a picture, to be published');
+});
+
+it('names the missing copy of a card with no entry, from the row as it stands', function () {
+    seedCopyGivePicture(1);
+    seedCopySetRaw(1, 'short_description', '{"en":"Her short"}');
+    $entries = seedCopyEntries();
+    unset($entries['1']);
+    seedCopyWriteFile($this->file, $entries);
+
+    [, $real] = seedCopyRun($this->file);
+
+    expect(seedCopyRow($real, 1)[4])->toBe('no entry')
+        ->and(seedCopyRow($real, 1)[5])->toBe('no: a full description');
+});
+
+it('names the missing copy of a failed card, from the row as it stands', function () {
+    seedCopyGivePicture(3);
+    seedCopySetRaw(3, 'short_description', '"plain"');
+
+    [, $real] = seedCopyRun($this->file);
+
+    expect(seedCopyRow($real, 3)[4])->toBe('failed: unexpected value in short_description')
+        // Nothing is written for a failed card, so both fields are still empty.
+        ->and(seedCopyRow($real, 3)[5])->toBe('no: a short description, a full description');
+});
+
+it('leaves Live? empty for a card removed for good while the command ran', function () {
+    seedCopyListenOnce(8, fn (Card $card) => DB::table('cards')->where('id', $card->getKey())->delete());
+
+    [$exit, $real] = seedCopyRun($this->file);
+
+    expect($exit)->not->toBe(0)
+        ->and(seedCopyRow($real, 8)[4])->toBe('conflict')
+        ->and(seedCopyRow($real, 8)[5])->toBe('');
+});
+
+it('leaves Live? empty for a missing card', function () {
+    Card::where('number', 5)->first()->delete();
+
+    [, $real] = seedCopyRun($this->file);
+
+    expect(seedCopyRow($real, 5)[4])->toBe('missing card')
+        ->and(seedCopyRow($real, 5)[5])->toBe('');
+});
+
+it('shows the state the other writer left for a conflict card', function (Closure $change, string $live) {
+    seedCopyGivePicture(8);
+    seedCopyListenOnce(8, fn (Card $card) => $change($card->getKey()));
+
+    [$exit, $real] = seedCopyRun($this->file);
+
+    expect($exit)->not->toBe(0)
+        ->and(seedCopyRow($real, 8)[4])->toBe('conflict')
+        ->and(seedCopyRow($real, 8)[5])->toBe($live);
+})->with([
+    'her English short' => [
+        fn (int $id) => DB::update('update cards set short_description = ?::jsonb where id = ?', ['{"en":"Edited meanwhile"}', $id]),
+        'no: a full description',
+    ],
+    'a soft delete' => [
+        fn (int $id) => DB::update('update cards set deleted_at = now(), short_description = ?::jsonb where id = ?', ['{"es":"x"}', $id]),
+        'no: a short description, a full description, a developer to put it back, because it was removed',
+    ],
+]);
+
+it('asks the default language the gate asks, not the en key by assumption', function () {
+    // Spanish is the default here and card 0 is finished in it, with no English
+    // name. Asking `en` would say `no: a name`; the gate's language says yes.
+    seedCopyGivePicture(0);
+    seedCopySetRaw(0, 'name', '{"es":"El Loco"}');
+    seedCopySetRaw(0, 'short_description', '{"es":"Un comienzo."}');
+    seedCopySetRaw(0, 'long_description', '{"es":"El significado largo."}');
+    config()->set('app.fallback_locale', 'es');
+
+    [, $dry] = seedCopyRunDry($this->file);
+
+    expect(seedCopyRow($dry, 0)[4])->toBe('would write')
+        ->and(seedCopyRow($dry, 0)[5])->toBe('yes');
+});
+
+it('marks yes exactly the cards GET /api/v1/en/cards lists after the real run', function () {
+    foreach ([0, 3, 9, 14, 21] as $number) {
+        seedCopyGivePicture($number);
+    }
+    DB::table('cards')->where('number', 9)->update(['is_published' => false]);
+
+    [$exit, $real] = seedCopyRun($this->file);
+
+    $marked = array_values(array_filter(
+        array_keys(CardSeeder::MAJOR_ARCANA),
+        fn (int $number): bool => seedCopyRow($real, $number)[5] === 'yes',
+    ));
+    $listed = collect($this->getJson('/api/v1/en/cards')->assertOk()->json())->pluck('number')->sort()->values()->all();
+
+    expect($exit)->toBe(0)
+        ->and($marked)->toBe([0, 3, 14, 21])
+        ->and($listed)->toBe($marked);
+});
+
+// Criterion 23, the test half: the deploy seeder leaves copy alone.
+it('leaves every English description empty when DatabaseSeeder runs on a fresh deck', function () {
+    // beforeEach placed the deck; remove it so the seeder creates every card.
+    DB::table('cards')->delete();
+
+    $this->seed(DatabaseSeeder::class);
+
+    foreach (array_keys(CardSeeder::MAJOR_ARCANA) as $number) {
+        $card = Card::where('number', $number)->first();
+
+        expect($card->getTranslation('short_description', 'en', false))->toBe('')
+            ->and($card->getTranslation('long_description', 'en', false))->toBe('');
+    }
+});
+
+it('leaves seeded copy and her later edit byte for byte, and re-creates a removed card empty', function () {
+    [$exit] = seedCopyRun($this->file);
+    expect($exit)->toBe(0)
+        ->and(seedCopyWrittenNumbers(seedCopyEntries()))->toBe(array_keys(CardSeeder::MAJOR_ARCANA));
+    DB::update('update cards set short_description = ?::jsonb where number = 4', ['{"en":"Her edit","es":["a","b"]}']);
+    Card::where('number', 11)->first()->forceDelete();
+    $raw = fn (): array => DB::table('cards')->where('number', '!=', 11)->orderBy('number')
+        ->get(['number', DB::raw('short_description::text as s'), DB::raw('long_description::text as l')])
+        ->map(fn ($row) => (array) $row)->all();
+    $before = $raw();
+
+    $this->seed(DatabaseSeeder::class);
+
+    $recreated = Card::where('number', 11)->first();
+
+    expect($raw())->toBe($before)
+        ->and($recreated)->not->toBeNull()
+        ->and($recreated->getTranslation('short_description', 'en', false))->toBe('')
+        ->and($recreated->getTranslation('long_description', 'en', false))->toBe('');
+});

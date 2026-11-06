@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Card;
+use App\Support\Locales;
 use Database\Seeders\CardSeeder;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
@@ -12,7 +13,7 @@ use Throwable;
 
 class SeedCardCopy extends Command
 {
-    protected $signature = 'cards:seed-copy {--file= : Path to the copy file} {--force : Replace existing English copy}';
+    protected $signature = 'cards:seed-copy {--file= : Path to the copy file} {--force : Replace existing English copy} {--dry-run : Say what would change and write nothing}';
 
     protected $description = 'Seed card copy from a file';
 
@@ -41,6 +42,8 @@ class SeedCardCopy extends Command
         $pending = [];
         $failed = false;
         $force = $this->option('force');
+        $dryRun = $this->option('dry-run');
+        $cards = [];
         $fields = ['short_description' => 'short', 'long_description' => 'long'];
 
         foreach (array_keys(CardSeeder::MAJOR_ARCANA) as $number) {
@@ -48,6 +51,9 @@ class SeedCardCopy extends Command
             $label = $card?->translationLabel() ?? '';
 
             if (! property_exists($entries, (string) $number)) {
+                if ($card !== null) {
+                    $cards[count($rows)] = $card;
+                }
                 $rows[] = [$number, $label, '', '', 'no entry'];
                 $failed = true;
 
@@ -60,6 +66,7 @@ class SeedCardCopy extends Command
                 continue;
             }
 
+            $cards[count($rows)] = $card;
             $entry = $entries->{(string) $number};
             $observed = [];
             $decisions = [];
@@ -118,11 +125,19 @@ class SeedCardCopy extends Command
 
         // Decide every card first: the backup must cover all planned writes and
         // must be verified before even the first row can change.
-        if ($force && $pending !== [] && ! $this->backupCopy($file, $pending)) {
+        if ($force && ! $dryRun && $pending !== [] && ! $this->backupCopy($file, $pending)) {
             return self::FAILURE;
         }
 
         foreach ($pending as $index => $write) {
+            if ($dryRun) {
+                // Every decision above was made as a real run makes it; only
+                // the write is skipped, so a dry run can never say conflict.
+                $rows[$index][4] = 'would write';
+
+                continue;
+            }
+
             try {
                 // Compare both whole columns so an edit in any language wins,
                 // even in the field not being written. Never use ->en: jsonb_set
@@ -145,9 +160,44 @@ class SeedCardCopy extends Command
             $rows[$index][4] = $result;
         }
 
-        $this->table(['#', 'Card', 'Short', 'Long', 'Result'], $rows);
+        foreach ($rows as $index => $row) {
+            $rows[$index][5] = isset($cards[$index])
+                ? $this->live($cards[$index], $dryRun ? ($pending[$index]['next'] ?? []) : null)
+                : '';
+        }
+
+        $this->table(['#', 'Card', 'Short', 'Long', 'Result', 'Live?'], $rows);
 
         return $failed ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Whether the website shows this card now, in the words the gate uses.
+     *
+     * After a real run the row is read again, so a conflict shows what the
+     * other writer left. A dry run asks a copy of the card holding the planned
+     * values, which is never saved.
+     *
+     * @param  array<string, string>|null  $planned  raw jsonb per field on a dry run, null after a real run
+     */
+    private function live(Card $card, ?array $planned): string
+    {
+        if ($planned === null) {
+            $subject = Card::withTrashed()->find($card->getKey());
+
+            // Removed for good mid-run: no card left to ask, as for `missing card`.
+            if ($subject === null) {
+                return '';
+            }
+        } else {
+            $subject = clone $card;
+            $subject->setRawAttributes(array_merge($card->getAttributes(), $planned));
+        }
+
+        // The gate's own language, not the file's `en` by assumption.
+        $missing = Card::availability()->unmetBy($subject, Locales::default());
+
+        return $missing === [] ? 'yes' : 'no: '.implode(', ', $missing);
     }
 
     private function backupCopy(string $file, array $pending): bool
