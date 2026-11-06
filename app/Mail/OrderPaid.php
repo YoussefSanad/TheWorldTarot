@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Enums\Fulfillment;
+use App\Enums\PasswordLink;
 use App\Enums\ProductKey;
 use App\Enums\ProductType;
 use App\Enums\Sender;
@@ -20,9 +21,15 @@ use Illuminate\Mail\Mailables\Content;
  * to get this receipt and, beside it, a `SetPasswordLink` mail, and two mails
  * for one payment read as one too many. `MarkOrderPaid` now mints the token and
  * hands it here, and the receipt carries "Set your password" as its only call to
- * action. A receipt built without a token (a claimed customer, a repeat order
- * while an earlier link is still live, or support resending one) carries no
- * credential and sends the buyer to the sign in page for a new link.
+ * action. A receipt built without a token ~~(a claimed customer, a repeat order
+ * while an earlier link is still live, or support resending one)~~ (a reading
+ * with no pass, or support resending one; reworded 6 November 2026, issue #114)
+ * carries no credential and sends the buyer to the sign in page for a new link.
+ *
+ * **A claimed customer who buys the pass gets a reset link, since issue #114.**
+ * `MarkOrderPaid` mints the token and says with `PasswordLink` which page it is
+ * for. The Viewing Room button stays the call to action and the reset link sits
+ * under it, because this person may well remember their password.
  *
  * **From noreply@ since 30 August 2026, and it carries no Reply-To.** It came
  * from orders@ until then, which is now the mailbox the internal new order
@@ -44,6 +51,7 @@ class OrderPaid extends QueuedMail
         public readonly Order $order,
         private readonly ?string $token = null,
         private readonly ?ProductKey $product = null,
+        private readonly PasswordLink $link = PasswordLink::Set,
     ) {}
 
     protected function sender(): Sender
@@ -88,6 +96,10 @@ class OrderPaid extends QueuedMail
         // receipt with no link.
         $token = $this->token ?? null;
         $product = $this->product ?? null;
+
+        // The same for `link`, added by issue #114. A message queued before it
+        // existed can only have carried a set-password token.
+        $link = $this->link ?? PasswordLink::Set;
 
         return new Content(
             html: 'mail.html.order-paid',
@@ -149,8 +161,23 @@ class OrderPaid extends QueuedMail
                 // and keeps the Viewing Room button. Gated on `needsPassword`
                 // as well, so a token handed to a claimed customer or to an
                 // order with no pass is never printed.
-                'setPasswordUrl' => $token !== null && $holdsAPass && $this->order->customer->isUnclaimed()
+                //
+                // **Printed only as the kind of link it was minted as**, since
+                // issue #114. A reset token is never printed as a set-password
+                // link, whatever the account looks like by the time this sends.
+                'setPasswordUrl' => $token !== null && $link === PasswordLink::Set && $holdsAPass && $this->order->customer->isUnclaimed()
                     ? FrontendUrl::setPassword($this->order->customer->email, $token, $product)
+                    : null,
+
+                // **A reset link for a customer who already has a password**,
+                // issue #114. Minted by `MarkOrderPaid` for a claimed pass
+                // buyer, so a repeat buyer who has forgotten can always get
+                // back in. Printed under the Viewing Room button rather than in
+                // place of it, so somebody who remembers their password is not
+                // sent through a reset to watch. Gated on the pass for the same
+                // reason as the set-password link: a reading needs no account.
+                'resetPasswordUrl' => $token !== null && $link === PasswordLink::Reset && $holdsAPass
+                    ? FrontendUrl::resetPassword($this->order->customer->email, $token, $product)
                     : null,
                 'minutes' => config('auth.passwords.customers.expire'),
 

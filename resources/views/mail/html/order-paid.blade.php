@@ -171,10 +171,12 @@
                 Issue #108. With a token the receipt is the set-password
                 invitation and its button is the only one: the link's `next`
                 lands the buyer in the room afterwards, so a second button
-                would be two doors out of one mail. Without one (claimed
-                customer, or an earlier link still live) the Viewing Room
-                button stays and the password sentence sends an unclaimed buyer
-                to the sign in page, promising no link in another email.
+                would be two doors out of one mail. Without one ~~(claimed
+                customer, or an earlier link still live)~~ (reworded 6 November
+                2026, #114: a claimed customer now gets a reset link under the
+                button, below) the Viewing Room button stays and the password
+                sentence sends an unclaimed buyer to the sign in page,
+                promising no link in another email.
                 Escaped like everything else here.
               --}}
               <tr><td align="center" class="white body" style="padding:30px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">Your Viewing Room pass is yours for good. Come back to the films whenever you like, on any device.</td></tr>
@@ -210,7 +212,16 @@
               <!--<![endif]-->
               </td></tr>
 
-              @if ($needsPassword)
+              @if ($resetPasswordUrl)
+              {{--
+                **A reset link under the button, never in place of it.** Issue
+                #114. Only a claimed customer gets one, and they may well
+                remember their password, so the room stays the call to action
+                and this is a plain underlined link for somebody who has
+                forgotten. Escaped like the button's href above.
+              --}}
+              <tr><td align="center" class="white body" style="padding:22px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">Forgotten your password? <a href="{{ $resetPasswordUrl }}" style="color:#E4C46A;text-decoration:underline;">Choose a new one here</a>. This link works for {{ $minutes }} minutes, and only once. If it expires before you get to it, you can ask for a new one from the sign in page at any time.</td></tr>
+              @elseif ($needsPassword)
               <tr><td align="center" class="white body" style="padding:22px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">You still need to choose a password. You can ask for a link to set one from the sign in page at any time.</td></tr>
               @endif
               @endif

@@ -23,6 +23,28 @@ it('carries the token and the address the reset is verified against', function (
         ->toBe('https://staging.theworldtarot.com/reset-password/?token=a-token&email=jane%40example.com');
 });
 
+/*
+| A reset link that lands in the Viewing Room, issue #114.
+|
+| A claimed customer who buys the pass again is sent a reset link in the
+| receipt, and it carries `next` the same way the set-password link does. Chosen
+| from the `ProductKey` and never from a string, so nothing a caller typed can
+| become a redirect target.
+*/
+
+it('carries `next` on a reset link given the pass', function () {
+    expect(FrontendUrl::resetPassword('jane@example.com', 'a-token', ProductKey::ViewingRoomPass))
+        ->toBe('https://staging.theworldtarot.com/reset-password/?token=a-token&email=jane%40example.com&next=%2Fviewing-room%2F');
+});
+
+it('adds no `next` to a reset link for any product but the pass', function (ProductKey $key) {
+    expect(FrontendUrl::resetPassword('jane@example.com', 'a-token', $key))
+        ->not->toContain('next=');
+})->with(fn (): array => array_values(array_filter(
+    ProductKey::cases(),
+    fn (ProductKey $key): bool => $key !== ProductKey::ViewingRoomPass,
+)));
+
 it('ends a page in a slash however the environment spelled it', function (string $configured) {
     // The website is a static export built with `trailingSlash`, so the
     // slashless form is a redirect, and these two links carry a single-use

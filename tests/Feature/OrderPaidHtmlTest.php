@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\PasswordLink;
 use App\Enums\ProductKey;
 use App\Mail\OrderPaid;
 use App\Models\Customer;
@@ -448,6 +449,71 @@ it('keeps the Viewing Room button and carries no link for a claimed customer', f
         ->and(textBodySent())->not->toContain(SEPARATE_EMAIL_PROMISE)
         ->and(textBodySent())->not->toContain('/set-password/')
         ->and(textBodySent())->not->toContain('token=');
+});
+
+/*
+| A reset link for a claimed customer, issue #114.
+|
+| A claimed customer can only get back in through the reset flow, because
+| set-password refuses an account that already has a password. So
+| `MarkOrderPaid` mints a reset token for them and says which kind of token it
+| is. **The Viewing Room button stays as the call to action**, because somebody
+| who remembers their password should not have to go through a reset to watch.
+| The reset link sits under it for somebody who has forgotten.
+*/
+
+const RESET_WORDING = 'Forgotten your password?';
+
+it('keeps the Viewing Room button and adds a reset link for a claimed customer given a reset token', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+    $order = passOrderFor('a-long-enough-password');
+
+    Mail::to($order->customer->email)->send(new OrderPaid($order, 'tok-reset-1', ProductKey::ViewingRoomPass, PasswordLink::Reset));
+
+    $reset = FrontendUrl::resetPassword('jennifer@example.com', 'tok-reset-1', ProductKey::ViewingRoomPass);
+
+    expect($reset)->toContain('next=%2Fviewing-room%2F')
+        ->and(htmlBodySent())->toContain(PASS_SENTENCE)
+        ->and(htmlBodySent())->toContain('Enter the Viewing Room')
+        ->and(htmlBodySent())->toContain('href="'.FrontendUrl::viewingRoom().'"')
+        ->and(htmlBodySent())->toContain(RESET_WORDING)
+        ->and(htmlBodySent())->toContain('href="'.e($reset).'"')
+        ->and(htmlBodySent())->toContain('60 minutes')
+        ->and(htmlBodySent())->not->toContain(SET_CTA)
+        ->and(htmlBodySent())->not->toContain('/set-password/')
+        ->and(htmlBodySent())->not->toContain('You still need to choose a password')
+        ->and(textBodySent())->toContain(FrontendUrl::viewingRoom())
+        ->and(textBodySent())->toContain(RESET_WORDING)
+        ->and(textBodySent())->toContain($reset)
+        ->and(textBodySent())->toContain('60 minutes')
+        ->and(textBodySent())->not->toContain('/set-password/');
+});
+
+it('prints no reset link on a reading-only receipt, whatever the caller handed over', function () {
+    $order = paidOrderFor(ProductKey::MonthAhead, 7500);
+    $order->customer->forceFill(['password' => 'a-long-enough-password'])->save();
+
+    [$with, $html, $text] = renderedParts(new OrderPaid($order->fresh(), 'tok-leak-4', ProductKey::ViewingRoomPass, PasswordLink::Reset));
+
+    expect($with['resetPasswordUrl'])->toBeNull()
+        ->and($html)->toContain('MONTH AHEAD')
+        ->and($html)->not->toContain('tok-leak-4')
+        ->and($html)->not->toContain(RESET_WORDING)
+        ->and($text)->not->toContain('tok-leak-4')
+        ->and($text)->not->toContain('/reset-password/');
+});
+
+it('never prints a set-password link for a reset token, even to an unclaimed customer', function () {
+    $order = passOrderFor(null);
+
+    [$with, $html, $text] = renderedParts(new OrderPaid($order, 'tok-reset-2', ProductKey::ViewingRoomPass, PasswordLink::Reset));
+
+    // The kind of link is decided under the customer lock when the token is
+    // minted, and the mail prints that kind or nothing. It never re-decides.
+    expect($with['setPasswordUrl'])->toBeNull()
+        ->and($html)->not->toContain(SET_CTA)
+        ->and($html)->not->toContain('/set-password/')
+        ->and($text)->not->toContain('/set-password/');
 });
 
 it('puts the reading and the set-password link in one receipt for a pass bought with a reading', function () {

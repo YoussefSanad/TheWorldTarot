@@ -18,8 +18,10 @@ use App\Models\Product;
 use App\Support\FrontendUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Testing\TestResponse;
 
 uses(RefreshDatabase::class);
 
@@ -64,6 +66,39 @@ function claimTokenIn(OrderPaid $mail): ?string
     parse_str((string) parse_url($found[0], PHP_URL_QUERY), $query);
 
     return $query['token'] ?? null;
+}
+
+/**
+ * The reset link a receipt carries, or null when it carries none. Issue #114.
+ *
+ * @return array{token: string, email: string, next: ?string}|null
+ */
+function resetLinkIn(OrderPaid $mail): ?array
+{
+    if (preg_match('#https://\S+/reset-password/\?\S+#', receiptText($mail), $found) !== 1) {
+        return null;
+    }
+
+    parse_str((string) parse_url($found[0], PHP_URL_QUERY), $query);
+
+    return [
+        'token' => $query['token'] ?? '',
+        'email' => $query['email'] ?? '',
+        'next' => $query['next'] ?? null,
+    ];
+}
+
+/**
+ * Spend a reset token through the endpoint the website calls.
+ */
+function resetThrough(string $email, string $token, string $password = 'a-brand-new-password'): TestResponse
+{
+    return test()->withHeader('Origin', 'http://localhost')->postJson('/api/v1/reset-password', [
+        'token' => $token,
+        'email' => $email,
+        'password' => $password,
+        'password_confirmation' => $password,
+    ]);
 }
 
 /**
@@ -318,16 +353,24 @@ it('offers the pass buyer a password and no way past it, in the one receipt', fu
         ->and(receiptText($mail))->not->toContain('A separate email from us carries the link');
 });
 
-it('never sends a claim link to an address that already has an account', function () {
+it('sends no password link of any kind to a claimed account that bought only a reading', function () {
     $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
 
     settle(orderFor(Product::factory()->create(), $claimed));
 
-    // Otherwise a stranger who knows your email can cause a set-a-password
+    // ~~Otherwise a stranger who knows your email can cause a set-a-password
     // message to land in your inbox. It hands them nothing, and it is still a
-    // phishing shaped tool pointed at our own customers.
+    // phishing shaped tool pointed at our own customers.~~ Reworded 6 November
+    // 2026, issue #114: a pass order now does send a claimed account a reset
+    // link, by decision. A reading still sends nothing, because a reading needs
+    // no account to read, and this is the case that pins it.
     Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertNotQueued(PasswordResetLink::class);
     Mail::assertQueued(OrderPaid::class);
+
+    expect(claimTokenIn(receiptsQueued()[0]))->toBeNull()
+        ->and(resetLinkIn(receiptsQueued()[0]))->toBeNull()
+        ->and(DB::table(config('auth.passwords.customers.table'))->count())->toBe(0);
 });
 
 /*
@@ -466,23 +509,108 @@ it('invites a reading buyer the day they come back for the pass, and not before'
     expect(claimTokenIn(receiptsQueued()[1]))->not->toBeNull();
 });
 
-it('never sends a claim link to a claimed account that has just bought a pass', function () {
+/*
+| A claimed account that buys the pass is sent a reset link. Issue #114.
+|
+| ~~**The phishing rule outranks the new one.** A pass is now the only order
+| shape that reaches the send at all, so it is the shape the rule is worth
+| proving on.~~ Reversed 6 November 2026, issue #114, by decision in refinement.
+| A repeat buyer who has forgotten their password had a receipt with no way
+| back in. The same shape of risk is accepted knowingly: a stranger who pays
+| full price for a pass with your address causes a reset link to land in your
+| inbox, which hands them nothing and replaces any reset link you already held.
+| The reasoning lives in `MarkOrderPaid::tell()`.
+|
+| **A reset link, never a claim link.** Set-password refuses an account that
+| already has a password (`ClaimAccount` answers `AlreadyClaimed`), so the only
+| link that works for this person is the reset one.
+*/
+
+it('sends a claimed account that has just bought a pass a reset link in the one receipt', function () {
     $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
 
     settle(orderFor(Product::factory()->pass()->create(), $claimed));
 
-    // **The phishing rule outranks the new one.** A pass is now the only order
-    // shape that reaches the send at all, so it is the shape the rule is worth
-    // proving on. The case above it, on a reading, no longer reaches far enough
-    // to be that proof on its own.
+    // Still one mail per payment, issue #108.
     Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertNotQueued(PasswordResetLink::class);
     Mail::assertQueued(OrderPaid::class, 1);
 
-    // And neither does the receipt: it keeps the Viewing Room button instead,
-    // and mints no token for an address somebody else may be typing.
+    $link = resetLinkIn(receiptsQueued()[0]);
+
+    // The Viewing Room stays the button: somebody who remembers their password
+    // goes straight in, and the reset link is there for somebody who has not.
     expect(claimTokenIn(receiptsQueued()[0]))->toBeNull()
-        ->and(receiptsQueued()[0]->render())->toContain('Enter the Viewing Room')
-        ->and(DB::table(config('auth.passwords.customers.table'))->count())->toBe(0);
+        ->and($link)->not->toBeNull()
+        ->and($link['email'])->toBe($claimed->email)
+        ->and($link['next'])->toBe('/viewing-room/')
+        ->and(Password::broker('customers')->tokenExists($claimed, $link['token']))->toBeTrue()
+        ->and(receiptsQueued()[0]->render())->toContain('Enter the Viewing Room');
+});
+
+it('gives a claimed pass buyer a reset link that changes the password, and only once', function () {
+    $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
+
+    settle(orderFor(Product::factory()->pass()->create(), $claimed));
+
+    $link = resetLinkIn(receiptsQueued()[0]);
+
+    resetThrough($link['email'], $link['token'])->assertOk();
+
+    expect(Hash::check('a-brand-new-password', $claimed->fresh()->password))->toBeTrue();
+
+    // Spent, so the same link is refused the second time.
+    resetThrough($link['email'], $link['token'], 'yet-another-password')
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('email');
+
+    expect(Hash::check('a-brand-new-password', $claimed->fresh()->password))->toBeTrue();
+});
+
+it('refuses the reset link in a receipt once it has expired', function () {
+    $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
+
+    settle(orderFor(Product::factory()->pass()->create(), $claimed));
+
+    $link = resetLinkIn(receiptsQueued()[0]);
+
+    $this->travel(config('auth.passwords.customers.expire') + 1)->minutes();
+
+    resetThrough($link['email'], $link['token'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('email');
+
+    expect(Hash::check('a-long-enough-password', $claimed->fresh()->password))->toBeTrue();
+});
+
+it('replaces a reset link the claimed buyer already held, and the new one works', function () {
+    $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
+
+    // A reset link asked for from the sign in page, still in its hour.
+    $earlier = Password::broker('customers')->createToken($claimed);
+
+    settle(orderFor(Product::factory()->pass()->create(), $claimed));
+
+    $link = resetLinkIn(receiptsQueued()[0]);
+
+    // The broker deletes the earlier token when it mints the new one. That is
+    // the accepted cost, written down in `MarkOrderPaid::tell()`.
+    expect(Password::broker('customers')->tokenExists($claimed, $earlier))->toBeFalse();
+
+    resetThrough($claimed->email, $earlier)->assertStatus(422);
+    resetThrough($link['email'], $link['token'])->assertOk();
+});
+
+it('sends no reset link on a receipt for a reading bought beside nothing else, even inside a claimed account', function () {
+    $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
+    $earlier = Password::broker('customers')->createToken($claimed);
+
+    settle(orderFor(Product::factory()->create(), $claimed));
+
+    // A reading-only order touches no token, so a reset link already in the
+    // inbox keeps working.
+    expect(resetLinkIn(receiptsQueued()[0]))->toBeNull()
+        ->and(Password::broker('customers')->tokenExists($claimed, $earlier))->toBeTrue();
 });
 
 /*
@@ -889,41 +1017,65 @@ function anOrderHolding(string $state): Order
 | so minting a claim token invalidates every earlier one for that address. A
 | customer who bought twice held two receipts, one of which was already dead,
 | with nothing saying which.
+|
+| ~~#110 answered that by leaving the second receipt with no link while the
+| first was live.~~ Reversed 6 November 2026, issue #114: every pass receipt
+| carries a working link, and the newest one is the one that works. The earlier
+| mail's link dies, which is the accepted cost. A person reads the latest mail.
 */
 
-it('leaves the first claim link working when a second order is paid', function () {
+it('gives the second receipt a working claim link, and the first one stops working', function () {
     $unclaimed = Customer::factory()->create(['password' => null]);
 
     // **One pass, bought on two orders.** There is one Viewing Room row in the
     // catalogue, and `products.key` is unique, so both orders name the same
-    // one. Reachable rather than contrived: buying the pass while holding it is
-    // refused at placement, and somebody who places two orders before either
-    // settles holds nothing yet, so both go through and both reach here.
+    // one. Reachable rather than contrived: a guest at Stripe's hosted page
+    // gives their email only after the order exists, so the rule refusing a
+    // holder cannot see them, and somebody who places two orders before either
+    // settles holds nothing yet either.
     $pass = Product::factory()->pass()->create();
 
     settle(orderFor($pass, $unclaimed));
 
-    $token = claimTokenIn(receiptsQueued()[0]);
+    $first = claimTokenIn(receiptsQueued()[0]);
 
     settle(orderFor($pass, $unclaimed));
 
-    // The second receipt still arrives. It is the link that is not repeated,
-    // because repeating it is what killed the link in the first one.
+    // Still one mail per payment.
     Mail::assertQueued(OrderPaid::class, 2);
     Mail::assertNotQueued(SetPasswordLink::class);
 
-    $second = receiptsQueued()[1];
+    $second = claimTokenIn(receiptsQueued()[1]);
 
-    // Receipt without a link: the Viewing Room button, wording that sends them
-    // to the sign in page, and no promise of a link in another email.
-    expect($token)->not->toBeNull()
-        ->and(claimTokenIn($second))->toBeNull()
-        ->and($second->render())->toContain('Enter the Viewing Room')
-        ->and($second->render())->toContain('sign in page')
-        ->and($second->render())->not->toContain('A separate email from us carries the link')
-        ->and(receiptText($second))->not->toContain('A separate email from us carries the link')
-        ->and(app(ClaimAccount::class)($unclaimed->email, $token, 'a-brand-new-password'))
+    expect($first)->not->toBeNull()
+        ->and($second)->not->toBeNull()
+        ->and($second)->not->toBe($first)
+        ->and(receiptsQueued()[1]->render())->toContain('Set your password')
+        ->and(app(ClaimAccount::class)($unclaimed->email, $first, 'a-brand-new-password'))
+        ->toBe(ClaimOutcome::LinkNotValid)
+        ->and(app(ClaimAccount::class)($unclaimed->email, $second, 'a-brand-new-password'))
         ->toBe(ClaimOutcome::Claimed);
+});
+
+it('sends a reset link on the next pass receipt once the account has been claimed', function () {
+    $customer = Customer::factory()->create(['password' => null]);
+    $pass = Product::factory()->pass()->create();
+
+    settle(orderFor($pass, $customer));
+
+    expect(app(ClaimAccount::class)($customer->email, claimTokenIn(receiptsQueued()[0]), 'a-brand-new-password'))
+        ->toBe(ClaimOutcome::Claimed);
+
+    settle(orderFor($pass, $customer->fresh()));
+
+    $link = resetLinkIn(receiptsQueued()[1]);
+
+    expect(claimTokenIn(receiptsQueued()[1]))->toBeNull()
+        ->and($link)->not->toBeNull();
+
+    resetThrough($link['email'], $link['token'], 'a-third-password')->assertOk();
+
+    expect(Hash::check('a-third-password', $customer->fresh()->password))->toBeTrue();
 });
 
 it('mints a fresh claim link once the outstanding one has expired', function () {
@@ -934,9 +1086,11 @@ it('mints a fresh claim link once the outstanding one has expired', function () 
 
     $this->travel(config('auth.passwords.customers.expire') + 1)->minutes();
 
-    // Suppressing the second mail is only right while the first link is worth
+    // ~~Suppressing the second mail is only right while the first link is worth
     // something. An hour later it is not, and a customer buying again would
-    // otherwise be handed a receipt with no way into their account.
+    // otherwise be handed a receipt with no way into their account.~~ Reworded
+    // 6 November 2026, issue #114: nothing is suppressed any more, live link or
+    // not. Kept because the expired case is still worth pinning on its own.
     settle(orderFor($pass, $unclaimed));
 
     Mail::assertQueued(OrderPaid::class, 2);
