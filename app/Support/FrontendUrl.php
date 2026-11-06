@@ -19,12 +19,18 @@ class FrontendUrl
      *
      * The email travels alongside the token because the reset is verified
      * against the pair. A token alone identifies nobody.
+     *
+     * **Takes the product since issue #114**, for the same reason and by the
+     * same rule as `setPassword` below: a claimed customer who buys the pass is
+     * sent a reset link in the receipt, and it should carry them on to the
+     * Viewing Room. The website's reset page reads `next` for its sign in link.
      */
-    public static function resetPassword(string $email, string $token): string
+    public static function resetPassword(string $email, string $token, ?ProductKey $product = null): string
     {
         return self::to(config('frontend.paths.reset_password'), [
             'token' => $token,
             'email' => $email,
+            ...self::next($product),
         ]);
     }
 
@@ -43,16 +49,26 @@ class FrontendUrl
      */
     public static function setPassword(string $email, string $token, ?ProductKey $product = null): string
     {
-        $query = [
+        return self::to(config('frontend.paths.set_password'), [
             'token' => $token,
             'email' => $email,
-        ];
+            ...self::next($product),
+        ]);
+    }
 
-        if ($product === ProductKey::ViewingRoomPass) {
-            $query['next'] = '/'.self::page(config('frontend.paths.viewing_room'));
-        }
-
-        return self::to(config('frontend.paths.set_password'), $query);
+    /**
+     * Where a password link carries its reader afterwards, as a query fragment.
+     *
+     * Shared by the set and reset links since issue #114, so the two cannot
+     * come to disagree about which products earn a `next` or how it is spelled.
+     *
+     * @return array<string, string>
+     */
+    private static function next(?ProductKey $product): array
+    {
+        return $product === ProductKey::ViewingRoomPass
+            ? ['next' => '/'.self::page(config('frontend.paths.viewing_room'))]
+            : [];
     }
 
     /**
