@@ -401,6 +401,7 @@ The platform invokes `schedule:run` every five minutes, measured on staging on 2
 | `media:check` | Write, read back and delete a file on every disk |
 | `app:create-admin` | Create or update a Filament admin |
 | `cards:seed-images` | Seed card pictures by number from the source folder; dry run, force replacement and public URL verification are optional. Runbook: `docs/deploy/media-storage.md` |
+| `cards:seed-copy` | Write the first English card copy by number from `database/seed-copy/cards.en.json`; fills empty fields only, `--force` replaces after a backup, `--dry-run` writes nothing, `Live?` says what each card lacks. Never run on deploy. Runbook: `docs/deploy/media-storage.md` |
 | `cards:reconcile-videos` | Ask Bunny about anything still being prepared |
 | `orders:reconcile` | Ask Stripe about any order still waiting on a payment |
 

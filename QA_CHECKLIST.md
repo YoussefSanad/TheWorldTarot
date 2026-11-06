@@ -26,6 +26,12 @@ API=https://staging-api.theworldtarot.com
 | After `media:check`, `php artisan cards:seed-images --dry-run` | All 22 numbers are accounted for. No objects or card rows are written; resolve missing or duplicate files before proceeding |
 | `php artisan cards:seed-images` | Pictures are uploaded for cards without one; existing pictures are skipped. Read every result and resolve failures or conflicts |
 | `php artisan cards:seed-images --verify` | Account for 0 to 21: `uploaded`, `skipped` or `unchanged` with a 2xx, or `missing card` checked against the panel's trash and recorded as deliberately deleted. Exit 0 alone is not enough: `missing card` exits 0. See `docs/deploy/media-storage.md` |
+| After the pictures, `php artisan cards:seed-copy --dry-run` | All 22 numbers accounted for, nothing written: every card row's `updated_at` unchanged and no backup file. `keep` cells and their current text noted before the real run |
+| `php artisan cards:seed-copy` | Account for 0 to 21: `written`, `kept` or `unchanged`, or `missing card` checked against the panel's trash. No `no entry`, `conflict` or `failed`. A rerun writes nothing. See `docs/deploy/media-storage.md` |
+| After the copy run, `GET /api/v1/en/cards` | Lists exactly the cards whose `Live?` said `yes`, and a `fill` field returns the file's text |
+| If `cards:seed-copy --force` was run | Its backup was copied off the server to a private place before any deploy, and the report says where |
+| Card 5 in the panel | The English name reads `The High Priest` (and Spanish `El Sumo Sacerdote` if set), changed by hand |
+| Panel, a card after the copy run | The seeded text shows in the English tab and can be edited and saved by hand |
 | `php artisan availability:check` from the environment's console | Passes. Every card and reading answers the same whether the rule is asked as a listing, as a record in hand, or as the panel's explanation. A failure names the row and what disagreed |
 | `php artisan availability:check --explain` | Lists what each unfinished card and reading is waiting for. Read a few: they have to say something Jennifer can act on, not something only a developer understands |
 | Visit `$API` in a browser | No stack trace, no environment variables on screen |
