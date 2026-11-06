@@ -32,19 +32,14 @@ is the one thing nothing else can check for you.
 Your Viewing Room pass is yours for good. Come back to the films whenever you
 like, on any device.
 
-@if ($setPasswordUrl)
+@if ($passwordUrl)
 
-Set your password: {!! $setPasswordUrl !!}
+Set your password: {!! $passwordUrl !!}
 
 This link works for {!! $minutes !!} minutes, and only once. If it expires before you get to it, you can ask for a new one from the sign in page at any time.
 @else
 Enter the Viewing Room: {!! $viewingRoomUrl !!}
-@if ($resetPasswordUrl)
-
-Forgotten your password? Choose a new one here: {!! $resetPasswordUrl !!}
-
-This link works for {!! $minutes !!} minutes, and only once. If it expires before you get to it, you can ask for a new one from the sign in page at any time.
-@elseif ($needsPassword)
+@if ($needsPassword)
 
 You still need to choose a password. You can ask for a link to set one from the sign in page at any time.
 @endif

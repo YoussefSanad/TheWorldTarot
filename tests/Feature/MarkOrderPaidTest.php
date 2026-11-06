@@ -538,14 +538,15 @@ it('sends a claimed account that has just bought a pass a reset link in the one 
 
     $link = resetLinkIn(receiptsQueued()[0]);
 
-    // The Viewing Room stays the button: somebody who remembers their password
-    // goes straight in, and the reset link is there for somebody who has not.
+    // The same email as a first purchase, decided 6 November 2026: "Set your
+    // password" is the only button, and it opens the reset page.
     expect(claimTokenIn(receiptsQueued()[0]))->toBeNull()
         ->and($link)->not->toBeNull()
         ->and($link['email'])->toBe($claimed->email)
         ->and($link['next'])->toBe('/viewing-room/')
         ->and(Password::broker('customers')->tokenExists($claimed, $link['token']))->toBeTrue()
-        ->and(receiptsQueued()[0]->render())->toContain('Enter the Viewing Room');
+        ->and(receiptsQueued()[0]->render())->toContain('Set your password')
+        ->and(receiptsQueued()[0]->render())->not->toContain('Enter the Viewing Room');
 });
 
 it('gives a claimed pass buyer a reset link that changes the password, and only once', function () {

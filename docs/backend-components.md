@@ -413,7 +413,7 @@ The platform invokes `schedule:run` every five minutes, measured on staging on 2
 
 | Mailable | When |
 |---|---|
-| `OrderPaid` | The receipt, on payment. Carries the pass copy. When the order holds a pass, it carries a Viewing Room link, **or, for an unclaimed buyer who was handed a token (#108), a "Set your password" link as the only CTA and no Viewing Room button.** The token and product are private, optional constructor arguments read with `??`, so a receipt queued before #108 still renders |
+| `OrderPaid` | The receipt, on payment. Carries the pass copy. When the order holds a pass, it carries a Viewing Room link, **or, for an unclaimed buyer who was handed a token (#108), a "Set your password" link as the only CTA and no Viewing Room button.** **Since 6 November 2026 a claimed pass buyer gets the same receipt**, the button linking to the reset page instead (#114 minted the reset token; the views read one `passwordUrl`). The token and product are private, optional constructor arguments read with `??`, so a receipt queued before #108 still renders |
 | `SetPasswordLink` | Retained for mail queued before #108 deploy, not dispatched for new payments. A newly eligible unclaimed pass buyer gets the link in `OrderPaid` instead. Legacy messages send HTML and text parts; the pass link carries `next=/viewing-room/`, chosen by `FrontendUrl::setPassword()` from the `ProductKey`, #102 |
 | `ReadingToWrite` | To the client, whenever somebody asks: on settlement for a line nobody gifted, and on redemption for a line somebody did |
 | `GiftToRedeem` | To the recipient, on payment, carrying the code and the `/redeem/` link. Rendered in `gifts.locale`, and the buyer never receives a copy |
