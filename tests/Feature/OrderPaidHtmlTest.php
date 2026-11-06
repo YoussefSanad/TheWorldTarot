@@ -457,14 +457,20 @@ it('keeps the Viewing Room button and carries no link for a claimed customer', f
 | A claimed customer can only get back in through the reset flow, because
 | set-password refuses an account that already has a password. So
 | `MarkOrderPaid` mints a reset token for them and says which kind of token it
-| is. **The Viewing Room button stays as the call to action**, because somebody
+| is.
+|
+| ~~**The Viewing Room button stays as the call to action**, because somebody
 | who remembers their password should not have to go through a reset to watch.
-| The reset link sits under it for somebody who has forgotten.
+| The reset link sits under it for somebody who has forgotten.~~ **Reversed
+| 6 November 2026, by decision.** A repeat pass buyer gets the same email as a
+| first purchase: "Set your password" as the only call to action, with the
+| same sentences around it. Only the link differs, because the page it opens
+| has to be the one that accepts an account with a password.
 */
 
 const RESET_WORDING = 'Forgotten your password?';
 
-it('keeps the Viewing Room button and adds a reset link for a claimed customer given a reset token', function () {
+it('sends a claimed customer given a reset token the same receipt as a first purchase, with the reset link as its button', function () {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');
     $order = passOrderFor('a-long-enough-password');
 
@@ -474,19 +480,38 @@ it('keeps the Viewing Room button and adds a reset link for a claimed customer g
 
     expect($reset)->toContain('next=%2Fviewing-room%2F')
         ->and(htmlBodySent())->toContain(PASS_SENTENCE)
-        ->and(htmlBodySent())->toContain('Enter the Viewing Room')
-        ->and(htmlBodySent())->toContain('href="'.FrontendUrl::viewingRoom().'"')
-        ->and(htmlBodySent())->toContain(RESET_WORDING)
+        ->and(htmlBodySent())->toContain(SET_CTA)
         ->and(htmlBodySent())->toContain('href="'.e($reset).'"')
         ->and(htmlBodySent())->toContain('60 minutes')
-        ->and(htmlBodySent())->not->toContain(SET_CTA)
+        ->and(htmlBodySent())->not->toContain('Enter the Viewing Room')
+        ->and(htmlBodySent())->not->toContain('href="'.FrontendUrl::viewingRoom().'"')
+        ->and(htmlBodySent())->not->toContain(RESET_WORDING)
         ->and(htmlBodySent())->not->toContain('/set-password/')
         ->and(htmlBodySent())->not->toContain('You still need to choose a password')
-        ->and(textBodySent())->toContain(FrontendUrl::viewingRoom())
-        ->and(textBodySent())->toContain(RESET_WORDING)
+        ->and(textBodySent())->toContain(SET_CTA)
         ->and(textBodySent())->toContain($reset)
         ->and(textBodySent())->toContain('60 minutes')
+        ->and(textBodySent())->not->toContain('Enter the Viewing Room')
+        ->and(textBodySent())->not->toContain(RESET_WORDING)
         ->and(textBodySent())->not->toContain('/set-password/');
+});
+
+it('renders the repeat pass receipt identical to the first purchase receipt but for the link', function () {
+    config()->set('frontend.url', 'https://staging.theworldtarot.com');
+    $order = passOrderFor(null);
+
+    // The first purchase: an unclaimed account and a set-password token.
+    [, $firstHtml, $firstText] = renderedParts(new OrderPaid($order, 'tok-same', ProductKey::ViewingRoomPass, PasswordLink::Set));
+    $set = FrontendUrl::setPassword('jennifer@example.com', 'tok-same', ProductKey::ViewingRoomPass);
+
+    // The same order once the account is claimed, so only the link may differ.
+    $order->customer->forceFill(['password' => 'a-long-enough-password'])->save();
+    [, $repeatHtml, $repeatText] = renderedParts(new OrderPaid($order->fresh(), 'tok-same', ProductKey::ViewingRoomPass, PasswordLink::Reset));
+    $reset = FrontendUrl::resetPassword('jennifer@example.com', 'tok-same', ProductKey::ViewingRoomPass);
+
+    expect($firstHtml)->toContain(e($set))
+        ->and($repeatHtml)->toBe(str_replace(e($set), e($reset), $firstHtml))
+        ->and($repeatText)->toBe(str_replace($set, $reset, $firstText));
 });
 
 it('prints no reset link on a reading-only receipt, whatever the caller handed over', function () {
@@ -510,9 +535,13 @@ it('never prints a set-password link for a reset token, even to an unclaimed cus
 
     // The kind of link is decided under the customer lock when the token is
     // minted, and the mail prints that kind or nothing. It never re-decides.
+    // ~~No "Set your password" label either~~: since 6 November 2026 the reset
+    // link wears that label too, so what is asserted is the page it opens.
     expect($with['setPasswordUrl'])->toBeNull()
-        ->and($html)->not->toContain(SET_CTA)
+        ->and($with['passwordUrl'])->toContain('/reset-password/')
+        ->and($html)->toContain('/reset-password/')
         ->and($html)->not->toContain('/set-password/')
+        ->and($text)->toContain('/reset-password/')
         ->and($text)->not->toContain('/set-password/');
 });
 

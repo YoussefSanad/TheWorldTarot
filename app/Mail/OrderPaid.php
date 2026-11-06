@@ -28,8 +28,12 @@ use Illuminate\Mail\Mailables\Content;
  *
  * **A claimed customer who buys the pass gets a reset link, since issue #114.**
  * `MarkOrderPaid` mints the token and says with `PasswordLink` which page it is
- * for. The Viewing Room button stays the call to action and the reset link sits
- * under it, because this person may well remember their password.
+ * for. ~~The Viewing Room button stays the call to action and the reset link
+ * sits under it, because this person may well remember their password.~~
+ * **Reversed 6 November 2026, by decision:** a repeat pass buyer gets the same
+ * email as a first purchase, "Set your password" as the only call to action.
+ * Only the link differs, because set-password refuses an account that already
+ * has one and the reset page does not.
  *
  * **From noreply@ since 30 August 2026, and it carries no Reply-To.** It came
  * from orders@ until then, which is now the mailbox the internal new order
@@ -101,6 +105,23 @@ class OrderPaid extends QueuedMail
         // existed can only have carried a set-password token.
         $link = $this->link ?? PasswordLink::Set;
 
+        // **The credential, present only when `MarkOrderPaid` minted one for
+        // this send.** Null means the receipt carries no link and keeps the
+        // Viewing Room button. A set-password link is also gated on the account
+        // still being unclaimed, so a token handed to a claimed customer or to
+        // an order with no pass is never printed as one.
+        //
+        // **Printed only as the kind of link it was minted as**, since issue
+        // #114. A reset token is never printed as a set-password link, whatever
+        // the account looks like by the time this sends. A reset link is gated
+        // on the pass for the same reason: a reading needs no account.
+        $setPasswordUrl = $token !== null && $link === PasswordLink::Set && $holdsAPass && $this->order->customer->isUnclaimed()
+            ? FrontendUrl::setPassword($this->order->customer->email, $token, $product)
+            : null;
+        $resetPasswordUrl = $token !== null && $link === PasswordLink::Reset && $holdsAPass
+            ? FrontendUrl::resetPassword($this->order->customer->email, $token, $product)
+            : null;
+
         return new Content(
             html: 'mail.html.order-paid',
             text: 'mail.order-paid',
@@ -156,29 +177,18 @@ class OrderPaid extends QueuedMail
                 // sign in page for a new link and promises none in another email.
                 'needsPassword' => $holdsAPass && $this->order->customer->isUnclaimed(),
 
-                // **The credential, present only when `MarkOrderPaid` minted
-                // one for this send.** Null means the receipt carries no link
-                // and keeps the Viewing Room button. Gated on `needsPassword`
-                // as well, so a token handed to a claimed customer or to an
-                // order with no pass is never printed.
-                //
-                // **Printed only as the kind of link it was minted as**, since
-                // issue #114. A reset token is never printed as a set-password
-                // link, whatever the account looks like by the time this sends.
-                'setPasswordUrl' => $token !== null && $link === PasswordLink::Set && $holdsAPass && $this->order->customer->isUnclaimed()
-                    ? FrontendUrl::setPassword($this->order->customer->email, $token, $product)
-                    : null,
+                // Both kinds, so a test can say which one was minted.
+                'setPasswordUrl' => $setPasswordUrl,
+                'resetPasswordUrl' => $resetPasswordUrl,
 
-                // **A reset link for a customer who already has a password**,
-                // issue #114. Minted by `MarkOrderPaid` for a claimed pass
-                // buyer, so a repeat buyer who has forgotten can always get
-                // back in. Printed under the Viewing Room button rather than in
-                // place of it, so somebody who remembers their password is not
-                // sent through a reset to watch. Gated on the pass for the same
-                // reason as the set-password link: a reading needs no account.
-                'resetPasswordUrl' => $token !== null && $link === PasswordLink::Reset && $holdsAPass
-                    ? FrontendUrl::resetPassword($this->order->customer->email, $token, $product)
-                    : null,
+                // **The one button both receipts draw.** ~~A reset link was
+                // printed under the Viewing Room button rather than in place of
+                // it (#114).~~ Reversed 6 November 2026, by decision: a repeat
+                // pass buyer gets the same email as a first purchase, "Set your
+                // password" as the only call to action, so the views branch on
+                // this and never on which kind of link it is. At most one of
+                // the two above is ever non-null.
+                'passwordUrl' => $setPasswordUrl ?? $resetPasswordUrl,
                 'minutes' => config('auth.passwords.customers.expire'),
 
                 // The same lookup the panel's product table does. Falling back
