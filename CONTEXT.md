@@ -40,6 +40,12 @@ choose a first password. Minted by `MarkOrderPaid`, carried by
 because this application renders nothing a customer can use. It lasts an hour
 and works exactly once.
 
+**Since 11 November 2026, issue #122, the same link also reaches the
+confirmation page**, through `POST /orders/status`, for fifteen minutes after
+settlement and only for an account the order made. It is the receipt's own
+token, kept by `App\Support\ClaimLinkHandover`, never a second one: the broker
+keeps one per address, and a second link would kill the first.
+
 _Avoid_: activation link, welcome link, invite, set password link (that is the
 mailable's class name, not the thing)
 

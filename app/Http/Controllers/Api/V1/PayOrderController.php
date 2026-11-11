@@ -10,6 +10,7 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Payments\PaymentInstruction;
 use App\Services\Payments\PaymentMethods;
+use App\Support\ClaimLinkHandover;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -46,19 +47,56 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  */
 class PayOrderController extends Controller
 {
+    /**
+     * `POST /orders/{pay_token}/pay`, the legacy route with the token in its
+     * path.
+     *
+     * **Kept only until the website has moved to the body route**, frontend
+     * #170, and then to be deleted. A path segment is written to every access
+     * log between the browser and here, Cloudflare's included, and since issue
+     * #122 a pay token is briefly enough to claim a first-time buyer's account.
+     * So every order reached through this route is remembered as one whose
+     * token has been in a log, and the confirmation page is never handed that
+     * order's claim link. The receipt still carries it.
+     */
     public function __invoke(
         PayOrderRequest $request,
         string $payToken,
         PaymentMethods $methods,
+        ClaimLinkHandover $handover,
     ): JsonResponse {
-        $order = Order::where('pay_token', $payToken)->first();
+        $order = $this->find($payToken);
 
-        // An unknown token and a token belonging to somebody else answer the
-        // same way, because the difference between them is information.
-        if ($order === null) {
-            throw new NotFoundHttpException;
-        }
+        // Before anybody is refused: a token that reached this route is in the
+        // log whatever we answer.
+        $handover->rememberTokenTravelledInAPath($order);
 
+        return $this->pay($request, $order, $methods);
+    }
+
+    /**
+     * `POST /orders/pay`, the token in the body. Issue #122.
+     *
+     * The same answer as the path route in every case, by the same code. Only
+     * where the credential travels differs, which is the reason `/orders/status`
+     * has always taken it this way.
+     */
+    public function withTokenInBody(PayOrderRequest $request, PaymentMethods $methods): JsonResponse
+    {
+        return $this->pay($request, $this->find((string) $request->validated('pay_token')), $methods);
+    }
+
+    /**
+     * An unknown token and a token belonging to somebody else answer the same
+     * way, because the difference between them is information.
+     */
+    private function find(string $payToken): Order
+    {
+        return Order::where('pay_token', $payToken)->first() ?? throw new NotFoundHttpException;
+    }
+
+    private function pay(PayOrderRequest $request, Order $order, PaymentMethods $methods): JsonResponse
+    {
         $this->refuseAnybodyElse($request, $order);
 
         return $this->answer($this->instructionFor($request, $order, $methods), $request);

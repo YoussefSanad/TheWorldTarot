@@ -12,6 +12,7 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Payments\OrderBelongsToNobody;
+use App\Support\ClaimLinkHandover;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -58,6 +59,7 @@ class MarkOrderPaid
     public function __construct(
         private readonly MarkOrderFulfilled $markFulfilled,
         private readonly AskForReading $askForReading,
+        private readonly ClaimLinkHandover $handover,
     ) {}
 
     /**
@@ -386,7 +388,7 @@ class MarkOrderPaid
             // savepoint, and the lock holds until the mint commits. The receipt
             // and gift mails stay outside it.
             $minted = $this->grantsAccess($order)
-                ? DB::transaction(function () use ($customer): ?array {
+                ? DB::transaction(function () use ($customer, $order): ?array {
                     $locked = Customer::whereKey($customer->getKey())->lockForUpdate()->first();
 
                     if ($locked === null) {
@@ -394,16 +396,33 @@ class MarkOrderPaid
                     }
 
                     // The token, its recipient and its kind all come from the
-                    // same locked row.
+                    // same locked row. So does whether the confirmation page
+                    // may be handed it too (#122): asked under the lock, so a
+                    // second order attaching to this account cannot slip in
+                    // between the question and the mint.
                     return [
                         Password::broker('customers')->createToken($locked),
                         $locked->email,
                         $locked->isUnclaimed() ? PasswordLink::Set : PasswordLink::Reset,
+                        $this->handover->isFor($order, $locked),
                     ];
                 })
                 : null;
 
-            [$token, $recipient, $link] = $minted ?? [null, $customer->email, PasswordLink::Set];
+            [$token, $recipient, $link, $forThePage] = $minted ?? [null, $customer->email, PasswordLink::Set, false];
+
+            // **The receipt's own token, kept for the confirmation page**, issue
+            // #122, so the page and the inbox hold one link rather than two
+            // that kill each other. `ClaimLinkHandover` carries where it is
+            // kept, for how long, and every bound on who may read it back.
+            //
+            // **After the mint has committed, not inside it.** Kept inside, a
+            // page asking in the moment before the commit would find a token
+            // the broker does not hold yet and be told "none" for good. Kept
+            // here, that moment answers "not yet" and the next ask finds it.
+            if ($forThePage && $token !== null) {
+                $this->handover->keep($order, $token);
+            }
 
             Mail::to($recipient)->send(new OrderPaid(
                 $order,

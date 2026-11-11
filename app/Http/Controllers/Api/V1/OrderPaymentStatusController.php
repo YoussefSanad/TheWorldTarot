@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\ReadClaimLink;
 use App\Actions\ReadPaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\ReadPaymentStatusRequest;
 use App\Http\Resources\Api\V1\PaymentStatusResource;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Payments\Confirmation;
 use App\Payments\PaymentStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,6 +37,12 @@ use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
  * may look straight at a payment that has succeeded and still must not settle
  * anything: it is polled, by a browser, on an interval nobody here chose.
  *
+ * **And since 11 November 2026, issue #122, it can carry a first-time pass
+ * buyer's claim link**, which makes the pay token enough to claim that account
+ * for a few minutes. Still read only: `ReadClaimLink` hands back the token
+ * `MarkOrderPaid` minted for the receipt and mints nothing. The bounds on it
+ * are in `App\Support\ClaimLinkHandover`.
+ *
  * **The same departure from .claude/api.md that `PayOrderController` states.**
  * Stripe is called inside the request rather than from a queue, because the
  * answer is what the request is for and a job would finish after the response
@@ -44,8 +52,11 @@ use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
  */
 class OrderPaymentStatusController extends Controller
 {
-    public function __invoke(ReadPaymentStatusRequest $request, ReadPaymentStatus $read): JsonResponse
-    {
+    public function __invoke(
+        ReadPaymentStatusRequest $request,
+        ReadPaymentStatus $read,
+        ReadClaimLink $claimLink,
+    ): JsonResponse {
         $order = Order::where('pay_token', $request->validated('pay_token'))->first();
 
         // An unknown token, a malformed one, and a token belonging to somebody
@@ -57,7 +68,11 @@ class OrderPaymentStatusController extends Controller
 
         $this->refuseAnybodyElse($request, $order);
 
-        return $this->answer($this->status($read, $order), $request);
+        // The status first, so an outage at Stripe is still a 503 that says
+        // nothing, the claim link included.
+        $status = $this->status($read, $order);
+
+        return $this->answer(new Confirmation($status, $claimLink($order)), $request);
     }
 
     /**
@@ -124,12 +139,13 @@ class OrderPaymentStatusController extends Controller
         }
     }
 
-    private function answer(PaymentStatus $status, Request $request): JsonResponse
+    private function answer(Confirmation $confirmation, Request $request): JsonResponse
     {
         // A held answer is a stale one about somebody's money, and it is about a
         // request nobody authenticated beyond a token. Neither a browser nor
-        // anything between here and it may keep this.
-        return PaymentStatusResource::make($status)
+        // anything between here and it may keep this. Since #122 it can also
+        // hold a single use credential to somebody's account.
+        return PaymentStatusResource::make($confirmation)
             ->toResponse($request)
             ->header('Cache-Control', 'no-store');
     }
