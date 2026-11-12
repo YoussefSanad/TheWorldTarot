@@ -459,3 +459,94 @@ it('ignores return_to when the wallet method answers with a client secret', func
         'return_to' => 'viewing-room-pass',
     ])->assertOk()->assertJsonPath('type', 'client_secret');
 });
+
+/*
+| The token in the body, issue #122.
+|
+| **`/orders/{pay_token}/pay` writes a credential into every access log between
+| the browser and here**, Cloudflare's included. That stopped being merely
+| untidy when the pay token became enough to read a first-time buyer's claim
+| link back, so `POST /orders/pay` takes it in the body, as `/orders/status`
+| always has. The path route stays only until the website has moved.
+*/
+
+it('takes the token in the body on the body route, so it never reaches a URL', function () {
+    $route = Route::getRoutes()->getByName('orders.pay.body');
+
+    expect($route->uri())->toBe('api/v1/orders/pay')
+        ->and($route->parameterNames())->toBe([])
+        ->and($route->methods())->toContain('POST')
+        ->and($route->methods())->not->toContain('GET');
+});
+
+it('mints a payment through the body route exactly as through the path', function () {
+    $order = payableOrder();
+
+    $this->postJson('/api/v1/orders/pay', ['pay_token' => $order->pay_token, 'return_to' => 'month-ahead'])
+        ->assertOk()
+        ->assertJsonPath('type', 'redirect')
+        ->assertHeader('Cache-Control', 'no-store, private');
+
+    expect(FakeCheckout::$started)->toBe([$order->id])
+        ->and(FakeCheckout::$returnTo)->toBe([ProductKey::MonthAhead]);
+});
+
+it('answers nothing to pay through the body route for an order already paid', function () {
+    $order = payableOrder();
+    $order->forceFill(['status' => OrderStatus::Paid, 'paid_at' => now()])->save();
+
+    $this->postJson('/api/v1/orders/pay', ['pay_token' => $order->pay_token])
+        ->assertOk()
+        ->assertExactJson(['type' => 'nothing_to_pay']);
+
+    expect(FakeCheckout::$started)->toBe([]);
+});
+
+it('does not know an unknown token on the body route, nor a malformed one', function (string $token) {
+    payableOrder();
+
+    $this->postJson('/api/v1/orders/pay', ['pay_token' => $token])->assertNotFound();
+
+    expect(FakeCheckout::$started)->toBe([]);
+})->with([
+    'unknown' => fn () => Order::mintPayToken(),
+    'punctuation nobody mints' => '../../admin',
+]);
+
+it('names the field when the body route is sent no token', function () {
+    $this->postJson('/api/v1/orders/pay', [])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('pay_token');
+});
+
+it('refuses a signed in customer somebody else"s order on the body route', function () {
+    $order = payableOrder();
+
+    $this->actingAs(Customer::factory()->create(), 'sanctum')
+        ->postJson('/api/v1/orders/pay', ['pay_token' => $order->pay_token])
+        ->assertNotFound();
+
+    expect(FakeCheckout::$started)->toBe([]);
+});
+
+it('lets a signed in customer pay through the body route for an order waiting for its customer', function () {
+    $order = payableOrder();
+    $order->forceFill(['customer_id' => null])->save();
+
+    $this->actingAs(Customer::factory()->create(), 'sanctum')
+        ->postJson('/api/v1/orders/pay', ['pay_token' => $order->pay_token])
+        ->assertOk();
+});
+
+/**
+ * **One counter for paying, whichever route the token arrived on**, so moving
+ * the website from one to the other neither doubles a customer's allowance nor
+ * lets the two be used to get around each other.
+ */
+it('counts the body route in the same bucket as the path route', function () {
+    $prefix = fn (string $name): string => explode(',', explode(':', collect(Route::getRoutes()->getByName($name)->gatherMiddleware())
+        ->first(fn (string $m): bool => str_starts_with($m, 'throttle:')), 2)[1])[2];
+
+    expect($prefix('orders.pay.body'))->toBe('orders-pay')
+        ->and($prefix('orders.pay'))->toBe('orders-pay');
+});

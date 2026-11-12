@@ -24,6 +24,8 @@ Status: in use as of 22 October 2026. The frontend builds against it, so changes
 
 **Updated 27 October 2026, issue #108.** The claim invitation is now embedded in the order receipt for an eligible first-time Viewing Room pass buyer, not sent as a separate email. Every buyer still receives a receipt; only the qualifying receipt contains the set-password link.
 
+**Updated 11 November 2026, backend #122, and it changes a rule this document stated: `POST /api/v1/orders/status` can now send an email back.** For a first-time Viewing Room pass buyer, for fifteen minutes after their order settles, the answer carries the receipt's own set-password link, whose query string holds their address. Two keys arrive on every answer, `set_password_link` and `set_password_url`, under the endpoint in section 2. **And `POST /api/v1/orders/pay` takes the pay token in the body**, replacing `POST /api/v1/orders/{pay_token}/pay`, which stays only until your site has moved (frontend #170) and then goes. Your side of both is frontend #170.
+
 **What has not changed is the order of the calls and the shape of everything else.** You still place an order, you still POST the token to `/pay`, and you still read `type` before you read anything else.
 
 ---
@@ -87,7 +89,7 @@ This endpoint has no language segment, since it is what tells you which language
 
 - **`stripe` is the card button.** It answers `redirect` from `/pay`, a Stripe hosted Checkout Session
 - **`stripe_wallet` is the wallet button**, Apple Pay and Google Pay in the Express Checkout Element on your own page. It answers `client_secret` from `/pay`
-- **These are the exact values you send as `method`** on `POST /api/v1/orders/{pay_token}/pay`. They are not labels and carry no copy. What a button says is yours
+- **These are the exact values you send as `method`** on ~~`POST /api/v1/orders/{pay_token}/pay`~~ `POST /api/v1/orders/pay` (since 11 November 2026, backend #122). They are not labels and carry no copy. What a button says is yours
 - **Draw a button only for a method in this list.** Whether Stripe is offered at all depends on whether that environment is configured, and a local one legitimately offers nothing. **An empty list is a valid answer**, and it means there is nothing a customer can press here. It is not a fault to retry
 - **The list can grow.** ~~`gift_code` joins it with gifting.~~ **Struck 2 September 2026: gifting adds no payment method, and this list stays at two.** A redemption collects nothing, so there is no payment for a third method to make. What gifting adds instead is two endpoints of its own, below. Ignoring a name you have no button for rather than treating it as an error is still the rule, and still the reason this is safe to grow
 - **Hand settlement is deliberately never in this list.** It exists, it is how support settles an order that went wrong, and it is a person in the admin panel rather than anything a customer presses
@@ -448,23 +450,32 @@ No language segment: an order is the same order whatever language it was placed 
 - `Cache-Control: no-store`
 - Rate limited to 20 a minute per address
 
-**`pay_token` replaced `payment_url` on 25 August 2026**, and the body you send, the rules and the errors are unchanged. What you get back is the address of this order rather than a checkout URL: you POST it to `/api/v1/orders/{pay_token}/pay` to start a payment, and that call is what may hand you somewhere to send the customer. See the next endpoint.
+**`pay_token` replaced `payment_url` on 25 August 2026**, and the body you send, the rules and the errors are unchanged. What you get back is the address of this order rather than a checkout URL: you POST it to ~~`/api/v1/orders/{pay_token}/pay`~~ `/api/v1/orders/pay`, in the body (since 11 November 2026, backend #122), to start a payment, and that call is what may hand you somewhere to send the customer. See the next endpoint.
 
 **Placing an order collects nothing**, so **treat 201 as "your order is recorded", never as "you have paid"**. It sits at `pending` until a payment succeeds or somebody here settles it by hand.
 
 **`pay_token` is unguessable and it is a credential.** Order ids are sequential integers, so an id in a URL is a number anybody can count to. Holding this token is the whole of the authority to pay for the order, which is what lets a guest come back to theirs. **Do not put it in an address bar, a redirect, an analytics event or a log.** Keep it in memory for the checkout, or in the customer's own browser storage if you want them to be able to come back.
 
+**Since 11 November 2026, backend #122, it is briefly worth more than a payment.** For fifteen minutes after a first-time pass buyer's order settles, `POST /api/v1/orders/status` hands whoever holds this token the link that sets that account's first password. **It must never leave the buyer's browser except in a request body to this API.** That is why it now goes in the body of `POST /api/v1/orders/pay` too, and why an order whose token has been sent in the path of the legacy route is never handed that link.
+
 **There is still no way to read the order itself back**, and no order history. What there is, since 29 August 2026, is a way to read the payment's status: `POST /api/v1/orders/status`, two endpoints below. If an account area needs the order as well, say so.
 
-### POST /api/v1/orders/{pay_token}/pay
+### POST /api/v1/orders/pay
+
+**Starting a payment for an order you have already placed, with the pay token in the body.** Added 11 November 2026, backend #122. Everything below describes it, and it answers exactly what the path route answered, by the same code.
+
+~~### POST /api/v1/orders/{pay_token}/pay~~ **Deprecated 11 November 2026, backend #122, and to be deleted once frontend #170 has deployed.** It still works and still answers the same, so nothing breaks while your site moves. It carries the token in its path, which `/orders/status` was designed never to do: a path segment is written to every access log between the browser and us, Cloudflare's included. That became worth fixing when the pay token became briefly enough to read a claim link back. **An order whose token reaches this route is never handed its claim link on the confirmation page**, whenever that happens, because its token is in a log; the receipt still carries the link to the inbox.
 
 **Starting a payment for an order you have already placed.** Built 25 August 2026. Open to anybody, because the token is the authority. No language segment.
 
-The body is optional and has two fields:
+~~The body is optional and has two fields:~~ **Since 11 November 2026 the body is required on `/orders/pay` and has three fields**, `pay_token` required and the other two optional as before:
 
 ```json
-{ "method": "stripe", "return_to": "month-ahead" }
+{ "pay_token": "kQ3rN8xvT1sLb0Zy...", "method": "stripe", "return_to": "month-ahead" }
 ```
+
+- **A missing `pay_token` is a 422 on `pay_token`. An unknown or malformed one is a 404**, the same 404 an unknown token always got. There is no format rule, so no shape of guess answers differently from another
+- **The legacy path route ignores a `pay_token` in its body**, as it ignored every other unknown field
 
 **200**, and it names which of three shapes it is:
 
@@ -490,7 +501,7 @@ The body is optional and has two fields:
 - **An unknown token is a 404. So is a token for somebody else's order while you are signed in as a different customer**, and the two answer identically, because the difference between them is information
 - **Nothing about the order is echoed back.** Not the amount, not the email, not the id. A guessed token leaks nothing
 - `Cache-Control: no-store`
-- Rate limited to 30 a minute per address, looser than placing an order, because a declined card is a retry
+- Rate limited to 30 a minute per address, looser than placing an order, because a declined card is a retry. **The body route and the legacy path route share that one allowance**
 
 ### POST /api/v1/orders/status
 
@@ -505,15 +516,48 @@ The body is optional and has two fields:
 **200:**
 
 ```json
-{ "status": "succeeded" }
+{ "status": "succeeded", "set_password_link": "none", "set_password_url": null }
+```
+
+~~`{ "status": "succeeded" }`~~ **Two keys added 11 November 2026, backend #122**, and both are present on every 200:
+
+```json
+{
+  "status": "succeeded",
+  "set_password_link": "ready",
+  "set_password_url": "https://theworldtarot.com/set-password/?token=...&email=jane%40example.com&next=%2Fviewing-room%2F"
+}
 ```
 
 - **`status` is Stripe's PaymentIntent status, retrieved here, passed through unchanged.** It is not the order's status, and it is deliberately not `pending`/`paid`: your mapping from Stripe's statuses onto the outcomes you render is already written, and a customer who arrives before the webhook lands would otherwise read a screen hedging about a payment that plainly succeeded
 - **The values are Stripe's, and the set can grow.** Today: `requires_payment_method`, `requires_confirmation`, `requires_action`, `processing`, `requires_capture`, `canceled`, `succeeded`. **Treat an unrecognised one as "we do not know yet" and poll again**, never as a failure
 - **An order with no payment started yet answers `requires_payment_method`**, which is the same thing your polling does with it: nothing has been collected
 - **An order settled by hand answers `succeeded`**, ~~or by a gift code~~ **struck 2 September 2026**, so a confirmation screen has one path rather than two. A gift is paid for when it is bought, so the order behind a redeemed code answered `succeeded` months before anybody redeemed anything, and **a redemption never calls this endpoint at all**
-- **Nothing else about the order comes back.** Not the amount, not the email, not the id, exactly as on `/pay`
-- **An unknown token is a 404**, and so is somebody else's, and the two answer identically
+- ~~**Nothing else about the order comes back.** Not the amount, not the email, not the id, exactly as on `/pay`~~ **Changed 11 November 2026, backend #122: the email can come back, inside `set_password_url`, and only there.** Still never the amount or the id
+- **An unknown token is a 404**, and so is somebody else's, and the two answer identically. **A signed in customer asking about somebody else's order is a 404 with or without a link behind it**
+
+#### The claim link, `set_password_link` and `set_password_url`
+
+Added 11 November 2026, backend #122. **This is what puts the "Set your password" button on your confirmation page**, frontend #170, so a first-time pass buyer does not have to leave for their inbox.
+
+| Key | Type | |
+|---|---|---|
+| `set_password_link` | `"ready"`, `"not_yet"` or `"none"` | **Read this first**, as you read `type` on `/pay`. Treat any value you do not recognise as `"none"` |
+| `set_password_url` | string or `null` | **The whole link, a string only when `set_password_link` is `"ready"`**, and `null` in every other case. Never an empty string, never in parts |
+
+- **`set_password_url` is the whole address and you render it as it is.** It is built by the same code as the link in the receipt, `{your site}/set-password/?token=...&email=...&next=%2Fviewing-room%2F`, `next` included and chosen here. We send one opaque string rather than `token` and `email` for you to assemble, so the page can never build half a link. Your set-password page already reads all three
+- **It is the receipt's own link, the same token, not a second one.** The broker keeps one live token per address, so a second link would kill the first or be killed by it. Using the link from either place spends both, which is what claiming the account is
+- **`"ready"` happens in exactly one case**: the order is paid and contains the Viewing Room pass, the account it belongs to has no password and no order but this one, the order settled less than **fifteen minutes** ago, the token is still live, and the pay token was never sent in the path of the legacy `/pay` route
+- **`"not_yet"` means ask again.** The order is still pending (the card road paints `received` before our webhook has settled it, and for a hosted checkout we do not even know the buyer yet), or it settled a moment ago and the link is being minted. Nothing about it is a failure
+- **`"none"` means stop asking: this order will never have a link.** It covers a reading order, a gift order, a buyer who already has a password, an account that has other orders on it, a link already used, a link a newer one has replaced, the fifteen minutes having passed, and a pay token sent in a path. **Render your fallback for all of them**: the email step plus "Enter the Viewing Room"
+- **"Already has a password" is deliberately not told apart from the rest of `"none"`.** You asked whether you could show a signed out repeat buyer "Sign in" instead; decided 11 November 2026 that you cannot from this answer. A separate value would tell whoever holds a pay token whether the address they typed at Stripe already has a claimed account here. A buyer who is signed in is known to you from `GET /api/v1/me` without asking us
+- **What we suggest for asking again**: in the background, never behind a spinner, starting at about one second and doubling, for **30 seconds** in all, then settle on the fallback. The webhook usually lands within a few seconds of the return. Keep asking only while the payment status is one you render as received, and stop at the first `"ready"` or `"none"`
+- **A 503 still means we do not know**, the link included. Treat it as `"not_yet"` and let the same backoff run
+- **After the link is used**, from your page or from the receipt, this answers `"none"`, and your set-password page already says a link that has been used is no longer valid, which is what our `/set-password` answers (422). **We never hand you a link we know is dead**: used, replaced or expired, the answer turns to `"none"`
+- **A reset asked for from the sign in page replaces the link**, because the broker keeps one per address. Inside sixty seconds of settlement the broker's throttle refuses that reset and the link survives; after that, the reset's mail holds the live link and this answers `"none"`. Nothing this endpoint does mints a token, so it never triggers that throttle itself
+- **Why fifteen minutes and not the receipt's sixty.** Holding this link is holding the account. The pay token lives as long as the order and sits in the buyer's browser storage; the link is worth handing to that token only while the buyer is plausibly still on the page. The receipt covers the rest of the hour
+- **Why "no order but this one".** Stripe's hosted page lets whoever pays type any address, and the order attaches to the account that address already has. An account with history on it was not made by the person holding this pay token, so we never hand them its first password. A returning unclaimed buyer, somebody who bought a reading last month say, gets `"none"` and the link in their receipt
+
 - **If Stripe cannot be reached, this answers 503** and says nothing about the payment. Guessing `processing` would be us inventing a status about somebody's money. **Treat it exactly as an unrecognised status: we do not know yet, ask again**, and let your backoff do its job
 - **This is a poll, so poll it politely.** A short interval for a few seconds after the return, then back off. The webhook is what settles the order; this only tells you what Stripe already thinks
 - `Cache-Control: no-store`
@@ -761,10 +805,10 @@ Nothing here has a shape yet, and we would rather agree them with you before wri
 
 1. Customer presses your buy button. **No order and no payment exist yet**
 2. You call `POST /api/v1/orders`. **This endpoint does not change**, and since 29 August you may call it **with no name and no email**, because Stripe's page collects the email and collects it after the order exists
-3. You call `POST /api/v1/orders/{pay_token}/pay` and get back what to do next. **The token comes back from step 2**, and it is the token rather than the id because ids here are sequential integers
+3. You call ~~`POST /api/v1/orders/{pay_token}/pay`~~ `POST /api/v1/orders/pay` with the token in the body (since 11 November 2026, backend #122) and get back what to do next. **The token comes back from step 2**, and it is the token rather than the id because ids here are sequential integers
 4. On `redirect`, you send the browser to `redirect_url`. On `client_secret`, you confirm it in the element on your own page. On `nothing_to_pay`, you go straight to your confirmation
 5. Stripe returns the customer to an address **we built**, never one you sent. You may send a return path fragment so a cancelled checkout lands where it started
-6. Your confirmation screen calls `POST /api/v1/orders/status` with the pay token, and polls it, because the webhook that settles the order may not have arrived yet
+6. Your confirmation screen calls `POST /api/v1/orders/status` with the pay token, and polls it, because the webhook that settles the order may not have arrived yet. **Since 11 November 2026 (backend #122) the same answer carries a first-time pass buyer's claim link**, `set_password_link` and `set_password_url`, under the endpoint in section 2
 
 **`payment_url` was replaced**, because there are genuinely different answers and a nullable string cannot carry them. `/pay` returns an object naming which it is:
 

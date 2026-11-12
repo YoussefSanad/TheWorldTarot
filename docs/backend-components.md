@@ -92,7 +92,8 @@ Both are put into the container as an immutable `App\Support\RequestContext`, wh
 | `POST /reset-password` | 10/min | |
 | `POST /set-password` | 10/min | Only works on an account that has never had a password |
 | `POST /orders` | 20/min | Open to guests. Placing an order sends no email, which is what keeps the abuse case small |
-| `POST /orders/{payToken}/pay` | 30/min | Addressed by token, not id, because ids are sequential |
+| ~~`POST /orders/{payToken}/pay`~~ | 30/min | Addressed by token, not id, because ids are sequential. **Deprecated 11 November 2026, #122**: the token is in the path, so every order reached here is remembered and never handed its claim link on the page. Deleted once frontend #170 has deployed |
+| `POST /orders/pay` | 30/min, the same bucket | The same, with the token in the body. #122 |
 | `POST /newsletter` | 6/min | |
 | `POST /webhooks/bunny` | 60/min | |
 | `POST /webhooks/stripe` | 120/min | |
@@ -136,7 +137,7 @@ Thin by policy. Anything that is a rule lives in an action or a service.
 | `ResetPasswordController` | Resets and revokes every existing token |
 | `SetPasswordController` | Claims an account created by a purchase. Refuses if a password already exists |
 | `OrderController` | Places an order, creating a customer for an unrecognised email if nobody is signed in |
-| `PayOrderController` | Looks an order up by `pay_token`, refuses a signed-in customer who is not its owner, and returns a payment instruction |
+| `PayOrderController` | Looks an order up by `pay_token`, refuses a signed-in customer who is not its owner, and returns a payment instruction. Two routes since #122, the token in the body and, until frontend #170 deploys, in the path |
 | `NewsletterController` | Honeypot check, then queues the subscription and answers 202 |
 | `BunnyWebhookController` | Reads a video id out of the payload and re-asks Bunny. Always answers 200 |
 | `StripeWebhookController` | Verifies the signature against the raw body first, then dispatches |
@@ -310,11 +311,12 @@ Small invokable classes holding the transitions that matter.
 | Action | What it does |
 |---|---|
 | `PlaceOrder` | Builds a basket, runs the purchasability guard, captures prices at purchase time, and creates the order and its lines in a transaction |
-| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, refuses anything not `pending`, stamps `paid_at`, grants the Viewing Room pass for any `access_grant` line, **mints a code for every gift on the order**, asks `AskForReading` about the lines that are waiting for a person, then asks the order itself whether everything it owes has gone. Then it sends the receipt, embedding ~~a set-password link only for an unclaimed pass buyer with no live claim link~~ a password link on every pass order (set-password for an unclaimed buyer, reset for a claimed one, #114, 6 November 2026), and a `GiftToRedeem` to each recipient |
+| `MarkOrderPaid` | **The single funnel every payment path goes through.** Takes a row lock, refuses anything not `pending`, stamps `paid_at`, grants the Viewing Room pass for any `access_grant` line, **mints a code for every gift on the order**, asks `AskForReading` about the lines that are waiting for a person, then asks the order itself whether everything it owes has gone. Then it sends the receipt, embedding ~~a set-password link only for an unclaimed pass buyer with no live claim link~~ a password link on every pass order (set-password for an unclaimed buyer, reset for a claimed one, #114, 6 November 2026), and a `GiftToRedeem` to each recipient. **Since #122, 11 November 2026**, the set-password token for a first-time buyer (unclaimed, no other order) is also handed to `ClaimLinkHandover` after the mint commits |
 | `AskForReading` | **The one moment a reading starts existing**, and the note to the client that follows it. Two roads reach it: settlement for a line nobody gifted, and `forGift` for a line somebody did. One message per asking, not per reading |
 | `RedeemGift` | Spends a code. Re-reads the gift **under `lockForUpdate` inside the transaction**, refuses one already spent with a 409, stamps `redeemed_at`, and calls `AskForReading::forGift` in the same transaction. The mail waits for the commit |
 | `DeliverReading` | Stamps `readings.delivered_at` once, then asks `MarkOrderFulfilled` whether the order it belongs to is now finished |
 | `ReadPaymentStatus` | Asks Stripe what became of an order's PaymentIntent, for the confirmation screen to poll |
+| `ReadClaimLink` | **#122.** Whether `POST /orders/status` carries the claim link: `ready` with the receipt's own link for fifteen minutes after a first-time pass buyer's order settles, `not_yet` while it is pending, `none` otherwise. Reads only, mints nothing. The bounds, and where the plaintext token is kept (the cache, encrypted, fifteen minutes), are in `App\Support\ClaimLinkHandover` |
 | `MarkOrderFulfilled` | Stamps `fulfilled_at` once, idempotently |
 | `RecordStripePayment` | Refuses anything not succeeded, refuses a payment naming an unknown order, refuses one whose **amount and currency do not match the order**, then records `charged_amount` and the intent id and calls `MarkOrderPaid` |
 | `SyncCardVideo` | Asks Bunny for a video's real status and promotes, fails or updates the card accordingly |

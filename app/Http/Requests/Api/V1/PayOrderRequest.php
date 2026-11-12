@@ -22,6 +22,24 @@ class PayOrderRequest extends FormRequest
     {
         return [
             /*
+            | The pay token, on `POST /orders/pay` only. Issue #122.
+            |
+            | **Excluded on the legacy path route**, which takes it from the
+            | path and has always ignored the body, so nothing a caller sends
+            | there changes what it answers.
+            |
+            | **No length, no format, no character class**, for the reason
+            | `ReadPaymentStatusRequest` gives: a rule describing a real token
+            | would answer 422 for one shape and 404 for another, and the
+            | difference is a way of asking whether a guess got closer.
+            */
+            'pay_token' => [
+                Rule::excludeIf(fn (): bool => $this->route('payToken') !== null),
+                'required',
+                'string',
+            ],
+
+            /*
             | ~~Optional, because there is one way to pay for a reading today
             | and naming it would be ceremony.~~ **Two ways from 29 August
             | 2026**, `stripe` and `stripe_wallet`, so the field now carries a

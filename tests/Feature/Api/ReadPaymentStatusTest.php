@@ -70,6 +70,18 @@ function stripeNobodyMayAsk(): void
     substitutedStripe($service);
 }
 
+/**
+ * What every order in this file answers about the claim link, issue #122. They
+ * are all reading orders, so there will never be one, and the full shape is
+ * asserted rather than the status alone so a field arriving here is noticed.
+ *
+ * @return array{set_password_link: string, set_password_url: null}
+ */
+function noClaimLink(): array
+{
+    return ['set_password_link' => 'none', 'set_password_url' => null];
+}
+
 function orderAwaitingConfirmation(?Customer $customer = null): Order
 {
     return Order::factory()
@@ -98,7 +110,7 @@ it('answers the payment intent status Stripe holds, passed through unchanged', f
 
     $this->postJson('/api/v1/orders/status', ['pay_token' => $order->pay_token])
         ->assertOk()
-        ->assertExactJson(['status' => $status]);
+        ->assertExactJson(['status' => $status, ...noClaimLink()]);
 
     expect($asked)->toBe(['pi_confirmation']);
 })->with([
@@ -123,7 +135,7 @@ it('passes through a status it has never heard of rather than translating it', f
 
     $this->postJson('/api/v1/orders/status', ['pay_token' => $order->pay_token])
         ->assertOk()
-        ->assertExactJson(['status' => 'requires_something_invented_later']);
+        ->assertExactJson(['status' => 'requires_something_invented_later', ...noClaimLink()]);
 });
 
 /**
@@ -138,7 +150,7 @@ it('answers requires payment method for an order no payment was started for', fu
 
     $this->postJson('/api/v1/orders/status', ['pay_token' => $order->pay_token])
         ->assertOk()
-        ->assertExactJson(['status' => 'requires_payment_method']);
+        ->assertExactJson(['status' => 'requires_payment_method', ...noClaimLink()]);
 });
 
 /**
@@ -155,7 +167,7 @@ it('answers succeeded for an order settled by hand, with no payment at Stripe', 
 
     $this->postJson('/api/v1/orders/status', ['pay_token' => $order->pay_token])
         ->assertOk()
-        ->assertExactJson(['status' => 'succeeded']);
+        ->assertExactJson(['status' => 'succeeded', ...noClaimLink()]);
 });
 
 it('answers succeeded for a paid order without asking Stripe again', function () {
@@ -166,7 +178,7 @@ it('answers succeeded for a paid order without asking Stripe again', function ()
 
     $this->postJson('/api/v1/orders/status', ['pay_token' => $order->pay_token])
         ->assertOk()
-        ->assertExactJson(['status' => 'succeeded']);
+        ->assertExactJson(['status' => 'succeeded', ...noClaimLink()]);
 });
 
 /*
@@ -192,7 +204,7 @@ it('never settles an order, even when Stripe says the payment succeeded', functi
 
     $this->postJson('/api/v1/orders/status', ['pay_token' => $order->pay_token])
         ->assertOk()
-        ->assertExactJson(['status' => 'succeeded']);
+        ->assertExactJson(['status' => 'succeeded', ...noClaimLink()]);
 
     $order->refresh();
 
@@ -264,7 +276,7 @@ it('lets a signed in customer read an order that is waiting for its customer', f
     $this->actingAs(Customer::factory()->create(), 'sanctum')
         ->postJson('/api/v1/orders/status', ['pay_token' => $order->pay_token])
         ->assertOk()
-        ->assertExactJson(['status' => 'processing']);
+        ->assertExactJson(['status' => 'processing', ...noClaimLink()]);
 });
 
 it('lets the customer who placed it read it while signed in', function () {
@@ -276,7 +288,7 @@ it('lets the customer who placed it read it while signed in', function () {
     $this->actingAs($customer, 'sanctum')
         ->postJson('/api/v1/orders/status', ['pay_token' => $order->pay_token])
         ->assertOk()
-        ->assertExactJson(['status' => 'processing']);
+        ->assertExactJson(['status' => 'processing', ...noClaimLink()]);
 });
 
 it('lets a guest holding the token read it, because that is the normal case', function () {
@@ -298,7 +310,11 @@ it('tells a guesser nothing about the order behind a token', function () {
         ->json();
 
     // Not the amount, not the email, not the id, and not a fulfilment.
-    expect(array_keys($body))->toBe(['status']);
+    // ~~Only `status`.~~ Since 11 November 2026, issue #122, the claim link's
+    // two keys as well, and for a reading order both say there is none. The
+    // one case that carries an email is `ClaimLinkOnTheConfirmationPageTest`'s.
+    expect(array_keys($body))->toBe(['status', 'set_password_link', 'set_password_url'])
+        ->and($body['set_password_url'])->toBeNull();
 });
 
 /*

@@ -152,6 +152,22 @@ Route::prefix('v1')->group(function () {
         ->name('orders.pay');
 
     /*
+    | **The same, with the token in the body.** Issue #122, 11 November 2026.
+    | The route above predates the rule `/orders/status` follows, and the
+    | contract called that "the inconsistency to be aware of rather than to
+    | copy". It became worth fixing when a pay token became briefly enough to
+    | read a first-time buyer's claim link back: a path segment lands in every
+    | access log between the browser and here. The path route stays until the
+    | website has moved (frontend #170), then goes.
+    |
+    | **The same throttle prefix as the path route, on purpose**, so the two
+    | are one allowance for paying rather than two.
+    */
+    Route::post('/orders/pay', [PayOrderController::class, 'withTokenInBody'])
+        ->middleware('throttle:30,1,orders-pay')
+        ->name('orders.pay.body');
+
+    /*
     | Reading back what happened to the money for an order, which is what a
     | confirmation screen has to ask. A hosted checkout returns the customer
     | holding a Checkout Session id, and that id is opaque: it cannot be

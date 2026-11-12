@@ -2,7 +2,7 @@
 
 namespace App\Http\Resources\Api\V1;
 
-use App\Payments\PaymentStatus;
+use App\Payments\Confirmation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -14,17 +14,22 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *
  * **No order state reaches this, and that is load-bearing.** The pay token is
  * the whole authority on this route, so a guessed one must leak no amount, no
- * email and no id. `PaymentStatus` carries none of them, and this resource must
- * never be handed a model to reach for.
+ * ~~email~~ and no id. `PaymentStatus` carries none of them, and this resource
+ * must never be handed a model to reach for.
  *
- * @property-read PaymentStatus $resource
+ * **Changed 11 November 2026, issue #122: the email can come back**, inside the
+ * claim link a first-time pass buyer is handed for fifteen minutes after
+ * settlement. Nowhere else, and still never an amount or an id. The resource is
+ * handed a `Confirmation`, two values and no model, so that stays true.
+ *
+ * @property-read Confirmation $resource
  */
 class PaymentStatusResource extends JsonResource
 {
     public static $wrap = null;
 
     /**
-     * @return array<string, string>
+     * @return array{status: string, set_password_link: string, set_password_url: ?string}
      */
     public function toArray(Request $request): array
     {
