@@ -89,8 +89,8 @@ Both are put into the container as an immutable `App\Support\RequestContext`, wh
 | `POST /logout` | auth | |
 | `GET /me` | 60/min, auth | |
 | `POST /forgot-password` | 6/min | Plus a 60 second per account limit in the broker |
-| `POST /reset-password` | 10/min | |
-| `POST /set-password` | 10/min | Only works on an account that has never had a password |
+| `POST /reset-password` | 10/min | Signs the customer in on success, since #124 |
+| `POST /set-password` | 10/min | Only works on an account that has never had a password. Signs the customer in on success, since #124 |
 | `POST /orders` | 20/min | Open to guests. Placing an order sends no email, which is what keeps the abuse case small |
 | ~~`POST /orders/{payToken}/pay`~~ | 30/min | Addressed by token, not id, because ids are sequential. **Deprecated 11 November 2026, #122**: the token is in the path, so every order reached here is remembered and never handed its claim link on the page. Deleted once frontend #170 has deployed |
 | `POST /orders/pay` | 30/min, the same bucket | The same, with the token in the body. #122 |

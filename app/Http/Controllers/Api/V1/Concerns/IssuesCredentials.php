@@ -21,7 +21,9 @@ use Illuminate\Validation\ValidationException;
  *   speculation. A bearer token, returned once and never retrievable again
  *
  * Shared by registering and signing in because they end identically. The only
- * difference between them is how certain we became.
+ * difference between them is how certain we became. Since 12 November 2026,
+ * issue #124, following a password link ends the same way too, through
+ * `signInFromPasswordLink()` below.
  */
 trait IssuesCredentials
 {
@@ -47,13 +49,64 @@ trait IssuesCredentials
             ]);
         }
 
+        $this->startSession($request, $customer);
+
+        return $this->respond(new CustomerResource($customer), $status);
+    }
+
+    /**
+     * Signing somebody in because they just followed a password link.
+     *
+     * Added 12 November 2026, issue #124. Setting a password from a claim link
+     * or a reset link proves control of the mailbox, which is the same thing
+     * the website used to prove for itself by posting `/login` a second time
+     * with the password just chosen. One request now does both.
+     *
+     * **Different from `issueCredentials` in two ways, both on purpose:**
+     *
+     * - **The website only.** No `device_name` branch, so no bearer token is
+     *   minted from a link. A token outlives the link by months and native apps
+     *   do not exist yet; when they do, they sign in with `/login` afterwards
+     * - **No session is not a refusal.** By the time this runs the password is
+     *   saved, so the 422 `issueCredentials` throws for an origin that cannot
+     *   hold a session would tell somebody their password was not set when it
+     *   was. They get the message alone, which is what both endpoints answered
+     *   before #124, and sign in by hand
+     *
+     * **A different customer already signed in in this browser is replaced.**
+     * The guard swaps the user and the session id is regenerated, so the old
+     * id is worth nothing. Somebody following a link to an account means to be
+     * that customer, and leaving the other one signed in would land them in
+     * somebody else's account at `next`.
+     *
+     * The body is exactly login's, plus the `message` these endpoints have
+     * always answered, so a client that reads it is not broken by the change.
+     */
+    private function signInFromPasswordLink(Request $request, Customer $customer, string $message): JsonResponse
+    {
+        if (! $request->hasSession()) {
+            return response()->json(['message' => $message])
+                ->header('Cache-Control', 'no-store');
+        }
+
+        $this->startSession($request, $customer);
+
+        return response()->json([
+            ...(new CustomerResource($customer))->resolve($request),
+            'message' => $message,
+        ])->header('Cache-Control', 'no-store');
+    }
+
+    /**
+     * The cookie session, the one way the website is signed in.
+     */
+    private function startSession(Request $request, Customer $customer): void
+    {
         Auth::guard('web')->login($customer);
 
         // Session fixation. A session id that existed before sign in must never
         // still be valid after it.
         $request->session()->regenerate();
-
-        return $this->respond(new CustomerResource($customer), $status);
     }
 
     private function respond(CustomerResource $resource, int $status): JsonResponse

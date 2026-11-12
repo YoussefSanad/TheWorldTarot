@@ -51,10 +51,12 @@ it('lets somebody claim the account made when they bought something', function (
  * mounted asking for an address rather than a billing contact, so settlement
  * makes the account and nobody asks. Issue #52.
  *
- * **The claim itself answers a message and no customer**, so the null name is
- * met on the sign in that follows it and on `/me` after that. Walking from the
- * claim rather than starting at a bare factory is what makes that true here
- * rather than assumed, and it was written the other way first.
+ * ~~**The claim itself answers a message and no customer**, so the null name is
+ * met on the sign in that follows it and on `/me` after that.~~ Since 12
+ * November 2026, #124, the claim answers the customer too, so the null is met
+ * there first; `SignInAfterPasswordLinkTest` pins that body against login's.
+ * Walking from the claim rather than starting at a bare factory is what makes
+ * that true here rather than assumed, and it was written the other way first.
  *
  * The two settlement suites assert the column. Nothing asserted what
  * `CustomerResource` does with it, which is the half the partner types

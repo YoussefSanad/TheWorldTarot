@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\ClaimAccount;
 use App\Enums\ClaimOutcome;
+use App\Http\Controllers\Api\V1\Concerns\IssuesCredentials;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\ResetPasswordRequest;
+use App\Models\Customer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
@@ -28,9 +30,17 @@ use Illuminate\Validation\ValidationException;
  * happened to what a person reads, and it must not learn to ask the question
  * itself again: a check here and a write there is exactly the shape that let
  * two claims arriving together both win.
+ *
+ * **A successful claim signs the customer in**, since 12 November 2026, issue
+ * #124. ~~It answered a message and no session, and the website posted `/login`
+ * a second time with the password just chosen.~~ It ends the way signing in
+ * does, through `IssuesCredentials::signInFromPasswordLink()`, which says why
+ * a valid link is enough.
  */
 class SetPasswordController extends Controller
 {
+    use IssuesCredentials;
+
     public function __invoke(ResetPasswordRequest $request, ClaimAccount $claim): JsonResponse
     {
         $outcome = $claim(
@@ -45,9 +55,16 @@ class SetPasswordController extends Controller
             ]);
         }
 
-        return response()->json([
-            'message' => 'Your account is ready. You can sign in now.',
-        ])->header('Cache-Control', 'no-store');
+        // Read after the claim rather than handed back by it. Which customer
+        // this is was never the question `ClaimAccount` guards, only whether
+        // they may claim, and the address is unique.
+        $customer = Customer::where('email', $request->string('email')->value())->firstOrFail();
+
+        return $this->signInFromPasswordLink(
+            $request,
+            $customer,
+            'Your account is ready. You can sign in now.',
+        );
     }
 
     /**

@@ -30,6 +30,11 @@ The one moment an unclaimed account stops being unclaimed, owned by
 `App\Actions\ClaimAccount` and by nothing else. A claim is not a reset: nothing
 is being replaced, and no other device is signed out.
 
+**Since 12 November 2026, issue #124, a claim signs the customer in**, and so
+does a reset: the endpoint ends the way signing in ends, through
+`IssuesCredentials`. Following a password link is proof of the mailbox, which is
+all signing in after it ever proved.
+
 _Avoid_: activate, register (registering makes an account; claiming finishes one
 that already exists), set up
 

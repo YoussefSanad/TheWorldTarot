@@ -26,6 +26,8 @@ Status: in use as of 22 October 2026. The frontend builds against it, so changes
 
 **Updated 11 November 2026, backend #122, and it changes a rule this document stated: `POST /api/v1/orders/status` can now send an email back.** For a first-time Viewing Room pass buyer, for fifteen minutes after their order settles, the answer carries the receipt's own set-password link, whose query string holds their address. Two keys arrive on every answer, `set_password_link` and `set_password_url`, under the endpoint in section 2. **And `POST /api/v1/orders/pay` takes the pay token in the body**, replacing `POST /api/v1/orders/{pay_token}/pay`, which stays only until your site has moved (frontend #170) and then goes. Your side of both is frontend #170.
 
+**Updated 12 November 2026, backend #124: following a password link now signs the customer in.** A successful `POST /api/v1/set-password` or `POST /api/v1/reset-password` establishes the cookie session exactly as `POST /api/v1/login` does and answers login's customer body, with the old `message` kept beside it. There is no second sign in call to make. Your side is frontend #177. Nothing that worked before stops working: a 422 is unchanged, and a client that ignored the body still gets a 200.
+
 **What has not changed is the order of the calls and the shape of everything else.** You still place an order, you still POST the token to `/pay`, and you still read `type` before you read anything else.
 
 ---
@@ -253,7 +255,7 @@ All of them work under both authentication styles. Section 6 explains how to cho
 **`name` can be `null` in every customer body below, since 30 August 2026, issue #52.** A customer created at settlement was never asked their name: Stripe's hosted page collects a text field the buyer types, and a wallet may collect no name at all. It used to be filled with the part of the address before the `@`, so a real customer read "Hello jennifer," in their receipt, and that invention is gone.
 
 - **Render nothing rather than the string "null"**, and treat a missing name as ordinary rather than as an error
-- **A buyer who claimed their account is where you will actually meet it.** Settlement made that account and nobody asked a name for it, so `POST /api/v1/login` and `GET /api/v1/me` answer `null` for them from their first sign in onward. `POST /api/v1/set-password` itself carries no customer body, only a message
+- **A buyer who claimed their account is where you will actually meet it.** Settlement made that account and nobody asked a name for it, so `POST /api/v1/login` and `GET /api/v1/me` answer `null` for them from their first sign in onward. ~~`POST /api/v1/set-password` itself carries no customer body, only a message~~ Since 12 November 2026, backend #124, `POST /api/v1/set-password` answers the customer body too, so this is where you meet the `null` first
 - **`POST /api/v1/register` always has a name**, since that form requires one
 
 #### POST /api/v1/register
@@ -353,15 +355,35 @@ Who you are talking to. Requires authentication. **401** when not signed in, whi
 
 **200** on success. **422** keyed to `email` when the token is wrong, already used, or older than 60 minutes.
 
+**Changed 12 November 2026, backend #124: a successful reset signs the customer in**, on the cookie session, exactly as `POST /api/v1/login` does, and answers login's customer body with the old `message` beside it. Until then a 200 carried the message alone and signed nobody in:
+
+```json
+{
+  "id": 12,
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "created_at": "2026-08-12T10:04:00+00:00",
+  "has_viewing_room_access": true,
+  "message": "Your password has been changed. You can sign in with it now."
+}
+```
+
 - **`token` and `email` both come from the link's query string and must be sent back unchanged.** The reset fails without both
 - Single use, and 60 minutes
-- **Every bearer token that customer holds is deleted by a successful reset.** Somebody resetting a password is often somebody who thinks another person has it. Browser sessions elsewhere are not killed, which is a real gap and stated rather than hidden
+- **The session id is regenerated**, as on login, so an id from before the reset is worth nothing afterwards
+- **Somebody else already signed in in that browser is replaced** by the customer whose link it was. Holding a live token proves control of that mailbox, and the person following it means to be that customer; leaving the other one signed in would land them in somebody else's account
+- **A 422 signs nobody in and leaves whoever was signed in alone**
+- **No bearer token is ever minted here**, even with `device_name`, and the cookie session is the only thing this sets. A native app signs in with `/login` afterwards. A request from an origin that cannot hold a session still has its password changed and gets `{ "message": ... }` alone, never the 422 login gives that origin, because by then the password is saved
+- **Every bearer token that customer holds is deleted by a successful reset.** Somebody resetting a password is often somebody who thinks another person has it. ~~Browser sessions elsewhere are not killed, which is a real gap and stated rather than hidden~~
+- **Browser sessions elsewhere are signed out on their next request, with one gap.** Corrected 12 November 2026, backend #124; the line above was never true. Sanctum's session check, on by default, keeps a fingerprint of the password in each session from that session's first authenticated request after sign in, and signs the session out on the first request whose fingerprint no longer matches. Your site reads `/me` on every page load, so in practice every session it holds carries one. **The gap:** a session that signed in and has made no request since carries none yet, and survives the reset. Nothing more is built for it, and whether it should be is an open question rather than a promise
 
 #### POST /api/v1/set-password
 
 The same body as a reset, and a **different endpoint on purpose**: this is somebody claiming the account that was created for them when they bought something, following the link in their receipt after an order is paid. **Since 30 August 2026 the invitation is for an order that grants Viewing Room access**, so in practice this is a pass buyer choosing their first password. Every buyer receives the receipt, but only an unclaimed pass buyer ~~with no live claim link~~ gets the set-password link embedded in it; no separate invitation email is sent. **Since 6 November 2026, backend #114, a claimed pass buyer gets a reset link in the receipt instead**, pointing at `/reset-password/`, ~~under the "Enter the Viewing Room" button~~ as the receipt's only button, labelled "Set your password", the same email a first pass purchase gets (changed 6 November 2026). A reading buyer is never sent one and reaches the same place through `/api/v1/forgot-password`, which sets a first password just as well.
 
 **200** on success. **422** on a used or expired token, and equally on an account that already has a password.
+
+**Changed 12 November 2026, backend #124: a successful claim signs the customer in**, exactly as a successful reset does, with the same body (login's customer, plus `"message": "Your account is ready. You can sign in now."`) and every rule listed under reset-password above except the bearer tokens, since an account that has never had a password holds none. Until then a 200 carried the message alone and your site posted `/api/v1/login` itself straight afterwards (frontend #150). That second call is no longer needed; it still works, and against a backend from before #124 it is the only way in.
 
 - **It works exactly once, on an account that has never had a password.** After that the link is worth nothing even inside its 60 minutes, and changing a password becomes an ordinary reset
 - **Build it as its own page with its own words.** Nothing is being reset, and telling somebody to "reset" a password they never had reads as a mistake on our side
@@ -370,7 +392,7 @@ The same body as a reset, and a **different endpoint on purpose**: this is someb
 - **Changed 6 November 2026, backend #114: every pass receipt carries a fresh link, and only the newest one works.** Minting a link still deletes the one before it, so when somebody's pass orders settle twice, the earlier receipt's link stops working and the later one's works. The same applies to a reset link they asked for from the sign in page. Nothing for you to render differently, and worth knowing when a customer says the link in an older mail is refused: the newest mail is the one to use
 - **Asking for a reset link inside 60 seconds of a claim link being minted sends nothing at all**, because that is the broker's throttle. `/api/v1/forgot-password` still answers its usual 200 with its usual body, so this is invisible on the wire and is exactly the case its wording is written for. The claim link they already hold is untouched and still works
 - **The claim link for a Viewing Room pass carries a third parameter, `next`.** Added 26 October 2026, backend #102. The link reads `{your site}/set-password/?token=...&email=...&next=%2Fviewing-room%2F`, so `next` decodes to `/viewing-room/`, a same-origin relative path with its trailing slash, following our `FRONTEND_VIEWING_ROOM_PATH` the way the cancel URL in `return_to` does
-  - **We choose it, from the product the paid order granted access through, and nothing you or a customer send can set it.** The pass is the only product that grants access today, so it is the only purchase that sends a claim link at all, and that link always carries `next`. ~~Reset links never carry `next`.~~ **Since 6 November 2026, backend #114, the reset link in a pass receipt carries the same `next`**, `{your site}/reset-password/?token=...&email=...&next=%2Fviewing-room%2F`. A reset link from `/api/v1/forgot-password` still carries none. Your reset page already passes `next` on to its sign in link; landing the person in the room straight after the reset would be a frontend change. A claim link for any future access-granting product would not carry one either until it is added in `FrontendUrl::setPassword()`
+  - **We choose it, from the product the paid order granted access through, and nothing you or a customer send can set it.** The pass is the only product that grants access today, so it is the only purchase that sends a claim link at all, and that link always carries `next`. ~~Reset links never carry `next`.~~ **Since 6 November 2026, backend #114, the reset link in a pass receipt carries the same `next`**, `{your site}/reset-password/?token=...&email=...&next=%2Fviewing-room%2F`. A reset link from `/api/v1/forgot-password` still carries none. ~~Your reset page already passes `next` on to its sign in link; landing the person in the room straight after the reset would be a frontend change.~~ Since backend #124 the reset signs them in, so your reset page can go straight to `next` (frontend #177) A claim link for any future access-granting product would not carry one either until it is added in `FrontendUrl::setPassword()`
   - **`next` is not sent back to us.** `POST /api/v1/set-password` still takes `token`, `email` and the password, and ignores anything else
   - **Read it only through your same-origin-path guard (frontend #132)**, and go wherever you go today when it is absent or the guard refuses it. A query parameter can be edited by whoever holds the link, so our choosing the value does not make the value that reaches your page trustworthy
   - **A claim mail queued before this deployed arrives without `next`**, which is the old link and still works
@@ -731,7 +753,7 @@ Configured for **both** cookie sessions and bearer tokens. Cookie auth is what t
 1. `GET /sanctum/csrf-cookie` once, before your first authenticated request
 2. Send `credentials: "include"` on **every** request after that, including that first one
 3. Read the `XSRF-TOKEN` cookie and send it back as the `X-XSRF-TOKEN` header on any POST, PUT, PATCH or DELETE. Axios does this automatically, `fetch` does not
-4. Call `/api/v1/register` or `/api/v1/login` **without** `device_name`. The session is established by that call
+4. Call `/api/v1/register` or `/api/v1/login` **without** `device_name`. The session is established by that call. Since 12 November 2026, backend #124, a successful `/api/v1/set-password` or `/api/v1/reset-password` establishes it too, the same way
 5. Fetch `/sanctum/csrf-cookie` again after signing out, since logging out rotates the token
 
 Three things break this silently:
