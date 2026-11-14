@@ -48,10 +48,11 @@ settlement and only for an account the order made. It is the receipt's own
 token, kept by `App\Support\ClaimLinkHandover`, never a second one: the broker
 keeps one per address, and a second link would kill the first.~~ **Retired 14
 November 2026, #128's second step, decided in #126.** The confirmation page is
-no longer handed the link: `POST /orders/status` answers
+no longer handed the link: ~~`POST /orders/status` answers
 `set_password_link: "none"` and `set_password_url: null` on every 200, keys
-kept until the frontend stops reading them. The receipt is the only place the
-claim link lives. **Entering after payment**, below, is what replaced it.
+kept until the frontend stops reading them~~ `POST /orders/status` answers its
+status alone, both keys removed the same day by #131. The receipt is the only
+place the claim link lives. **Entering after payment**, below, is what replaced it.
 
 _Avoid_: activation link, welcome link, invite, set password link (that is the
 mailable's class name, not the thing)

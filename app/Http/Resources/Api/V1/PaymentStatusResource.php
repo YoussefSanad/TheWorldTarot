@@ -2,7 +2,7 @@
 
 namespace App\Http\Resources\Api\V1;
 
-use App\Payments\Confirmation;
+use App\Payments\PaymentStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,19 +20,21 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * ~~**Changed 11 November 2026, issue #122: the email can come back**, inside
  * the claim link a first-time pass buyer is handed for fifteen minutes after
  * settlement.~~ **Reversed 14 November 2026, #128's second step: no email comes
- * back again**, because no link does. `set_password_link` is `"none"` and
+ * back again**, because no link does. ~~`set_password_link` is `"none"` and
  * `set_password_url` is `null` on every answer, kept only so a site that still
- * reads them is not broken. Still never an amount or an id. The resource is
- * handed a `Confirmation`, two values and no model, so that stays true.
+ * reads them is not broken.~~ **Both keys removed 14 November 2026, issue
+ * #131**, once no site read them, and with them the `Confirmation` wrapper
+ * that carried them. The resource is handed a `PaymentStatus` again, as it was
+ * before #122, so the body is `status` alone.
  *
- * @property-read Confirmation $resource
+ * @property-read PaymentStatus $resource
  */
 class PaymentStatusResource extends JsonResource
 {
     public static $wrap = null;
 
     /**
-     * @return array{status: string, set_password_link: string, set_password_url: ?string}
+     * @return array<string, string>
      */
     public function toArray(Request $request): array
     {
