@@ -17,8 +17,9 @@ uses(RefreshDatabase::class);
  * does NOT stand for the plaque legibility check, which the user did by eye.
  * A picture can pass every assertion here and still crop or hide its plaque.
  *
- * Cards 00 and 01 are placeholders today. They are to be replaced by files of
- * the same names and held to the same rules, so nothing here names them apart.
+ * Cards 00 and 01 were placeholders until 14 November 2026 (#127), when the
+ * client's final art replaced them under the same names. They were always held
+ * to the same rules, so nothing here names them apart.
  *
  * "Under 300KB" is read as 300 * 1000 bytes (decimal), not 300 * 1024.
  */

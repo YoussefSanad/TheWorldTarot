@@ -96,13 +96,20 @@ php artisan tinker --execute="echo App\Models\Card::onlyTrashed()->where('number
 
 **Use `--force` rarely.** It replaces existing pictures, including Jennifer's hand uploads. The old objects remain in the bucket, as do objects uploaded before a conflict. Orphaned objects are kept and nothing cleans them. To try a different directory, add `--source=/path/to/folder` to each command, including the dry run and verification.
 
-Cards 00 and 01 are placeholders until the originals arrive. Replace those source files with the originals using the same names, then rerun with `--force`, knowing it applies to every matched card and can replace hand uploads too. Check the result and verification table afterwards.
+~~Cards 00 and 01 are placeholders until the originals arrive. Replace those source files with the originals using the same names, then rerun with `--force`, knowing it applies to every matched card and can replace hand uploads too. Check the result and verification table afterwards.~~ (14 Nov 2026, #127) The originals of 00 and 01 replaced the placeholders in the repo under the same names.
+
+**Replacing a seed picture that is already on an environment.** Added 14 November 2026 (#127). Plain `cards:seed-images` skips a card that has a picture, so the new file needs `--force`, and `--force` applies to every matched card:
+
+1. Run `php artisan cards:seed-images --force --dry-run`. The stored name carries the file's content hash, so a card whose seed file did not change says `unchanged` and one that did says `would replace`
+2. If only the cards being replaced say `would replace`, run `php artisan cards:seed-images --force`. If any other card says `would replace`, it holds a picture Jennifer uploaded by hand, or an older seed; stop and run from a folder holding only the new files instead, `--source=/path/to/folder` on the dry run and the real run. Every other number then says `missing file` and the run exits non-zero, which is expected here and nothing else is touched
+3. Run `php artisan cards:seed-images --verify` on the default folder, and read all 22 rows as above
+4. `GET /api/v1/en/cards` answers a new `image` URL for each replaced card. The URL changes because the stored name carries the hash, so no cache serves the old picture
 
 ## Seeding the card copy
 
 Added 6 November 2026 (#95). The first English short and long description of the 22 Major Arcana come from one committed file, `database/seed-copy/cards.en.json`, keyed by card number `"0"` to `"21"`, and are written by `php artisan cards:seed-copy`. Run it by hand from the environment's console, **after the pictures**. No deploy, seeder or composer script runs it, and `DatabaseSeeder` leaves card copy alone.
 
-**Seeding the copy puts every card that has a picture on the live site at once, including cards 00 and 01 with their placeholder pictures. There is no `--except`.** A card is on the website once it is published, written in English and pictured, and `is_published` is true by default.
+**Seeding the copy puts every card that has a picture on the live site at once, ~~including cards 00 and 01 with their placeholder pictures~~ (14 Nov 2026, #127: 00 and 01 now have their final art). There is no `--except`.** A card is on the website once it is published, written in English and pictured, and `is_published` is true by default.
 
 1. Run `php artisan cards:seed-copy --dry-run`. It decides every card exactly as a real run would and writes nothing: no row, no backup. Read all 22 rows. Note every `keep` cell and the text that card holds in the panel's English tab, because a `keep` field is left as it is
 2. Run `php artisan cards:seed-copy`. Without `--force` it fills only empty English fields; text already there is kept
