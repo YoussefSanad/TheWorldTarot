@@ -36,15 +36,22 @@ that already exists), set up
 **Claim link**:
 The link in the paid-order mail inviting the buyer of an unclaimed account to
 choose a first password. Minted by `MarkOrderPaid`, carried by
-`App\Mail\SetPasswordLink`, and pointed at the website's `/set-password/`
+~~`App\Mail\SetPasswordLink`~~ the receipt, `App\Mail\OrderPaid`, since #108
+(corrected 14 November 2026; this entry had not caught up), and pointed at the
+website's `/set-password/`
 because this application renders nothing a customer can use. It lasts an hour
 and works exactly once.
 
-**Since 11 November 2026, issue #122, the same link also reaches the
+~~**Since 11 November 2026, issue #122, the same link also reaches the
 confirmation page**, through `POST /orders/status`, for fifteen minutes after
 settlement and only for an account the order made. It is the receipt's own
 token, kept by `App\Support\ClaimLinkHandover`, never a second one: the broker
-keeps one per address, and a second link would kill the first.
+keeps one per address, and a second link would kill the first.~~ **Retired 14
+November 2026, #128's second step, decided in #126.** The confirmation page is
+no longer handed the link: `POST /orders/status` answers
+`set_password_link: "none"` and `set_password_url: null` on every 200, keys
+kept until the frontend stops reading them. The receipt is the only place the
+claim link lives. **Entering after payment**, below, is what replaced it.
 
 _Avoid_: activation link, welcome link, invite, set password link (that is the
 mailable's class name, not the thing)
@@ -55,12 +62,20 @@ password, through `POST /orders/enter` and `App\Actions\EnterAfterPayment`.
 Decided in #126 on 14 November 2026, built as #128. Only for an account this
 payment made (unclaimed, no other order), within fifteen minutes of settlement,
 once, from the browser holding the pay token, and only as a cookie session. It
-is bounded by `App\Support\ClaimLinkHandover`, the same rule that bounds the
-claim link on the page, and it replaces that link: the page's hand-over is
-retired by #128's second step. The receipt still carries the claim link for
+is bounded by `App\Support\ClaimLinkHandover`, the same rule that bounded the
+claim link on the page, and it replaced that link: ~~the page's hand-over is
+retired by #128's second step~~ the page's hand-over was retired by #128's
+second step on 14 November 2026. The receipt still carries the claim link for
 later visits. **Somebody who typed another person's address is signed in to an
 account in that person's name**, accepted in #126 because claiming or resetting
 it signs that session out on its next request.
+
+**`ClaimLinkHandover` is a historical name.** Since the retirement it keeps no
+claim link, only the bounds on when a pay token is worth more than a payment
+status (`isFor()`, `MINUTES`, `tokenTravelledInAPath()`). It was not renamed,
+decided 14 November 2026, because renaming is churn against open work (#124's
+PR #125) for no change in behaviour. Read it as "the bounds on entering after
+payment".
 
 _Avoid_: auto login, magic sign in, guest session (a guest holds no session at
 all), welcome link (there is no separate welcome email, decision 6 of #126)

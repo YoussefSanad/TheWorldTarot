@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Actions\ReadClaimLink;
 use App\Actions\ReadPaymentStatus;
 use App\Http\Controllers\Api\V1\Concerns\RefusesAnybodyElse;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\ReadPaymentStatusRequest;
 use App\Http\Resources\Api\V1\PaymentStatusResource;
 use App\Models\Order;
+use App\Payments\ClaimLinkForThePage;
 use App\Payments\Confirmation;
 use App\Payments\PaymentStatus;
 use Illuminate\Http\JsonResponse;
@@ -37,16 +37,23 @@ use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
  * may look straight at a payment that has succeeded and still must not settle
  * anything: it is polled, by a browser, on an interval nobody here chose.
  *
- * **And since 11 November 2026, issue #122, it can carry a first-time pass
+ * ~~**And since 11 November 2026, issue #122, it can carry a first-time pass
  * buyer's claim link**, which makes the pay token enough to claim that account
  * for a few minutes. Still read only: `ReadClaimLink` hands back the token
- * `MarkOrderPaid` minted for the receipt and mints nothing. The bounds on it
- * are in `App\Support\ClaimLinkHandover`.
+ * `MarkOrderPaid` minted for the receipt and mints nothing.~~ **Retired 14
+ * November 2026, #128's second step, decided in #126.** `ReadClaimLink` is
+ * gone and the answer carries no link: `set_password_link` is `"none"` and
+ * `set_password_url` is `null` on every 200. **The two keys stay** so a site
+ * that still reads them is not broken; removing them is a follow-up once the
+ * frontend has stopped reading them. A pay token is again worth no more here
+ * than a payment status.
  *
  * **Still read only after 14 November 2026, issue #128.** Signing a first-time
  * pass buyer in is a write (a session, and a single use spent), so it is a
  * separate endpoint, `EnterAfterPaymentController`, and nothing here starts a
- * session. Its answer keeps the claim link until #128's retire step.
+ * session. ~~Its answer keeps the claim link until #128's retire step.~~ That
+ * step has landed, as above. The bounds that once gated the link gate the
+ * session now, in `App\Support\ClaimLinkHandover`.
  *
  * **The same departure from .claude/api.md that `PayOrderController` states.**
  * Stripe is called inside the request rather than from a queue, because the
@@ -64,7 +71,6 @@ class OrderPaymentStatusController extends Controller
     public function __invoke(
         ReadPaymentStatusRequest $request,
         ReadPaymentStatus $read,
-        ReadClaimLink $claimLink,
     ): JsonResponse {
         $order = Order::where('pay_token', $request->validated('pay_token'))->first();
 
@@ -77,11 +83,13 @@ class OrderPaymentStatusController extends Controller
 
         $this->refuseAnybodyElse($request, $order);
 
-        // The status first, so an outage at Stripe is still a 503 that says
-        // nothing, the claim link included.
         $status = $this->status($read, $order);
 
-        return $this->answer(new Confirmation($status, $claimLink($order)), $request);
+        // ~~The status first, so an outage at Stripe is still a 503 that says
+        // nothing, the claim link included.~~ There is no link to ask about
+        // since #128's retire step (14 November 2026): `none()` on every 200,
+        // the keys kept for a site that still reads them.
+        return $this->answer(new Confirmation($status, ClaimLinkForThePage::none()), $request);
     }
 
     /**
@@ -121,8 +129,9 @@ class OrderPaymentStatusController extends Controller
     {
         // A held answer is a stale one about somebody's money, and it is about a
         // request nobody authenticated beyond a token. Neither a browser nor
-        // anything between here and it may keep this. Since #122 it can also
-        // hold a single use credential to somebody's account.
+        // anything between here and it may keep this. ~~Since #122 it can also
+        // hold a single use credential to somebody's account.~~ It holds none
+        // since #128's retire step, 14 November 2026.
         return PaymentStatusResource::make($confirmation)
             ->toResponse($request)
             ->header('Cache-Control', 'no-store');

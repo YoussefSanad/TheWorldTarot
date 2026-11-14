@@ -7,11 +7,17 @@ use App\Enums\ClaimLinkState;
 /**
  * What the confirmation page is told about a claim link, issue #122.
  *
- * **The URL is whole or absent, never in parts and never an empty string.** It
- * is built by `FrontendUrl::setPassword()`, which already owns the address and
- * its `next`, so the page cannot assemble a half-built link from pieces. Only
- * `ready()` can carry one, and it refuses an empty string, so `null` is the one
- * spelling of "no link" this can produce.
+ * ~~**The URL is whole or absent, never in parts and never an empty string.**
+ * Only `ready()` can carry one.~~ **Retired 14 November 2026, #128's second
+ * step: the page is never handed a link.** `ready()` and `notYet()` are gone
+ * with `ReadClaimLink`, their only caller, so `none()` is the one answer this
+ * can give: `set_password_link: "none"`, `set_password_url: null`.
+ *
+ * **It survives only to keep the two keys on `POST /orders/status`**, so a site
+ * that still reads them is not broken. It goes, with `ClaimLinkState` and this
+ * half of `Confirmation`, in the follow-up that removes the keys once the
+ * frontend has stopped reading them (#126, "what happens to the in-flight
+ * work").
  */
 final class ClaimLinkForThePage
 {
@@ -19,20 +25,6 @@ final class ClaimLinkForThePage
         public readonly ClaimLinkState $state,
         public readonly ?string $url,
     ) {}
-
-    public static function ready(string $url): self
-    {
-        if ($url === '') {
-            throw new \InvalidArgumentException('A claim link handed to the page cannot be empty.');
-        }
-
-        return new self(ClaimLinkState::Ready, $url);
-    }
-
-    public static function notYet(): self
-    {
-        return new self(ClaimLinkState::NotYet, null);
-    }
 
     public static function none(): self
     {

@@ -72,7 +72,8 @@ function stripeNobodyMayAsk(): void
 
 /**
  * What every order in this file answers about the claim link, issue #122. They
- * are all reading orders, so there will never be one, and the full shape is
+ * are all reading orders, so there will never be one (and since #128's retire
+ * step, 14 November 2026, no order has one), and the full shape is
  * asserted rather than the status alone so a field arriving here is noticed.
  *
  * @return array{set_password_link: string, set_password_url: null}
@@ -311,8 +312,10 @@ it('tells a guesser nothing about the order behind a token', function () {
 
     // Not the amount, not the email, not the id, and not a fulfilment.
     // ~~Only `status`.~~ Since 11 November 2026, issue #122, the claim link's
-    // two keys as well, and for a reading order both say there is none. The
-    // one case that carries an email is `ClaimLinkOnTheConfirmationPageTest`'s.
+    // two keys as well, and for a reading order both say there is none.
+    // ~~The one case that carries an email is
+    // `ClaimLinkOnTheConfirmationPageTest`'s.~~ No case carries one since #128's
+    // retire step, 14 November 2026, and that file proves it.
     expect(array_keys($body))->toBe(['status', 'set_password_link', 'set_password_url'])
         ->and($body['set_password_url'])->toBeNull();
 });

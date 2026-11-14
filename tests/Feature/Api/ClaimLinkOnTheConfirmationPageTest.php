@@ -11,9 +11,11 @@ use App\Models\Gift;
 use App\Models\Order;
 use App\Models\Product;
 use App\Services\Payments\ManualSettlement;
-use App\Support\FrontendUrl;
+use Illuminate\Cache\Events\KeyWritten;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
@@ -24,12 +26,20 @@ use Stripe\Service\PaymentIntentService;
 uses(RefreshDatabase::class);
 
 /*
-| The claim link on the confirmation page, issue #122.
+| The claim link on the confirmation page, issue #122, and its retirement by
+| #128 on 14 November 2026.
 |
-| `POST /orders/status` hands the page the receipt's own set-password link, for
-| a first-time Viewing Room pass buyer, for fifteen minutes after settlement.
+| ~~`POST /orders/status` hands the page the receipt's own set-password link,
+| for a first-time Viewing Room pass buyer, for fifteen minutes after
+| settlement.~~ Retired 14 November 2026, #128's second step, decided in #126:
+| the page signs that buyer in through `POST /orders/enter` instead, and
+| `/orders/status` never carries a link again. **The two keys stay**, answering
+| `"none"` and `null` on every 200, so a site that still reads them is not
+| broken; removing them is a follow-up once the frontend has stopped reading
+| them. The receipt still carries the link, by the same mint as before.
+|
 | Everything here runs against the real `customers` broker rather than a mock,
-| because which link survives is the broker's behaviour and nothing else's.
+| because whether the receipt's link survives is the broker's behaviour.
 |
 | **Nothing in this file proves Stripe**, for the reason `ReadPaymentStatusTest`
 | gives. The one test that needs a Stripe answer substitutes it.
@@ -40,14 +50,15 @@ beforeEach(function () {
 
     config()->set('frontend.url', 'https://theworldtarot.com');
 
-    // `/pay` is reached in two tests below, and neither is about a gateway.
+    // `/pay` is reached in three tests below, and none is about a gateway.
     config()->set('payments.methods', ['manual' => ManualSettlement::class]);
     config()->set('payments.default', 'manual');
 });
 
 /**
  * A pass order whose buyer has no password and no other order, which is the
- * one shape of order the page is handed a link for.
+ * one shape of order the page was ever handed a link for, and so the shape the
+ * retirement has to be proved against.
  */
 function aFirstPassOrder(?Customer $buyer = null): Order
 {
@@ -85,49 +96,31 @@ function tokenIn(string $url): string
     return $query['token'];
 }
 
+/**
+ * The whole 200 the page gets since #128's retire step, whatever the order.
+ *
+ * @return array{status: string, set_password_link: string, set_password_url: null}
+ */
+function noLinkForThePage(string $status = 'succeeded'): array
+{
+    return ['status' => $status, 'set_password_link' => 'none', 'set_password_url' => null];
+}
+
 /*
-| The one case that gets a link.
+| ~~The one case that gets a link.~~ Retired 14 November 2026, #128: the case
+| that used to get one gets none, and the receipt still carries it.
 */
 
-it('hands a first-time pass buyer the receipt\'s own set-password link once the order is settled', function () {
+it('hands a first-time pass buyer no link once the order is settled, while the receipt still carries one', function () {
     $order = aFirstPassOrder();
     settleForThePage($order);
 
-    $receipt = setPasswordLinkInTheReceipt();
-    expect($receipt)->toBeString();
+    expect(setPasswordLinkInTheReceipt())->toBeString();
 
-    $answer = askThePage($order)->assertOk();
-
-    expect($answer->json('status'))->toBe('succeeded')
-        ->and($answer->json('set_password_link'))->toBe('ready')
-        ->and($answer->json('set_password_url'))->toBe($receipt);
+    askThePage($order)->assertOk()->assertExactJson(noLinkForThePage());
 });
 
-it('builds the link with FrontendUrl::setPassword for the pass, next included', function () {
-    $buyer = Customer::factory()->create(['password' => null, 'email' => 'first.time@example.com']);
-    $order = aFirstPassOrder($buyer);
-    settleForThePage($order);
-
-    $url = askThePage($order)->json('set_password_url');
-
-    expect($url)->toBe(FrontendUrl::setPassword('first.time@example.com', tokenIn($url), ProductKey::ViewingRoomPass))
-        ->and($url)->toStartWith('https://theworldtarot.com/set-password/?token=')
-        ->and($url)->toContain('&email=first.time%40example.com')
-        ->and($url)->toEndWith('&next=%2Fviewing-room%2F');
-});
-
-it('hands over a link that the set-password endpoint accepts', function () {
-    $buyer = Customer::factory()->create(['password' => null]);
-    $order = aFirstPassOrder($buyer);
-    settleForThePage($order);
-
-    $url = askThePage($order)->json('set_password_url');
-
-    expect(app(ClaimAccount::class)($buyer->email, tokenIn($url), 'a-first-password-123'))
-        ->toBe(ClaimOutcome::Claimed);
-});
-
-it('hands the link over for an order holding the pass beside a reading', function () {
+it('hands no link for an order holding the pass beside a reading', function () {
     $order = Order::factory()
         ->for(Customer::factory()->create(['password' => null]))
         ->forProduct(Product::factory()->pass()->create())
@@ -136,12 +129,53 @@ it('hands the link over for an order holding the pass beside a reading', functio
 
     settleForThePage($order);
 
-    askThePage($order)->assertOk()->assertJsonPath('set_password_link', 'ready');
+    askThePage($order)->assertOk()->assertExactJson(noLinkForThePage());
+});
+
+/**
+ * **Settlement keeps nothing for the page any more.** `ClaimLinkHandover::keep()`
+ * put the receipt's token, encrypted, under `claim-link-for-the-page:{id}` for
+ * fifteen minutes. Listening for every cache write rather than asking for the
+ * one key, so a copy kept under any id is caught too.
+ */
+it('settles a first-time pass order without keeping its claim token in the cache', function () {
+    $order = aFirstPassOrder();
+
+    $written = [];
+
+    Event::listen(KeyWritten::class, function (KeyWritten $event) use (&$written): void {
+        $written[] = $event->key;
+    });
+
+    settleForThePage($order);
+
+    expect(setPasswordLinkInTheReceipt())->toBeString()
+        ->and(array_filter($written, fn (string $key): bool => str_starts_with($key, 'claim-link-for-the-page:')))->toBe([])
+        ->and(Cache::has('claim-link-for-the-page:'.$order->getKey()))->toBeFalse();
+});
+
+/**
+ * Asking the page mints nothing and spends nothing, so the receipt's link is
+ * the buyer's one live link whether or not the page has been asked. This held
+ * under #122 as well, where the page was handed that same token.
+ */
+it('leaves the receipt\'s link working after the page has been asked', function () {
+    $buyer = Customer::factory()->create(['password' => null]);
+    $order = aFirstPassOrder($buyer);
+    settleForThePage($order);
+
+    askThePage($order)->assertOk();
+    askThePage($order)->assertOk();
+
+    $token = tokenIn(setPasswordLinkInTheReceipt());
+
+    expect(Password::broker('customers')->tokenExists($buyer, $token))->toBeTrue()
+        ->and(app(ClaimAccount::class)($buyer->email, $token, 'a-first-password-123'))
+        ->toBe(ClaimOutcome::Claimed);
 });
 
 /*
-| Every case that gets none. The URL is null, never an empty string, and the
-| state says whether asking again could change that.
+| Every case that always got none. The URL is null, never an empty string.
 */
 
 it('hands no link to a buyer who already has a password', function () {
@@ -187,14 +221,15 @@ it('hands no link for a gift order', function () {
     ]);
 });
 
-it('hands no link for an unpaid pass order, and says one may still come', function () {
+/**
+ * ~~"Not yet" for an unpaid pass order, so the page asked again.~~ Retired 14
+ * November 2026, #128: there is nothing to wait for, so the page is told to
+ * stop asking at once. `not_yet` is never answered any more.
+ */
+it('says an unpaid pass order will never have a link', function () {
     $order = aFirstPassOrder();
 
-    askThePage($order)->assertOk()->assertExactJson([
-        'status' => 'requires_payment_method',
-        'set_password_link' => 'not_yet',
-        'set_password_url' => null,
-    ]);
+    askThePage($order)->assertOk()->assertExactJson(noLinkForThePage('requires_payment_method'));
 });
 
 it('says an unpaid reading order will never have a link', function () {
@@ -211,10 +246,10 @@ it('says an unpaid reading order will never have a link', function () {
 });
 
 /**
- * **The account-claim guard.** Stripe's hosted page lets whoever pays type any
- * address, and settlement attaches the order to the account that address
- * already has. An account with history on it was not made by the person
- * holding this pay token, so the page never hands them its first password.
+ * **The account-claim guard**, which lives on as bound 3 of `/orders/enter`
+ * (`ClaimLinkHandover::isFor()`). Stripe's hosted page lets whoever pays type
+ * any address, and settlement attaches the order to the account that address
+ * already has.
  */
 it('hands no link when the account had an order before this one', function (OrderStatus $earlier) {
     $buyer = Customer::factory()->create(['password' => null]);
@@ -251,7 +286,7 @@ it('does not know an unknown token, answering exactly as it did before', functio
         ->assertJsonMissingPath('set_password_url');
 });
 
-it('refuses a signed in customer somebody else\'s order, link or no link', function () {
+it('refuses a signed in customer somebody else\'s order', function () {
     $order = aFirstPassOrder();
     settleForThePage($order);
 
@@ -260,21 +295,27 @@ it('refuses a signed in customer somebody else\'s order, link or no link', funct
         ->assertNotFound();
 });
 
-it('still refuses to be cached now that the answer can carry a credential', function () {
+/**
+ * ~~Now that the answer can carry a credential.~~ It carries none since 14
+ * November 2026, #128, and it is still a held answer about somebody's money,
+ * which was the reason before #122.
+ */
+it('still refuses to be cached', function () {
     $order = aFirstPassOrder();
     settleForThePage($order);
 
     askThePage($order)->assertOk()
-        ->assertJsonPath('set_password_link', 'ready')
+        ->assertJsonPath('set_password_link', 'none')
         ->assertHeader('Cache-Control', 'no-store, private');
 });
 
 /*
-| Timing. The card road paints `received` before the webhook settles, so the
-| first answer is "not yet" and the link follows settlement.
+| Timing. The card road paints `received` before the webhook settles. ~~So the
+| first answer is "not yet" and the link follows settlement.~~ Since #128 the
+| answer is "none" on both sides of the webhook.
 */
 
-it('says not yet while Stripe reports success and the webhook has not settled, then hands the link over', function () {
+it('says none while Stripe reports success and the webhook has not settled, and none after it has', function () {
     $order = aFirstPassOrder();
     $order->forceFill(['customer_id' => null, 'stripe_payment_intent_id' => 'pi_before_the_webhook'])->save();
 
@@ -286,104 +327,23 @@ it('says not yet while Stripe reports success and the webhook has not settled, t
     ]));
     substitutedStripe($intents);
 
-    askThePage($order)->assertOk()->assertExactJson([
-        'status' => 'succeeded',
-        'set_password_link' => 'not_yet',
-        'set_password_url' => null,
-    ]);
+    askThePage($order)->assertOk()->assertExactJson(noLinkForThePage());
 
     // The webhook learns who paid and settles, as `RecordStripePayment` does.
     $order->forceFill(['customer_id' => Customer::factory()->create(['password' => null])->id])->save();
     settleForThePage($order->refresh());
 
-    askThePage($order)->assertOk()
-        ->assertJsonPath('status', 'succeeded')
-        ->assertJsonPath('set_password_link', 'ready')
-        ->assertJsonPath('set_password_url', setPasswordLinkInTheReceipt());
-});
+    expect(setPasswordLinkInTheReceipt())->toBeString();
 
-it('stops handing the link over fifteen minutes after settlement', function () {
-    $order = aFirstPassOrder();
-    settleForThePage($order);
-
-    $this->travel(14)->minutes();
-    askThePage($order)->assertJsonPath('set_password_link', 'ready');
-
-    $this->travel(2)->minutes();
-    askThePage($order)->assertOk()->assertExactJson([
-        'status' => 'succeeded',
-        'set_password_link' => 'none',
-        'set_password_url' => null,
-    ]);
+    askThePage($order)->assertOk()->assertExactJson(noLinkForThePage());
 });
 
 /*
-| One token, the receipt's. The page and the inbox never hold two links that
-| kill each other, and the endpoint never hands over a link that is dead.
+| Where the pay token travels. ~~A token that travelled in a path is never
+| handed a link, and one sent in a body is.~~ Since #128 neither is; the path
+| rule lives on as bound 5 of `/orders/enter`.
 */
 
-it('hands over the very token the receipt carries, so neither link kills the other', function () {
-    $buyer = Customer::factory()->create(['password' => null]);
-    $order = aFirstPassOrder($buyer);
-    settleForThePage($order);
-
-    $receiptToken = tokenIn(setPasswordLinkInTheReceipt());
-    $pageToken = tokenIn(askThePage($order)->json('set_password_url'));
-
-    expect($pageToken)->toBe($receiptToken)
-        ->and(Password::broker('customers')->tokenExists($buyer, $receiptToken))->toBeTrue();
-});
-
-it('stops handing the link over once it has been used, from the page or the receipt', function () {
-    $buyer = Customer::factory()->create(['password' => null]);
-    $order = aFirstPassOrder($buyer);
-    settleForThePage($order);
-
-    $token = tokenIn(askThePage($order)->json('set_password_url'));
-
-    expect(app(ClaimAccount::class)($buyer->email, $token, 'a-first-password-123'))->toBe(ClaimOutcome::Claimed);
-
-    askThePage($order)->assertOk()
-        ->assertJsonPath('set_password_link', 'none')
-        ->assertJsonPath('set_password_url', null);
-});
-
-/**
- * **A later mint for the same address kills this token**, because the broker
- * keeps one per address. A reset asked for from the sign in page after its
- * sixty second throttle is the ordinary way that happens. The page must then
- * stop offering the dead link, and the newest one, in the newest mail, works:
- * the buyer is never left holding two dead links.
- */
-it('stops handing over a link a newer one has replaced, and the newer one works', function () {
-    $buyer = Customer::factory()->create(['password' => null]);
-    $order = aFirstPassOrder($buyer);
-    settleForThePage($order);
-
-    $first = tokenIn(askThePage($order)->json('set_password_url'));
-
-    $this->travel(2)->minutes();
-    $newer = Password::broker('customers')->createToken($buyer);
-
-    expect(Password::broker('customers')->tokenExists($buyer, $first))->toBeFalse();
-
-    askThePage($order)->assertOk()
-        ->assertJsonPath('set_password_link', 'none')
-        ->assertJsonPath('set_password_url', null);
-
-    expect(app(ClaimAccount::class)($buyer->email, $newer, 'a-first-password-123'))->toBe(ClaimOutcome::Claimed);
-});
-
-/*
-| Where the pay token travels.
-*/
-
-/**
- * **A pay token that has been in a path is in somebody's access log**, so the
- * order it belongs to is never handed a link on the page. The legacy
- * `/orders/{pay_token}/pay` route is the only place one travels in a path, and
- * it stays until the website has moved to the body route.
- */
 it('hands no link for an order whose pay token was sent in a path', function (bool $beforeSettlement) {
     $order = aFirstPassOrder();
 
@@ -405,23 +365,22 @@ it('hands no link for an order whose pay token was sent in a path', function (bo
     'after settlement' => false,
 ]);
 
-it('still hands the link over when the payment was started with the token in the body', function () {
+it('hands no link either when the payment was started with the token in the body', function () {
     $order = aFirstPassOrder();
 
     $this->postJson('/api/v1/orders/pay', ['pay_token' => $order->pay_token])->assertOk();
 
     settleForThePage($order);
 
-    askThePage($order)->assertOk()->assertJsonPath('set_password_link', 'ready');
+    askThePage($order)->assertOk()->assertExactJson(noLinkForThePage());
 });
 
-it('writes nothing to the log while handing the link over', function () {
+it('writes nothing to the log while answering a first-time pass buyer', function () {
     $order = aFirstPassOrder();
     settleForThePage($order);
 
-    // **Every line, at any level.** The new path writes none at all, which is
-    // stronger than looking for the two credentials it handles and cannot be
-    // passed by a leak arriving through a method nobody thought to watch.
+    // **Every line, at any level**, which cannot be passed by a leak arriving
+    // through a method nobody thought to watch.
     $written = [];
 
     Log::listen(function (MessageLogged $entry) use (&$written): void {
@@ -430,6 +389,6 @@ it('writes nothing to the log while handing the link over', function () {
 
     $url = askThePage($order)->assertOk()->json('set_password_url');
 
-    expect($url)->toBeString()
+    expect($url)->toBeNull()
         ->and($written)->toBe([]);
 });

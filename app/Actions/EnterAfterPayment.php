@@ -64,7 +64,8 @@ class EnterAfterPayment
             return EntryOutcome::Never;
         }
 
-        // 4. Within the hand-over's window after settlement, then never.
+        // 4. Within `ClaimLinkHandover::MINUTES` of settlement, then never. The
+        // window the retired hand-over used (#128's second step), kept as is.
         if ($order->paid_at === null
             || $order->paid_at->copy()->addMinutes(ClaimLinkHandover::MINUTES)->isPast()) {
             return EntryOutcome::Never;
