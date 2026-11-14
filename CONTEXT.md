@@ -75,7 +75,8 @@ it signs that session out on its next request.
 claim link, only the bounds on when a pay token is worth more than a payment
 status (`isFor()`, `MINUTES`, `tokenTravelledInAPath()`). It was not renamed,
 decided 14 November 2026, because renaming is churn against open work (#124's
-PR #125) for no change in behaviour. Read it as "the bounds on entering after
+PR #125, ~~open~~ closed unmerged 14 November 2026, when #124 was dropped) for no
+change in behaviour. Read it as "the bounds on entering after
 payment".
 
 _Avoid_: auto login, magic sign in, guest session (a guest holds no session at
