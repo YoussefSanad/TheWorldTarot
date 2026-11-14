@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\BunnyWebhookController;
 use App\Http\Controllers\Api\V1\CardController;
 use App\Http\Controllers\Api\V1\CardVideoController;
 use App\Http\Controllers\Api\V1\CurrencyController;
+use App\Http\Controllers\Api\V1\EnterAfterPaymentController;
 use App\Http\Controllers\Api\V1\ForgotPasswordController;
 use App\Http\Controllers\Api\V1\GiftController;
 use App\Http\Controllers\Api\V1\LanguageController;
@@ -19,6 +20,7 @@ use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\SetPasswordController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
+use App\Http\Middleware\RefuseToBeStored;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -190,6 +192,24 @@ Route::prefix('v1')->group(function () {
     Route::post('/orders/status', OrderPaymentStatusController::class)
         ->middleware('throttle:60,1,orders-status')
         ->name('orders.status');
+
+    /*
+    | Paying signs a first-time Viewing Room pass buyer in. Issue #128, decided
+    | in #126 on 14 November 2026. The confirmation page calls it once, with the
+    | pay token in the body for the reason `/orders/status` takes it there.
+    |
+    | **A separate route because it writes.** `/orders/status` is read only and
+    | polled; this starts a session and spends a single use.
+    |
+    | **`RefuseToBeStored` first, so it wraps the throttle's 429 as well.** Every
+    | answer from here is about a credential or a session, refusals included.
+    |
+    | **Its own throttle prefix**, per the note at the top of this file. The
+    | page calls it a handful of times while settlement lands.
+    */
+    Route::post('/orders/enter', EnterAfterPaymentController::class)
+        ->middleware([RefuseToBeStored::class, 'throttle:30,1,orders-enter'])
+        ->name('orders.enter');
 
     /*
     | Joining the mailing list. Open to anybody, and flat rather than behind a

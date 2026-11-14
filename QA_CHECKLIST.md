@@ -452,6 +452,12 @@ Run this section from a browser on the real frontend origin as well as from `cur
 | The same for a reading order, a gift order, a buyer with a password, or an unclaimed address that already had an order | `none` from the start, with `set_password_url` `null`, never `""` |
 | Start the payment through the legacy `POST /api/v1/orders/{token}/pay`, then settle and ask | `none`. A token that travelled in a path is never handed a link. `POST /api/v1/orders/pay` with the token in the body is the route that keeps it |
 | Ask for a **reset** on the same account now | Works normally. Once claimed, it is an ordinary account |
+| Buy the pass as a **brand new** address, then `POST /api/v1/orders/enter` from the website's origin with the pay token in the body | Added 14 November 2026, #128. **409** until the webhook settles, then **200** with `/login`'s body and a new session cookie. `GET /api/v1/me` in that browser answers the buyer. No `token` key, even with `device_name` sent |
+| The same call again, from a **different** browser | **403**. It works once. From the browser it signed in, **200** again, because that browser is already the order's customer |
+| The same for a buyer with a password, an unclaimed address that already had an order, a reading order, more than fifteen minutes after settlement, or a token sent through the legacy path `/pay` | **403** every time, one message for all of them |
+| Signed in as somebody else, call it with this order's token | **404**, exactly as `/orders/status` answers |
+| Enter, load one page, then claim the account from the receipt's link in another browser, then load a page in the first | The first browser is **signed out** (401 from `/me`). The same after a reset instead of a claim. Decision 2 of #126 |
+| Every answer above, read its headers | `Cache-Control: no-store` on all of them, the 429 after thirty calls in a minute included |
 
 ### The walk itself, in a browser, on the real frontend origin
 

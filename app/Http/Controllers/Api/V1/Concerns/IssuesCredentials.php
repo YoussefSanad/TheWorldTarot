@@ -47,13 +47,27 @@ trait IssuesCredentials
             ]);
         }
 
+        $this->startSession($request, $customer);
+
+        return $this->respond(new CustomerResource($customer), $status);
+    }
+
+    /**
+     * The cookie session, the one way the website is signed in.
+     *
+     * Its own method since 14 November 2026, issue #128, because
+     * `POST /orders/enter` signs somebody in with nothing but this: no
+     * `device_name` branch, so never a bearer token. #124 (PR #125, open when
+     * this was written) makes the same extraction with the same body, so when
+     * the two meet only this comment needs reconciling.
+     */
+    private function startSession(Request $request, Customer $customer): void
+    {
         Auth::guard('web')->login($customer);
 
         // Session fixation. A session id that existed before sign in must never
         // still be valid after it.
         $request->session()->regenerate();
-
-        return $this->respond(new CustomerResource($customer), $status);
     }
 
     private function respond(CustomerResource $resource, int $status): JsonResponse

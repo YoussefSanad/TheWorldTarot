@@ -26,6 +26,8 @@ Status: in use as of 22 October 2026. The frontend builds against it, so changes
 
 **Updated 11 November 2026, backend #122, and it changes a rule this document stated: `POST /api/v1/orders/status` can now send an email back.** For a first-time Viewing Room pass buyer, for fifteen minutes after their order settles, the answer carries the receipt's own set-password link, whose query string holds their address. Two keys arrive on every answer, `set_password_link` and `set_password_url`, under the endpoint in section 2. **And `POST /api/v1/orders/pay` takes the pay token in the body**, replacing `POST /api/v1/orders/{pay_token}/pay`, which stays only until your site has moved (frontend #170) and then goes. Your side of both is frontend #170.
 
+**Updated 14 November 2026, backend #128, decided in #126: paying signs a first-time pass buyer in.** `POST /api/v1/orders/enter`, under "Orders" in section 2, takes the pay token in the body and starts the same cookie session `/login` does, once, for fifteen minutes after settlement, and only for an account that payment made. Your side is frontend #185, which replaces #170's "Set your password" button with going straight to `/viewing-room/`. **The claim link on `/orders/status` is still answered until #185 is on staging**, then `set_password_link` answers `"none"` and `set_password_url` `null` for good, and the keys stay so nothing reading them breaks.
+
 **What has not changed is the order of the calls and the shape of everything else.** You still place an order, you still POST the token to `/pay`, and you still read `type` before you read anything else.
 
 ---
@@ -556,12 +558,42 @@ Added 11 November 2026, backend #122. **This is what puts the "Set your password
 - **After the link is used**, from your page or from the receipt, this answers `"none"`, and your set-password page already says a link that has been used is no longer valid, which is what our `/set-password` answers (422). **We never hand you a link we know is dead**: used, replaced or expired, the answer turns to `"none"`
 - **A reset asked for from the sign in page replaces the link**, because the broker keeps one per address. Inside sixty seconds of settlement the broker's throttle refuses that reset and the link survives; after that, the reset's mail holds the live link and this answers `"none"`. Nothing this endpoint does mints a token, so it never triggers that throttle itself
 - **Why fifteen minutes and not the receipt's sixty.** Holding this link is holding the account. The pay token lives as long as the order and sits in the buyer's browser storage; the link is worth handing to that token only while the buyer is plausibly still on the page. The receipt covers the rest of the hour
+- **To be retired, backend #128, 14 November 2026.** `POST /api/v1/orders/enter` above replaces handing the page this link. Once frontend #185 is on staging, these two keys answer `"none"` and `null` on every 200, and they stay in the body until your site has stopped reading them. Nothing here changes before then
 - **Why "no order but this one".** Stripe's hosted page lets whoever pays type any address, and the order attaches to the account that address already has. An account with history on it was not made by the person holding this pay token, so we never hand them its first password. A returning unclaimed buyer, somebody who bought a reading last month say, gets `"none"` and the link in their receipt
 
 - **If Stripe cannot be reached, this answers 503** and says nothing about the payment. Guessing `processing` would be us inventing a status about somebody's money. **Treat it exactly as an unrecognised status: we do not know yet, ask again**, and let your backoff do its job
 - **This is a poll, so poll it politely.** A short interval for a few seconds after the return, then back off. The webhook is what settles the order; this only tells you what Stripe already thinks
 - `Cache-Control: no-store`
 - Rate limited to 60 a minute per address, since a confirmation screen polls
+
+### POST /api/v1/orders/enter
+
+**Signing a first-time Viewing Room pass buyer in, by having paid.** Added 14 November 2026, backend #128, decided in #126. Your confirmation page calls it once the pass screen shows a received payment, and on a 200 the buyer goes to `/viewing-room/` signed in, with no password step. The receipt still carries the set-password link for later visits; there is no separate welcome email. No language segment.
+
+**The pay token goes in the body**, for the reason `/orders/status` takes it there. Send it with cookie credentials and the CSRF header, exactly as you call `/login`.
+
+```json
+{ "pay_token": "kQ3rN8xvT1sLb0Zy..." }
+```
+
+| Status | Body | What your page does |
+|---|---|---|
+| **200** | `/login`'s body, the customer | Signed in. Refresh the customer you hold, then replace the URL with `/viewing-room/` |
+| **409** | `{ "message": "..." }` | Not settled yet. Ask again on the same schedule as the claim link: about one second, doubling, 30 seconds in all, then treat it as 403 |
+| **403** | `{ "message": "..." }` | This token will never sign anybody in. Show "Sign in to enter" (to `/login/?next=/viewing-room/`) and point at the password link in the receipt |
+| **404** | nothing to read | An unknown token, or you are signed in as a different customer. Treat it as 403 |
+| **422** | validation | `pay_token` missing |
+| **429** | | Treat it as 403 |
+
+- **200 happens in exactly one case**: the order is paid and contains the Viewing Room pass, the account it belongs to has no password and no order but this one, it settled less than **fifteen minutes** ago, the pay token was never sent in the path of the legacy `/pay` route, the request arrived with a cookie session, and **no browser has entered with this token before**. It works once
+- **Already signed in as the order's own customer is 200, and spends nothing.** So a reload of the confirmation page, in the browser it signed in, still lands in the room. If your masthead already has a customer, you do not need to call it at all
+- **403 is one message for every refusal.** A buyer who already has a password, an address that already had an order, a reading order, the window having passed, a second browser, a token that travelled in a path. Telling them apart would tell whoever holds a pay token whether the address typed at Stripe already has an account here
+- **A request that cannot hold a session is 403 and spends nothing**, so getting the credentials wrong in development does not burn the buyer's one entry
+- **Never a bearer token**, even when `device_name` is sent. This is the website's door only
+- **The session is an ordinary session**, the same lifetime as one from `/login`. When it ends the buyer uses the receipt's link if it is still live, or forgot-password
+- **Somebody who pays with another person's address is signed in to an account in that person's name.** Accepted in #126, decision 2: it reaches `/me` and the films, and when the owner claims or resets it, that session is signed out on its next request. A session that has made no request since entering is the one that survives that until it makes one
+- `Cache-Control: no-store` on **every** answer, refusals, 422 and 429 included
+- Rate limited to 30 a minute per address, on its own allowance, so it never spends `/orders/status`'s
 
 ### Gifts
 

@@ -1,11 +1,13 @@
 <?php
 
+use App\Http\Middleware\RefuseToBeStored;
 use App\Http\Middleware\ResolveRequestContext;
 use App\Support\TrustedProxies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -42,6 +44,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(append: [
             ResolveRequestContext::class,
         ]);
+
+        // **Outside the throttle wherever both are on a route**, so a 429 is
+        // marked `no-store` too. Without this the priority list moves the
+        // throttle ahead of `SubstituteBindings` in the api group, which puts it
+        // outside anything a route lists before it. Issue #128,
+        // `POST /orders/enter`, whose every answer says no-store.
+        $middleware->prependToPriorityList(before: ThrottleRequests::class, prepend: RefuseToBeStored::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

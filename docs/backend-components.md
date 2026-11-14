@@ -44,6 +44,7 @@ The whole framework configuration, in one file:
 - **`statefulApi()`**, which puts Sanctum's cookie handling in front of the API so the SPA can authenticate with a session cookie scoped to `.theworldtarot.com`
 - **`encryptCookies(except: ['currency'])`**, because the currency override cookie is written by the frontend in JavaScript and read here, so it cannot be encrypted at one end only
 - **`ResolveRequestContext`** appended to every API request
+- **`RefuseToBeStored` ahead of the throttle in the priority list**, so a route listing both marks its 429 `no-store` too. #128
 - **JSON exception rendering** for anything matching `api/*`
 
 ### `app/Providers/AppServiceProvider.php`
@@ -94,6 +95,7 @@ Both are put into the container as an immutable `App\Support\RequestContext`, wh
 | `POST /orders` | 20/min | Open to guests. Placing an order sends no email, which is what keeps the abuse case small |
 | ~~`POST /orders/{payToken}/pay`~~ | 30/min | Addressed by token, not id, because ids are sequential. **Deprecated 11 November 2026, #122**: the token is in the path, so every order reached here is remembered and never handed its claim link on the page. Deleted once frontend #170 has deployed |
 | `POST /orders/pay` | 30/min, the same bucket | The same, with the token in the body. #122 |
+| `POST /orders/enter` | 30/min, its own bucket | Signs a first-time pass buyer in by having paid, token in the body. Every answer `no-store`, through `RefuseToBeStored`. #128 |
 | `POST /newsletter` | 6/min | |
 | `POST /webhooks/bunny` | 60/min | |
 | `POST /webhooks/stripe` | 120/min | |
@@ -138,12 +140,15 @@ Thin by policy. Anything that is a rule lives in an action or a service.
 | `SetPasswordController` | Claims an account created by a purchase. Refuses if a password already exists |
 | `OrderController` | Places an order, creating a customer for an unrecognised email if nobody is signed in |
 | `PayOrderController` | Looks an order up by `pay_token`, refuses a signed-in customer who is not its owner, and returns a payment instruction. Two routes since #122, the token in the body and, until frontend #170 deploys, in the path |
+| `EnterAfterPaymentController` | **#128.** Looks an order up by `pay_token`, refuses a signed-in customer who is not its owner (404), answers 200 at once to its owner already signed in, then asks `EnterAfterPayment` and starts a cookie session on `Enter` (200), 409 on `NotYet`, 403 on `Never`. Never a bearer token |
 | `NewsletterController` | Honeypot check, then queues the subscription and answers 202 |
 | `BunnyWebhookController` | Reads a video id out of the payload and re-asks Bunny. Always answers 200 |
 | `StripeWebhookController` | Verifies the signature against the raw body first, then dispatches |
 | `GiftController` | `lookup` resolves a typed code without spending it; `redeem` spends it. Both normalise through `Gift::withTypedCode`, both answer `Cache-Control: no-store`, and both read the product **past `is_published`**, which is the one place in this system that does |
 
-**`Concerns/IssuesCredentials`** is shared by register and login: if the request names a `device_name`, it mints a Sanctum personal access token; otherwise it logs into the `web` guard and regenerates the session. An origin that cannot hold a session and did not name a device gets a validation error explaining that.
+**`Concerns/IssuesCredentials`** is shared by register and login: if the request names a `device_name`, it mints a Sanctum personal access token; otherwise it logs into the `web` guard and regenerates the session. An origin that cannot hold a session and did not name a device gets a validation error explaining that. **`startSession()`**, the session half alone, is its own method since #128, so `POST /orders/enter` signs in with no `device_name` branch.
+
+**`Concerns/RefusesAnybodyElse`** is the one rule about a signed-in customer holding somebody else's pay token: a 404, unless the order belongs to nobody yet. Shared by `/orders/status` and `/orders/enter` since #128.
 
 ### Form Requests
 
@@ -317,6 +322,7 @@ Small invokable classes holding the transitions that matter.
 | `DeliverReading` | Stamps `readings.delivered_at` once, then asks `MarkOrderFulfilled` whether the order it belongs to is now finished |
 | `ReadPaymentStatus` | Asks Stripe what became of an order's PaymentIntent, for the confirmation screen to poll |
 | `ReadClaimLink` | **#122.** Whether `POST /orders/status` carries the claim link: `ready` with the receipt's own link for fifteen minutes after a first-time pass buyer's order settles, `not_yet` while it is pending, `none` otherwise. Reads only, mints nothing. The bounds, and where the plaintext token is kept (the cache, encrypted, fifteen minutes), are in `App\Support\ClaimLinkHandover` |
+| `EnterAfterPayment` | **#128.** Whether a pay token may sign its buyer in: paid (else `NotYet`), a pass line, an account the order made (`ClaimLinkHandover::isFor`), within `ClaimLinkHandover::MINUTES` of `paid_at`, never a token that travelled in a path, a request that can hold a session, and then a single use taken by `Cache::add` (else `Never`). Every bound is `ClaimLinkHandover`'s, asked, not restated |
 | `MarkOrderFulfilled` | Stamps `fulfilled_at` once, idempotently |
 | `RecordStripePayment` | Refuses anything not succeeded, refuses a payment naming an unknown order, refuses one whose **amount and currency do not match the order**, then records `charged_amount` and the intent id and calls `MarkOrderPaid` |
 | `SyncCardVideo` | Asks Bunny for a video's real status and promotes, fails or updates the card accordingly |

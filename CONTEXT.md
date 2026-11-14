@@ -49,6 +49,22 @@ keeps one per address, and a second link would kill the first.
 _Avoid_: activation link, welcome link, invite, set password link (that is the
 mailable's class name, not the thing)
 
+**Entering after payment**:
+A first-time Viewing Room pass buyer signed in by the payment itself, with no
+password, through `POST /orders/enter` and `App\Actions\EnterAfterPayment`.
+Decided in #126 on 14 November 2026, built as #128. Only for an account this
+payment made (unclaimed, no other order), within fifteen minutes of settlement,
+once, from the browser holding the pay token, and only as a cookie session. It
+is bounded by `App\Support\ClaimLinkHandover`, the same rule that bounds the
+claim link on the page, and it replaces that link: the page's hand-over is
+retired by #128's second step. The receipt still carries the claim link for
+later visits. **Somebody who typed another person's address is signed in to an
+account in that person's name**, accepted in #126 because claiming or resetting
+it signs that session out on its next request.
+
+_Avoid_: auto login, magic sign in, guest session (a guest holds no session at
+all), welcome link (there is no separate welcome email, decision 6 of #126)
+
 ## Readings
 
 The words for a reading as a thing of its own are the **frontend's**
