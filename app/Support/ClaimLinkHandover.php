@@ -48,6 +48,19 @@ use Illuminate\Support\Facades\Crypt;
  * - **Only while the account is unclaimed and the broker still holds this exact
  *   token.** Used, replaced or expired, it is not handed over
  * - **Never for an order whose pay token has been in a path** (see below)
+ *
+ * ## The same bounds now gate signing in, issue #128
+ *
+ * **Since 14 November 2026, `POST /orders/enter` signs a first-time pass buyer
+ * in by having paid**, decided in #126. `App\Actions\EnterAfterPayment` asks
+ * `isFor()`, `MINUTES` and `tokenTravelledInAPath()` from here, so the session
+ * and the claim link are bounded by one statement of the rule rather than two.
+ * It adds what a session needs and a link did not: a single use, and a request
+ * that can hold a session.
+ *
+ * **The hand-over itself is retired by #128's second step**, once the website
+ * stops asking for the link (frontend #185): `keep()`, `token()` and
+ * `ReadClaimLink` go, and these bounds stay.
  */
 final class ClaimLinkHandover
 {

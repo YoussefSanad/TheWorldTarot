@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\ReadClaimLink;
 use App\Actions\ReadPaymentStatus;
+use App\Http\Controllers\Api\V1\Concerns\RefusesAnybodyElse;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\ReadPaymentStatusRequest;
 use App\Http\Resources\Api\V1\PaymentStatusResource;
-use App\Models\Customer;
 use App\Models\Order;
 use App\Payments\Confirmation;
 use App\Payments\PaymentStatus;
@@ -43,6 +43,11 @@ use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
  * `MarkOrderPaid` minted for the receipt and mints nothing. The bounds on it
  * are in `App\Support\ClaimLinkHandover`.
  *
+ * **Still read only after 14 November 2026, issue #128.** Signing a first-time
+ * pass buyer in is a write (a session, and a single use spent), so it is a
+ * separate endpoint, `EnterAfterPaymentController`, and nothing here starts a
+ * session. Its answer keeps the claim link until #128's retire step.
+ *
  * **The same departure from .claude/api.md that `PayOrderController` states.**
  * Stripe is called inside the request rather than from a queue, because the
  * answer is what the request is for and a job would finish after the response
@@ -52,6 +57,10 @@ use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
  */
 class OrderPaymentStatusController extends Controller
 {
+    // Who else may hold this order's pay token. Shared with `POST /orders/enter`
+    // since 14 November 2026, issue #128, and carried there.
+    use RefusesAnybodyElse;
+
     public function __invoke(
         ReadPaymentStatusRequest $request,
         ReadPaymentStatus $read,
@@ -73,37 +82,6 @@ class OrderPaymentStatusController extends Controller
         $status = $this->status($read, $order);
 
         return $this->answer(new Confirmation($status, $claimLink($order)), $request);
-    }
-
-    /**
-     * **Being signed in confers nothing over another customer's order**, exactly
-     * as on `/pay`. A guest holding the token is the normal case and is allowed.
-     * What is refused is somebody authenticated as themselves reading an order
-     * that is not theirs.
-     *
-     * **An order belonging to nobody is not somebody else's.** Orders have been
-     * allowed to wait for their customer since 29 August 2026, so a hosted
-     * checkout leaves `customer_id` null until the webhook learns who paid, and
-     * the confirmation screen is precisely where that gap is. Comparing a key
-     * against null would answer 404 to somebody signing in mid-checkout and
-     * then reading back their own order, permanently, and the token is the
-     * whole authority here in any case.
-     *
-     * The guard is named because this route carries no auth middleware, so a
-     * bare `user()` would ask the session guard and see nobody when a bearer
-     * token arrived.
-     */
-    private function refuseAnybodyElse(Request $request, Order $order): void
-    {
-        if ($order->customer_id === null) {
-            return;
-        }
-
-        $signedIn = $request->user('sanctum');
-
-        if ($signedIn instanceof Customer && $signedIn->getKey() !== $order->customer_id) {
-            throw new NotFoundHttpException;
-        }
     }
 
     /**
