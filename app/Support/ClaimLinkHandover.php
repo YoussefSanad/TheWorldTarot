@@ -23,7 +23,8 @@ use Illuminate\Support\Facades\Cache;
  * as well, and the page is given exactly what the inbox was given.~~ Retired
  * 14 November 2026, #128. `keep()`, `token()` and `ReadClaimLink` are gone,
  * `MarkOrderPaid` keeps nothing here, and `POST /orders/status` answers
- * `set_password_link: "none"` on every 200. The receipt still carries the
+ * ~~`set_password_link: "none"` on every 200~~ its status alone (the claim
+ * link keys removed 14 November 2026, #131). The receipt still carries the
  * link, minted exactly as before, and it is the buyer's only copy.
  *
  * ## ~~Where the plaintext lives, and for how long~~

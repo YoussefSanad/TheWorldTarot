@@ -26,17 +26,18 @@ use Stripe\Service\PaymentIntentService;
 uses(RefreshDatabase::class);
 
 /*
-| The claim link on the confirmation page, issue #122, and its retirement by
-| #128 on 14 November 2026.
+| The claim link on the confirmation page, issue #122, its retirement by #128
+| on 14 November 2026, and the removal of its keys by #131 the same day.
 |
 | ~~`POST /orders/status` hands the page the receipt's own set-password link,
 | for a first-time Viewing Room pass buyer, for fifteen minutes after
 | settlement.~~ Retired 14 November 2026, #128's second step, decided in #126:
 | the page signs that buyer in through `POST /orders/enter` instead, and
-| `/orders/status` never carries a link again. **The two keys stay**, answering
-| `"none"` and `null` on every 200, so a site that still reads them is not
-| broken; removing them is a follow-up once the frontend has stopped reading
-| them. The receipt still carries the link, by the same mint as before.
+| `/orders/status` never carries a link again. ~~**The two keys stay**,
+| answering `"none"` and `null` on every 200, so a site that still reads them
+| is not broken.~~ Removed 14 November 2026, issue #131, once no site read
+| them: the 200 is `{ "status": "..." }` alone again, as it was before #122.
+| The receipt still carries the link, by the same mint as before.
 |
 | Everything here runs against the real `customers` broker rather than a mock,
 | because whether the receipt's link survives is the broker's behaviour.
@@ -97,14 +98,35 @@ function tokenIn(string $url): string
 }
 
 /**
- * The whole 200 the page gets since #128's retire step, whatever the order.
+ * The whole 200 the page gets, whatever the order. ~~Since #128's retire step,
+ * the status beside `set_password_link: "none"` and `set_password_url: null`.~~
+ * The status alone since #131, 14 November 2026.
  *
- * @return array{status: string, set_password_link: string, set_password_url: null}
+ * @return array{status: string}
  */
 function noLinkForThePage(string $status = 'succeeded'): array
 {
-    return ['status' => $status, 'set_password_link' => 'none', 'set_password_url' => null];
+    return ['status' => $status];
 }
+
+/**
+ * Issue #131. Asserted on every shape of order this file builds, so a key
+ * creeping back for one kind of purchase is caught.
+ */
+it('answers neither claim link key, for any order', function (Order $order) {
+    settleForThePage($order);
+
+    askThePage($order)->assertOk()
+        ->assertJsonMissingPath('set_password_link')
+        ->assertJsonMissingPath('set_password_url');
+})->with([
+    'a first-time pass buyer' => fn () => aFirstPassOrder(),
+    'a buyer who already has a password' => fn () => aFirstPassOrder(Customer::factory()->create()),
+    'a reading order' => fn () => Order::factory()
+        ->for(Customer::factory()->create(['password' => null]))
+        ->forProduct(Product::factory()->create(['key' => ProductKey::MonthAhead]))
+        ->create(),
+]);
 
 /*
 | ~~The one case that gets a link.~~ Retired 14 November 2026, #128: the case
@@ -175,18 +197,15 @@ it('leaves the receipt\'s link working after the page has been asked', function 
 });
 
 /*
-| Every case that always got none. The URL is null, never an empty string.
+| Every case that always got none. ~~The URL is null, never an empty string.~~
+| There is no URL key at all since #131, 14 November 2026.
 */
 
 it('hands no link to a buyer who already has a password', function () {
     $order = aFirstPassOrder(Customer::factory()->create());
     settleForThePage($order);
 
-    askThePage($order)->assertOk()->assertExactJson([
-        'status' => 'succeeded',
-        'set_password_link' => 'none',
-        'set_password_url' => null,
-    ]);
+    askThePage($order)->assertOk()->assertExactJson(['status' => 'succeeded']);
 });
 
 it('hands no link for a reading order, even to an account with no password', function () {
@@ -197,11 +216,7 @@ it('hands no link for a reading order, even to an account with no password', fun
 
     settleForThePage($order);
 
-    askThePage($order)->assertOk()->assertExactJson([
-        'status' => 'succeeded',
-        'set_password_link' => 'none',
-        'set_password_url' => null,
-    ]);
+    askThePage($order)->assertOk()->assertExactJson(['status' => 'succeeded']);
 });
 
 it('hands no link for a gift order', function () {
@@ -214,11 +229,7 @@ it('hands no link for a gift order', function () {
 
     settleForThePage($order);
 
-    askThePage($order)->assertOk()->assertExactJson([
-        'status' => 'succeeded',
-        'set_password_link' => 'none',
-        'set_password_url' => null,
-    ]);
+    askThePage($order)->assertOk()->assertExactJson(['status' => 'succeeded']);
 });
 
 /**
@@ -238,11 +249,7 @@ it('says an unpaid reading order will never have a link', function () {
         ->forProduct(Product::factory()->create(['key' => ProductKey::MonthAhead]))
         ->create();
 
-    askThePage($order)->assertOk()->assertExactJson([
-        'status' => 'requires_payment_method',
-        'set_password_link' => 'none',
-        'set_password_url' => null,
-    ]);
+    askThePage($order)->assertOk()->assertExactJson(['status' => 'requires_payment_method']);
 });
 
 /**
@@ -267,8 +274,7 @@ it('hands no link when the account had an order before this one', function (Orde
     expect(setPasswordLinkInTheReceipt())->toBeString();
 
     askThePage($order)->assertOk()
-        ->assertJsonPath('set_password_link', 'none')
-        ->assertJsonPath('set_password_url', null);
+        ->assertExactJson(noLinkForThePage());
 })->with([
     'a paid one' => OrderStatus::Paid,
     'an abandoned one' => OrderStatus::Pending,
@@ -305,7 +311,7 @@ it('still refuses to be cached', function () {
     settleForThePage($order);
 
     askThePage($order)->assertOk()
-        ->assertJsonPath('set_password_link', 'none')
+        ->assertJsonMissingPath('set_password_link')
         ->assertHeader('Cache-Control', 'no-store, private');
 });
 
@@ -358,8 +364,7 @@ it('hands no link for an order whose pay token was sent in a path', function (bo
     }
 
     askThePage($order)->assertOk()
-        ->assertJsonPath('set_password_link', 'none')
-        ->assertJsonPath('set_password_url', null);
+        ->assertExactJson(noLinkForThePage());
 })->with([
     'before settlement' => true,
     'after settlement' => false,
@@ -387,8 +392,7 @@ it('writes nothing to the log while answering a first-time pass buyer', function
         $written[] = $entry->message.json_encode($entry->context);
     });
 
-    $url = askThePage($order)->assertOk()->json('set_password_url');
+    askThePage($order)->assertOk()->assertExactJson(noLinkForThePage());
 
-    expect($url)->toBeNull()
-        ->and($written)->toBe([]);
+    expect($written)->toBe([]);
 });
