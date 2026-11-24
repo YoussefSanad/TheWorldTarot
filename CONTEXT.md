@@ -36,9 +36,11 @@ that already exists), set up
 **Claim link**:
 The link in the paid-order mail inviting the buyer of an unclaimed account to
 choose a first password. Minted by `MarkOrderPaid`, carried by
-~~`App\Mail\SetPasswordLink`~~ the receipt, `App\Mail\OrderPaid`, since #108
-(corrected 14 November 2026; this entry had not caught up), and pointed at the
-website's `/set-password/`
+~~`App\Mail\SetPasswordLink`~~ ~~the receipt, `App\Mail\OrderPaid`, since #108
+(corrected 14 November 2026; this entry had not caught up)~~ the **Welcome
+email** again, `App\Mail\SetPasswordLink`, since #135 (24 November 2026,
+decision 6 of #126 answered by the client: the link is split out of the
+receipt), and pointed at the website's `/set-password/`
 because this application renders nothing a customer can use. It lasts an hour
 and works exactly once.
 
@@ -51,36 +53,76 @@ November 2026, #128's second step, decided in #126.** The confirmation page is
 no longer handed the link: ~~`POST /orders/status` answers
 `set_password_link: "none"` and `set_password_url: null` on every 200, keys
 kept until the frontend stops reading them~~ `POST /orders/status` answers its
-status alone, both keys removed the same day by #131. The receipt is the only
-place the claim link lives. **Entering after payment**, below, is what replaced it.
+status alone, both keys removed the same day by #131. ~~The receipt is the only
+place the claim link lives.~~ The welcome email is the only place the claim
+link lives, since #135. **Entering after payment**, below, is what replaced it
+on the page.
 
-_Avoid_: activation link, welcome link, invite, set password link (that is the
+_Avoid_: activation link, welcome link (the link is the claim link; the email
+carrying it is the welcome email), invite, set password link (that is the
 mailable's class name, not the thing)
 
+**Welcome email**:
+The email a Viewing Room pass buyer receives after the receipt, with a secure
+link to set a password for future visits. Added 24 November 2026, #135, when
+the client restated the flow: pay, land in the Viewing Room signed in, and a
+welcome email arrives separately. Sent by `MarkOrderPaid` for every pass
+order, and only for one (#51). **The same email for every pass buyer**: an
+unclaimed account's button opens `/set-password/` (a claim link) and a claimed
+account's opens `/reset-password/`, with the same subject and words, because
+`/set-password` refuses an account that already has a password. From noreply@
+with no Reply-To, like the receipt. The link lasts sixty minutes (decision 5
+of #126 stands), and after that the buyer uses forgot-password.
+
+Carried by `App\Mail\SetPasswordLink`, **a historical name**: the class was the
+set-password invitation (#106), unused from #108 until #135 revived it, and
+was not renamed because its tests still describe it.
+
+_Avoid_: claim mail, invitation, set-password email (it carries a reset link
+for a repeat buyer)
+
 **Entering after payment**:
-A first-time Viewing Room pass buyer signed in by the payment itself, with no
+A ~~first-time~~ Viewing Room pass buyer signed in by the payment itself, with no
 password, through `POST /orders/enter` and `App\Actions\EnterAfterPayment`.
-Decided in #126 on 14 November 2026, built as #128. Only for an account this
-payment made (unclaimed, no other order), within fifteen minutes of settlement,
-once, from the browser holding the pay token, and only as a cookie session. It
+Decided in #126 on 14 November 2026, built as #128. ~~Only for an account this
+payment made (unclaimed, no other order),~~ **For every pass buyer since 24
+November 2026 (#135), an existing account included**, within fifteen minutes
+of settlement, once, from the browser holding the pay token, and only as a
+cookie session. It
 is bounded by `App\Support\ClaimLinkHandover`, the same rule that bounded the
 claim link on the page, and it replaced that link: ~~the page's hand-over is
 retired by #128's second step~~ the page's hand-over was retired by #128's
-second step on 14 November 2026. The receipt still carries the claim link for
-later visits. **Somebody who typed another person's address is signed in to an
-account in that person's name**, accepted in #126 because claiming or resetting
-it signs that session out on its next request.
+second step on 14 November 2026. ~~The receipt still carries the claim link for
+later visits.~~ The welcome email carries the link for later visits (#135).
+**Somebody who typed another person's address is signed in to an account in
+that person's name**, accepted in #126 because claiming or resetting it signs
+that session out on its next request.
+
+**Since #135 that includes the person's existing account**, not only a new one
+made in their name. Accepted risk, decided 24 November 2026 (decision 1 of
+#126 reversed): the checkout email is not verified, so somebody who pays with
+another person's address is signed in to that person's account. What it
+reaches today is `GET /me` (`id`, `name`, `email`, `created_at`,
+`has_viewing_room_access`), the card videos and logout. The owner ends the
+session by resetting their password (Sanctum `AuthenticateSession`), and
+receives a receipt and a welcome email for a purchase they did not make, which
+is their signal. **Any new `auth:sanctum` route reopens this decision**: order
+history, saved readings, profile edits. `EnterAfterPayment`'s docblock says the
+same.
 
 **`ClaimLinkHandover` is a historical name.** Since the retirement it keeps no
 claim link, only the bounds on when a pay token is worth more than a payment
-status (`isFor()`, `MINUTES`, `tokenTravelledInAPath()`). It was not renamed,
+status (~~`isFor()`,~~ `MINUTES`, `tokenTravelledInAPath()`; `isFor()` removed
+with the account bound, #135). It was not renamed,
 decided 14 November 2026, because renaming is churn against open work (#124's
 PR #125, ~~open~~ closed unmerged 14 November 2026, when #124 was dropped) for no
 change in behaviour. Read it as "the bounds on entering after
 payment".
 
 _Avoid_: auto login, magic sign in, guest session (a guest holds no session at
-all), welcome link (there is no separate welcome email, decision 6 of #126)
+all), ~~welcome link (there is no separate welcome email, decision 6 of
+#126)~~ welcome link (there is a separate **Welcome email** since #135, 24
+November 2026, and what it carries is the claim link)
 
 ## Readings
 

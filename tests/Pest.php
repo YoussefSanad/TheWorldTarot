@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ProductKey;
+use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Gift;
 use App\Models\Order;
@@ -9,6 +10,7 @@ use App\Payments\StripePayment;
 use App\Support\Locales;
 use Database\Factories\ProductFactory;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Stripe\Collection;
 use Stripe\PaymentIntent;
@@ -71,6 +73,19 @@ pest()->extend(TestCase::class)
 function passwordTokenFor(Customer $customer): string
 {
     return Password::broker('customers')->createToken($customer);
+}
+
+/**
+ * The welcome emails queued so far, in order. Issue #135.
+ *
+ * Here rather than in one test file because three read it, and Pest loads a
+ * file's functions only when that file runs.
+ *
+ * @return list<SetPasswordLink>
+ */
+function welcomesQueued(): array
+{
+    return Mail::queued(SetPasswordLink::class)->values()->all();
 }
 
 /**

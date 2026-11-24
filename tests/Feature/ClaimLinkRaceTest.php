@@ -2,6 +2,7 @@
 
 use App\Actions\MarkOrderPaid;
 use App\Mail\OrderPaid;
+use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
@@ -36,7 +37,8 @@ uses(DatabaseTruncation::class, TruncatesWhatAGiftTouches::class);
 |
 | A child cannot share `Mail::fake` with the parent. Each child fakes mail for
 | itself, settles its order, and writes down what its own fake saw: how many
-| `OrderPaid` receipts it queued and whether each carried a set-password link.
+| `OrderPaid` receipts it queued and how many set-password links it mailed,
+| ~~in them~~ in the welcome email since #135 (24 November 2026).
 | The parent reads those notes.
 |
 | **Cleared afterwards as well as before**, for the reason given in
@@ -56,12 +58,13 @@ afterEach(function () {
 });
 
 /**
- * The set-password token a receipt carries, or null when it carries none.
+ * The set-password token a welcome email carries, or null when it carries
+ * none. ~~A receipt~~ until #135, 24 November 2026.
  *
  * The same reading as `claimTokenIn` in `MarkOrderPaidTest`, under another name
  * because Pest loads every test file's functions into one namespace.
  */
-function raceClaimTokenIn(OrderPaid $mail): ?string
+function raceClaimTokenIn(SetPasswordLink $mail): ?string
 {
     $content = $mail->content();
     $text = view($content->text, $content->with)->render();
@@ -131,9 +134,11 @@ function settlingTogether(array $orderIds): array
 
             $action($order);
 
-            foreach (Mail::queued(OrderPaid::class) as $mail) {
-                $answer['receipts']++;
+            $answer['receipts'] = Mail::queued(OrderPaid::class)->count();
 
+            // ~~The receipt's link~~ The welcome email's, since #135 (24
+            // November 2026). The receipt carries none.
+            foreach (Mail::queued(SetPasswordLink::class) as $mail) {
                 $token = raceClaimTokenIn($mail);
 
                 if ($token !== null) {
@@ -178,7 +183,7 @@ function settlingTogether(array $orderIds): array
 | racer dies on the primary key and exactly one of the mailed tokens is live.
 */
 
-it('sends both receipts with a link and leaves exactly one of them live when two pass orders settle at once', function () {
+it('sends both welcome emails with a link and leaves exactly one of them live when two pass orders settle at once', function () {
     // Named rather than skipped: a skip reads as a pass.
     expect(extension_loaded('pcntl'))->toBeTrue()
         ->and(function_exists('posix_kill'))->toBeTrue();
@@ -212,7 +217,7 @@ it('sends both receipts with a link and leaves exactly one of them live when two
 
         // (c) Both receipts went out, and ~~exactly one of them carries the
         // link. The other is the one `holdsALiveClaimLink` turned away.~~
-        // both carry one (#114).
+        // both carry one (#114). Both welcome emails since #135.
         expect(array_column($answers, 'receipts'))->toBe([1, 1], "round {$round}")
             ->and(array_column($answers, 'links'))->toBe([1, 1], "round {$round}");
 

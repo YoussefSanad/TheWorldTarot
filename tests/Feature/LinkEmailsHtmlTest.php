@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\PasswordLink;
+use App\Enums\ProductKey;
 use App\Mail\PasswordResetLink;
 use App\Mail\SetPasswordLink;
 use App\Models\Customer;
@@ -148,23 +150,39 @@ it('does not write the link or token to the logs', function () {
 });
 
 /*
-| Step 2: the Viewing Room set-password invitation.
+| Step 2: the Viewing Room set-password invitation. ~~Unused since #108.~~
+| Revived 24 November 2026 as the welcome email, #135, which carries a reset
+| link instead for an account that already has a password.
 */
 
-function sendSetPassword(?string $name = 'Jodie O\'Reilly', string $token = 'tok-abc123'): string
+function sendSetPassword(?string $name = 'Jodie O\'Reilly', string $token = 'tok-abc123', PasswordLink $link = PasswordLink::Set): string
 {
     $customer = Customer::factory()->create(['name' => $name, 'email' => 'jodie@example.com']);
 
-    Mail::to($customer->email)->send(new SetPasswordLink($customer, $token));
+    Mail::to($customer->email)->send(new SetPasswordLink($customer, $token, ProductKey::ViewingRoomPass, $link));
 
-    return FrontendUrl::setPassword($customer->email, $token);
+    return $link === PasswordLink::Reset
+        ? FrontendUrl::resetPassword($customer->email, $token, ProductKey::ViewingRoomPass)
+        : FrontendUrl::setPassword($customer->email, $token, ProductKey::ViewingRoomPass);
 }
 
 it('sends the set-password link as both an HTML part and a text part', function () {
     sendSetPassword();
 
     expect(linkHtmlSent())->toContain('<html')
-        ->and(linkTextSent())->toContain('Your Viewing Room pass is ready');
+        ->and(linkTextSent())->toContain('Welcome to the Viewing Room');
+});
+
+it('puts a repeat buyer\'s reset link in the welcome HTML as an escaped href, and raw in text', function () {
+    $url = sendSetPassword(link: PasswordLink::Reset);
+
+    expect($url)->toContain('/reset-password/')
+        ->and($url)->toContain('&')
+        ->and(linkHtmlSent())->toContain('href="'.e($url).'"')
+        ->and(linkHtmlSent())->not->toContain('href="'.$url.'"')
+        ->and(linkHtmlSent())->not->toContain('/set-password/')
+        ->and(linkTextSent())->toContain($url)
+        ->and(linkTextSent())->not->toContain('&amp;');
 });
 
 it('puts the set-password link in the HTML as an escaped href', function () {
@@ -256,11 +274,19 @@ it('does not write the set-password link or token to the logs', function () {
         ->and(implode("\n", $logged))->not->toContain('secret-token-xyz');
 });
 
-it('words the set-password HTML as a Viewing Room pass, not a reset', function () {
+/**
+ * ~~"Your Viewing Room pass is ready"~~ until 24 November 2026. The welcome
+ * email's copy, #135: a welcome, lifetime access already theirs, a secure link
+ * for future visits, and where to go once it has expired.
+ */
+it('words the set-password HTML as a welcome, not a reset', function () {
     sendSetPassword();
 
-    expect(linkHtmlSent())->toContain('Viewing Room pass')
-        ->and(linkHtmlSent())->toContain('is ready')
+    expect(linkHtmlSent())->toContain('Welcome to the Viewing Room')
+        ->and(linkHtmlSent())->toContain('lifetime access')
+        ->and(linkHtmlSent())->toContain('secure link')
+        ->and(linkHtmlSent())->toContain('Forgotten your password?')
+        ->and(linkTextSent())->toContain('Forgotten your password?')
         ->and(strtolower(linkHtmlSent()))->not->toContain('reset');
 });
 

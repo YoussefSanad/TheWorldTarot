@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\PasswordLink;
 use App\Enums\ProductKey;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
@@ -189,20 +190,21 @@ it('sends a claim link a browser can read the address out of', function () {
         ->and(array_keys($query))->toBe(['token', 'email']);
 });
 
-it('sends a receipt whose claim link a browser can read the address out of', function () {
+/**
+ * ~~A receipt whose claim link a browser can read.~~ The receipt carried the
+ * link from #108 until 24 November 2026, when it moved to the welcome email
+ * (#135). The welcome email is held to the same rule, for both kinds of link it
+ * can carry, off the transport.
+ */
+it('sends a welcome email whose link a browser can read the address out of', function (PasswordLink $kind, string $page) {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');
 
-    $order = Order::factory()
-        ->for(Customer::factory()->create(['email' => 'jennifer+pass@example.com', 'password' => null]))
-        ->forProduct(Product::factory()->pass()->create())
-        ->create();
+    $customer = Customer::factory()->create(['email' => 'jennifer+pass@example.com', 'password' => null]);
 
-    // #108: the receipt is the invitation, so it is held to the claim link's rule.
-    Mail::to($order->customer->email)->send(new OrderPaid($order, 'tok-abc123', ProductKey::ViewingRoomPass));
+    Mail::to($customer->email)->send(new SetPasswordLink($customer, 'tok-abc123', ProductKey::ViewingRoomPass, $kind));
 
-    $body = bodyMentioning('/set-password/');
-    // The set-password link specifically, since a receipt may name other addresses first.
-    preg_match('#https://\S+/set-password/\?\S+#', $body, $link);
+    $body = bodyMentioning("/{$page}/");
+    preg_match('#https://\S+/'.$page.'/\?\S+#', $body, $link);
     parse_str((string) parse_url($link[0] ?? '', PHP_URL_QUERY), $query);
 
     expect($link)->not->toBeEmpty()
@@ -214,7 +216,10 @@ it('sends a receipt whose claim link a browser can read the address out of', fun
         // The markup part escapes the same link, and the text part is raw.
         ->and(theHtmlSent())->toContain('&amp;email=')
         ->and(theHtmlSent())->not->toContain('&email=');
-});
+})->with([
+    'set, for an unclaimed account' => [PasswordLink::Set, 'set-password'],
+    'reset, for a claimed one' => [PasswordLink::Reset, 'reset-password'],
+]);
 
 it('sends a reset link a browser can read the address out of', function () {
     config()->set('frontend.url', 'https://staging.theworldtarot.com');

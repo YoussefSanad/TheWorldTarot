@@ -89,11 +89,13 @@ it('everything downstream of settlement works for an identity that arrived late'
 
     app(RecordStripePayment::class)(paymentFor($order));
 
-    // One receipt, which is also the invitation to choose a password for the
-    // pass that was just granted (#108). There is no second message.
+    // ~~One receipt, which is also the invitation to choose a password for the
+    // pass that was just granted (#108). There is no second message.~~ Since
+    // #135 (24 November 2026) the receipt and a welcome email, which carries
+    // the invitation.
     Mail::assertQueued(OrderPaid::class, 1);
-    Mail::assertNotQueued(SetPasswordLink::class);
-    Mail::assertQueued(OrderPaid::class, function (OrderPaid $mail): bool {
+    Mail::assertQueued(SetPasswordLink::class, 1);
+    Mail::assertQueued(SetPasswordLink::class, function (SetPasswordLink $mail): bool {
         $content = $mail->content();
 
         return str_contains(view($content->text, $content->with)->render(), '/set-password/?token=');
@@ -217,10 +219,11 @@ it('settles an unowned order exactly once however many times it is redelivered',
         ->and(app(RecordStripePayment::class)(paymentFor($order)))->toBe(Recording::AlreadySettled)
         ->and(Customer::count())->toBe(1);
 
-    // One receipt, carrying the claim link. Not two of anything. Nothing goes
-    // to Jennifer here, because a pass has no reading to write.
+    // One receipt and one welcome email carrying the claim link (#135, 24
+    // November 2026). Not two of either. Nothing goes to Jennifer here,
+    // because a pass has no reading to write.
     Mail::assertQueued(OrderPaid::class, 1);
-    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(SetPasswordLink::class, 1);
 });
 
 it('refuses to settle an order that reached the transition holding nobody', function () {

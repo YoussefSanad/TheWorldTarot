@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\PasswordLink;
+use App\Enums\ProductKey;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
 use App\Mail\PasswordResetLink;
@@ -81,9 +83,13 @@ it('sends the confirmation from noreply, with no header offering a way back', fu
 });
 
 /**
- * The two link emails leave from support, as they did before they were
+ * ~~The two link emails leave from support~~, as they did before they were
  * multipart (#106, 24 October 2026). Adding an HTML part must not move the
  * sender. Literal address set here, for the reason given above.
+ *
+ * **Only the reset leaves from support since 24 November 2026.** The
+ * set-password mail became the welcome email (#135), which goes out beside the
+ * receipt and follows the receipt's rule: noreply@, no Reply-To. Below.
  */
 it('sends the link email from support, multipart or not', function (string $mailable) {
     config()->set('mail.senders', [
@@ -103,7 +109,35 @@ it('sends the link email from support, multipart or not', function (string $mail
         ->and($message->getTextBody())->not->toBeEmpty();
 })->with([
     'password reset' => [PasswordResetLink::class],
-    'set password' => [SetPasswordLink::class],
+]);
+
+/**
+ * The welcome email, #135. It is sent beside the receipt for the same payment,
+ * and the client asked that the receipt close replies (30 August 2026). A
+ * welcome from support@ would reopen that door one message later, so it is held
+ * to the receipt's rule, header for header.
+ */
+it('sends the welcome email from noreply, multipart, with no header offering a way back', function (PasswordLink $link) {
+    config()->set('mail.senders', [
+        'support' => 'support@example.test',
+        'noreply' => 'noreply@example.test',
+        'fulfillment' => 'fulfillment@example.test',
+    ]);
+
+    $customer = Customer::factory()->create();
+
+    Mail::to($customer->email)->send(new SetPasswordLink($customer, 'tok-1', ProductKey::ViewingRoomPass, $link));
+
+    $message = theMessageSent();
+
+    expect($message->getFrom()[0]->getAddress())->toBe('noreply@example.test')
+        ->and($message->getReplyTo())->toBeEmpty()
+        ->and($message->getHeaders()->has('Reply-To'))->toBeFalse()
+        ->and($message->getHtmlBody())->not->toBeNull()
+        ->and($message->getTextBody())->not->toBeEmpty();
+})->with([
+    'set' => PasswordLink::Set,
+    'reset' => PasswordLink::Reset,
 ]);
 
 /**

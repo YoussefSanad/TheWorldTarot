@@ -12,6 +12,35 @@ use Illuminate\Support\Facades\Cache;
  * Whether the browser holding a pay token may be signed in by having paid,
  * issue #128, decided in #126 on 14 November 2026.
  *
+ * **Every pass buyer, since 24 November 2026 (#135).** ~~Only an account this
+ * payment made: unclaimed, holding no other order (decision 1 of #126).~~
+ * Reversed by decision: a repeat buyer is treated exactly like a new one, so
+ * the client's flow (pay, land in the Viewing Room signed in, welcome email
+ * separately) holds for everybody who buys the pass.
+ *
+ * ## The risk this accepts, and what reopens it
+ *
+ * **The checkout email is typed into Stripe and nobody has verified it.**
+ * Somebody who pays with another person's address is signed in to that
+ * person's existing account, not only to a new account in their name. What
+ * that session can reach today is all of it:
+ *
+ * - `GET /me`: `id`, `name`, `email`, `created_at`, `has_viewing_room_access`
+ * - the card videos
+ * - logout
+ *
+ * The owner ends the session by resetting their password: Sanctum's
+ * `AuthenticateSession` signs it out on its next request
+ * (`EnterAfterPaymentTest`, "squatting on a claimed account"). The owner also
+ * receives a receipt and a welcome email for a purchase they did not make,
+ * which is their signal. The price of a pass is what stands in the way.
+ *
+ * **Any new `auth:sanctum` route reopens this decision**: order history, saved
+ * readings, profile edits, anything that shows or changes more than the list
+ * above. Whoever adds one decides again, on the record, whether a payment may
+ * still sign somebody in to an account it did not make. `CONTEXT.md` says the
+ * same under **Entering after payment**.
+ *
  * **It decides, and the controller signs in.** Every bound is asked on every
  * request, in the order #128 numbers them, and the single use is the last thing
  * taken, so no answer short of signing somebody in ever spends it.
@@ -20,6 +49,7 @@ use Illuminate\Support\Facades\Cache;
  * worked out when a pay token may be worth an account, for handing the page a
  * claim link. This hands the page the session the claim link would have ended
  * in, so the same bounds hold for the same reasons, and that class carries them.
+ * ~~`isFor()` among them~~, removed with gate 3 on 24 November 2026 (#135).
  *
  * **Every refusal is silent.** The pay token is a credential and nothing on this
  * path writes it, or anything keyed on it, to a log.
@@ -54,13 +84,14 @@ class EnterAfterPayment
             return EntryOutcome::Never;
         }
 
-        // 3. An account this payment made: unclaimed, holding no other order.
+        // 3. ~~An account this payment made: unclaimed, holding no other order.
         // Decision 1 of #126. The checkout email is typed into Stripe and nobody
         // has verified it, so an existing account is never handed to whoever
-        // typed its address. A paid order always has a customer.
-        $customer = $order->customer;
-
-        if ($customer === null || ! $this->handover->isFor($order, $customer)) {
+        // typed its address.~~ Reversed 24 November 2026, #135: any customer,
+        // claimed or not, with or without other orders. The risk that accepts
+        // is in this class's docblock. A paid order always has a customer, and
+        // the null check stays because the database cannot say so to PHP.
+        if ($order->customer === null) {
             return EntryOutcome::Never;
         }
 
