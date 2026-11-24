@@ -5,7 +5,7 @@ use App\Actions\MarkOrderPaid;
 use App\Enums\ClaimOutcome;
 use App\Enums\OrderStatus;
 use App\Enums\ProductKey;
-use App\Mail\OrderPaid;
+use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Gift;
 use App\Models\Order;
@@ -80,14 +80,16 @@ function askThePage(Order $order): TestResponse
 }
 
 /**
- * The set-password link the newest receipt carries, read off the mailable's own
- * view data so the comparison is with what the buyer was actually sent.
+ * The set-password link the newest welcome email carries, read off the
+ * mailable's own view data so the comparison is with what the buyer was
+ * actually sent. ~~The newest receipt~~ until #135 moved the link out of it,
+ * 24 November 2026.
  */
-function setPasswordLinkInTheReceipt(): ?string
+function setPasswordLinkInTheWelcomeEmail(): ?string
 {
-    $mail = Mail::queued(OrderPaid::class)->last();
+    $mail = Mail::queued(SetPasswordLink::class)->last();
 
-    return $mail?->content()->with['setPasswordUrl'] ?? null;
+    return $mail?->content()->with['url'] ?? null;
 }
 
 function tokenIn(string $url): string
@@ -130,14 +132,15 @@ it('answers neither claim link key, for any order', function (Order $order) {
 
 /*
 | ~~The one case that gets a link.~~ Retired 14 November 2026, #128: the case
-| that used to get one gets none, and the receipt still carries it.
+| that used to get one gets none, and ~~the receipt still carries it~~ the
+| welcome email carries it since #135, 24 November 2026.
 */
 
-it('hands a first-time pass buyer no link once the order is settled, while the receipt still carries one', function () {
+it('hands a first-time pass buyer no link once the order is settled, while the welcome email carries one', function () {
     $order = aFirstPassOrder();
     settleForThePage($order);
 
-    expect(setPasswordLinkInTheReceipt())->toBeString();
+    expect(setPasswordLinkInTheWelcomeEmail())->toBeString();
 
     askThePage($order)->assertOk()->assertExactJson(noLinkForThePage());
 });
@@ -171,7 +174,7 @@ it('settles a first-time pass order without keeping its claim token in the cache
 
     settleForThePage($order);
 
-    expect(setPasswordLinkInTheReceipt())->toBeString()
+    expect(setPasswordLinkInTheWelcomeEmail())->toBeString()
         ->and(array_filter($written, fn (string $key): bool => str_starts_with($key, 'claim-link-for-the-page:')))->toBe([])
         ->and(Cache::has('claim-link-for-the-page:'.$order->getKey()))->toBeFalse();
 });
@@ -181,7 +184,7 @@ it('settles a first-time pass order without keeping its claim token in the cache
  * the buyer's one live link whether or not the page has been asked. This held
  * under #122 as well, where the page was handed that same token.
  */
-it('leaves the receipt\'s link working after the page has been asked', function () {
+it('leaves the welcome email\'s link working after the page has been asked', function () {
     $buyer = Customer::factory()->create(['password' => null]);
     $order = aFirstPassOrder($buyer);
     settleForThePage($order);
@@ -189,7 +192,7 @@ it('leaves the receipt\'s link working after the page has been asked', function 
     askThePage($order)->assertOk();
     askThePage($order)->assertOk();
 
-    $token = tokenIn(setPasswordLinkInTheReceipt());
+    $token = tokenIn(setPasswordLinkInTheWelcomeEmail());
 
     expect(Password::broker('customers')->tokenExists($buyer, $token))->toBeTrue()
         ->and(app(ClaimAccount::class)($buyer->email, $token, 'a-first-password-123'))
@@ -270,8 +273,9 @@ it('hands no link when the account had an order before this one', function (Orde
     $order = aFirstPassOrder($buyer);
     settleForThePage($order);
 
-    // The receipt still carries the link, to the address that owns the account.
-    expect(setPasswordLinkInTheReceipt())->toBeString();
+    // The welcome email carries the link (the receipt did until #135), to the
+    // address that owns the account.
+    expect(setPasswordLinkInTheWelcomeEmail())->toBeString();
 
     askThePage($order)->assertOk()
         ->assertExactJson(noLinkForThePage());
@@ -339,7 +343,7 @@ it('says none while Stripe reports success and the webhook has not settled, and 
     $order->forceFill(['customer_id' => Customer::factory()->create(['password' => null])->id])->save();
     settleForThePage($order->refresh());
 
-    expect(setPasswordLinkInTheReceipt())->toBeString();
+    expect(setPasswordLinkInTheWelcomeEmail())->toBeString();
 
     askThePage($order)->assertOk()->assertExactJson(noLinkForThePage());
 });

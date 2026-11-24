@@ -3,7 +3,7 @@
 use App\Actions\MarkOrderPaid;
 use App\Enums\OrderStatus;
 use App\Enums\ProductKey;
-use App\Mail\OrderPaid;
+use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
@@ -18,11 +18,12 @@ use Laravel\Sanctum\PersonalAccessToken;
 uses(RefreshDatabase::class);
 
 /*
-| Paying signs a first-time pass buyer in. Issue #128, decided in #126 on
-| 14 November 2026.
+| Paying signs a pass buyer in. Issue #128, decided in #126 on 14 November 2026.
 |
-| `POST /orders/enter` starts a cookie session for the browser that paid, once,
-| and only for an account this payment made. Every case below is about that
+| `POST /orders/enter` starts a cookie session for the browser that paid, once.
+| ~~And only for an account this payment made.~~ Reversed 24 November 2026,
+| #135: every pass buyer is entered, an account that already has a password or
+| another order included. Every case below is about that
 | session, so every case says which browser is asking: the harness carries no
 | cookie from one request to the next and keeps one session store for the whole
 | test, and `aBrowserHolding()` is what makes "the next request from this
@@ -30,6 +31,7 @@ uses(RefreshDatabase::class);
 |
 | **The gate is `ClaimLinkHandover`'s bounds, reused.** Every denial below is a
 | bound that class already states for #122, asked again here by the same code.
+| ~~`isFor()` among them.~~ Dropped 24 November 2026, #135.
 */
 
 beforeEach(function () {
@@ -46,8 +48,9 @@ beforeEach(function () {
 });
 
 /**
- * A pass order whose buyer has no password and no other order: the one shape of
- * order that may sign anybody in.
+ * A pass order whose buyer has no password and no other order. ~~The one shape
+ * of order that may sign anybody in.~~ Since #135 (24 November 2026) one of
+ * several, and still the default because it is the first purchase.
  */
 function aPassOrderToEnter(?Customer $buyer = null): Order
 {
@@ -103,10 +106,13 @@ function aBrowserHolding(string $sessionId): void
     test()->withCredentials()->withCookie(config('session.cookie'), $sessionId);
 }
 
-/** The set-password token the newest receipt carries. */
-function tokenInTheEntryReceipt(): string
+/**
+ * The set-password token the newest welcome email carries. ~~The newest
+ * receipt.~~ The link moved to its own email, #135, 24 November 2026.
+ */
+function tokenInTheWelcomeEmail(): string
 {
-    $url = Mail::queued(OrderPaid::class)->last()?->content()->with['setPasswordUrl'] ?? '';
+    $url = Mail::queued(SetPasswordLink::class)->last()?->content()->with['url'] ?? '';
     parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
 
     return $query['token'];
@@ -172,15 +178,35 @@ it('answers 409 for a hosted checkout whose webhook has not yet said who paid', 
 | "sign in to enter".
 */
 
-it('refuses an account that already has a password', function () {
-    $order = aPassOrderToEnter(Customer::factory()->create());
+/*
+| ~~An existing account is never entered (decision 1 of #126).~~ Reversed 24
+| November 2026, #135: a repeat buyer is treated exactly like a new one. These
+| two were 403s until then. The risk this accepts is written in
+| `EnterAfterPayment`'s docblock and `CONTEXT.md`.
+*/
+
+it('signs in a buyer whose account already has a password, on a fresh session id', function () {
+    $buyer = Customer::factory()->create(['email' => 'returning@example.com']);
+    $order = aPassOrderToEnter($buyer);
     settleTheEntry($order);
 
-    enterWith($order)->assertForbidden()->assertJsonStructure(['message']);
-    $this->assertGuest('web');
+    $before = sessionCookieFrom($this->get('/sanctum/csrf-cookie'));
+    expect($before)->toBeString()->not->toBe('');
+
+    aBrowserHolding($before);
+    $entered = enterWith($order)->assertOk()->assertJsonPath('email', 'returning@example.com');
+
+    $after = sessionCookieFrom($entered);
+    expect($after)->toBeString()->not->toBe($before);
+
+    aBrowserHolding($after);
+    $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('id', $buyer->id);
+
+    aBrowserHolding($before);
+    $this->getJson('/api/v1/me')->assertUnauthorized();
 });
 
-it('refuses an unclaimed account that holds another order', function (OrderStatus $earlier) {
+it('signs in an unclaimed account that holds another order', function (OrderStatus $earlier) {
     $buyer = Customer::factory()->create(['password' => null]);
 
     Order::factory()
@@ -192,8 +218,10 @@ it('refuses an unclaimed account that holds another order', function (OrderStatu
     $order = aPassOrderToEnter($buyer);
     settleTheEntry($order);
 
-    enterWith($order)->assertForbidden();
-    $this->assertGuest('web');
+    $session = sessionCookieFrom(enterWith($order)->assertOk()->assertJsonPath('id', $buyer->id));
+
+    aBrowserHolding($session);
+    $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('id', $buyer->id);
 })->with([
     'a paid one' => OrderStatus::Paid,
     'an abandoned one' => OrderStatus::Pending,
@@ -371,9 +399,10 @@ it('signs the entered session out on its next request once the owner takes the a
     $this->getJson('/api/v1/me')->assertOk();
 
     // The owner, in another browser, holding a link from their own inbox: the
-    // receipt's claim link, or a reset they asked for.
+    // welcome email's claim link (the receipt's until #135, 24 November
+    // 2026), or a reset they asked for.
     $token = $endpoint === '/api/v1/set-password'
-        ? tokenInTheEntryReceipt()
+        ? tokenInTheWelcomeEmail()
         : Password::broker('customers')->createToken($order->customer->fresh());
 
     aBrowserHolding('');
@@ -392,6 +421,38 @@ it('signs the entered session out on its next request once the owner takes the a
 ]);
 
 /*
+| Squatting on a claimed account, accepted 24 November 2026 (#135).
+|
+| Somebody who pays with the address of an account that already has a password
+| is now signed in to that account. The owner ends it by resetting, and
+| `AuthenticateSession` signs the squatter out on the next request because the
+| stored hash is of the old password.
+*/
+
+it('signs an entered session on a claimed account out on its next request once the owner resets', function () {
+    $owner = Customer::factory()->create(['email' => 'owner@example.com', 'password' => 'the-owners-old-password']);
+    $order = aPassOrderToEnter($owner);
+    settleTheEntry($order);
+
+    $squatter = sessionCookieFrom(enterWith($order)->assertOk());
+
+    aBrowserHolding($squatter);
+    $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('email', 'owner@example.com');
+
+    // The owner, in another browser, with a reset link they asked for.
+    aBrowserHolding('');
+    $this->postJson('/api/v1/reset-password', [
+        'token' => Password::broker('customers')->createToken($owner->fresh()),
+        'email' => 'owner@example.com',
+        'password' => 'the-owners-new-password',
+        'password_confirmation' => 'the-owners-new-password',
+    ])->assertOk();
+
+    aBrowserHolding($squatter);
+    $this->getJson('/api/v1/me')->assertUnauthorized();
+});
+
+/*
 | Every answer refuses to be stored.
 */
 
@@ -407,8 +468,13 @@ it('marks every answer no-store', function (Closure $arrange, int $status) {
         return $order->pay_token;
     }, 200],
     'not settled' => [fn () => aPassOrderToEnter()->pay_token, 409],
+    // ~~A claimed account~~ was the refused case until #135 entered it, 24
+    // November 2026. An order with no pass line is refused for good.
     'refused' => [function () {
-        $order = aPassOrderToEnter(Customer::factory()->create());
+        $order = Order::factory()
+            ->for(Customer::factory()->create(['password' => null]))
+            ->forProduct(Product::factory()->create(['key' => ProductKey::MonthAhead]))
+            ->create();
         settleTheEntry($order);
 
         return $order->pay_token;

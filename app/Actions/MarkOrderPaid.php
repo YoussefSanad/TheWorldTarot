@@ -8,6 +8,7 @@ use App\Enums\PasswordLink;
 use App\Enums\ProductKey;
 use App\Mail\GiftToRedeem;
 use App\Mail\OrderPaid;
+use App\Mail\SetPasswordLink;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderLine;
@@ -326,8 +327,16 @@ class MarkOrderPaid
         // already use on the same road, and it runs the callback immediately
         // when nothing is open, so both live callers today are unchanged.
         DB::afterCommit(function () use ($order, $customer): void {
-            // **One receipt, and the claim link rides in it.** Issue #108: the
-            // set-password invitation used to be a second mail beside this one.
+            // ~~**One receipt, and the claim link rides in it.** Issue #108: the
+            // set-password invitation used to be a second mail beside this
+            // one.~~ **A receipt, and after it a welcome email carrying the
+            // link**, since 24 November 2026 (#135). The client restated the
+            // flow: pay, land in the Viewing Room signed in, and a welcome
+            // email arrives separately with a secure link to set a password
+            // for future visits. That undoes #108 for pass orders, and
+            // decision 6 of #126 with it. The token is minted exactly as
+            // before, below; only the envelope it travels in changed.
+            //
             // The link follows the Viewing Room, not the money. A password is
             // what gets somebody back to the films, so it is minted on the
             // order that grants them and on no other. A reading is written by
@@ -354,7 +363,9 @@ class MarkOrderPaid
             // (`ClaimAccount` answers `AlreadyClaimed`). Which kind is decided
             // here, under the lock, and carried to the mail as `PasswordLink`,
             // so the mail never re-decides from an account that has changed
-            // while the message waited in the queue.
+            // while the message waited in the queue. **Both kinds go in the
+            // same welcome email with the same words** (#135): only the page
+            // behind the button differs.
             //
             // **The risk this accepts, written down because it is the same shape
             // as the one struck above.** Anybody who pays full price for a pass
@@ -373,7 +384,8 @@ class MarkOrderPaid
             // a second token still kills the first, which is Laravel's
             // behaviour (`DatabaseTokenRepository::create()` calls
             // `deleteExisting()` before it inserts), and that is now the
-            // accepted cost: the newest receipt always carries a working link,
+            // accepted cost: the newest ~~receipt~~ welcome email (#135) always
+            // carries a working link,
             // and the older mail's link stops working. A person reaches for the
             // latest mail, and #110's alternative left the latest mail with no
             // link at all.
@@ -383,8 +395,8 @@ class MarkOrderPaid
             // delete-then-insert and collide on the table's email key, which
             // throws before that order's receipt is sent. This callback runs
             // after the order commit, so this is a real transaction, not a
-            // savepoint, and the lock holds until the mint commits. The receipt
-            // and gift mails stay outside it.
+            // savepoint, and the lock holds until the mint commits. The
+            // receipt, the welcome email and the gift mails stay outside it.
             $minted = $this->grantsAccess($order)
                 ? DB::transaction(function () use ($customer): ?array {
                     $locked = Customer::whereKey($customer->getKey())->lockForUpdate()->first();
@@ -397,33 +409,48 @@ class MarkOrderPaid
                     // same locked row. ~~So does whether the confirmation page
                     // may be handed it too (#122).~~ Retired 14 November 2026,
                     // #128: the page is handed no link, so nothing else is
-                    // asked here. `POST /orders/enter` asks
-                    // `ClaimLinkHandover::isFor()` itself, on every request.
+                    // asked here. ~~`POST /orders/enter` asks
+                    // `ClaimLinkHandover::isFor()` itself, on every request.~~
+                    // It asks nothing about the account since #135.
                     return [
                         Password::broker('customers')->createToken($locked),
-                        $locked->email,
+                        $locked,
                         $locked->isUnclaimed() ? PasswordLink::Set : PasswordLink::Reset,
                     ];
                 })
                 : null;
 
-            [$token, $recipient, $link] = $minted ?? [null, $customer->email, PasswordLink::Set];
-
             // ~~**The receipt's own token, kept for the confirmation page**,
             // issue #122, so the page and the inbox hold one link rather than
             // two that kill each other.~~ Retired 14 November 2026, #128's
-            // second step, decided in #126: the page signs a first-time pass
-            // buyer in through `POST /orders/enter` instead, so the receipt's
-            // token is kept nowhere but the receipt and the broker's hashed
-            // row. Nothing here writes `claim-link-for-the-page:*` any more.
+            // second step, decided in #126: the page signs a ~~first-time~~
+            // pass buyer in through `POST /orders/enter` instead, so the
+            // token is kept nowhere but the welcome email (the receipt until
+            // #135) and the broker's hashed row. Nothing here writes
+            // `claim-link-for-the-page:*` any more.
 
-            Mail::to($recipient)->send(new OrderPaid(
-                $order,
-                $token,
-                // Read from the paid order's own lines, never from input.
-                $token !== null ? $this->accessProduct($order) : null,
-                $link,
-            ));
+            // **The receipt carries no credential**, since #135. Its pass
+            // paragraph sends the buyer into the Viewing Room, which they are
+            // already signed in to by `POST /orders/enter`.
+            Mail::to($customer->email)->send(new OrderPaid($order));
+
+            // **The welcome email, queued after the receipt**, so the two
+            // arrive in the order they read: what you bought, then how to come
+            // back to it. Only a pass order holds a token (#51), and the token,
+            // its recipient and its kind all come from the one locked row.
+            // `SetPasswordLink` was unused from #108 until #135 revived it for
+            // this; the name is historical, as its docblock says.
+            if ($minted !== null) {
+                [$token, $holder, $link] = $minted;
+
+                Mail::to($holder->email)->send(new SetPasswordLink(
+                    $holder,
+                    $token,
+                    // Read from the paid order's own lines, never from input.
+                    $this->accessProduct($order),
+                    $link,
+                ));
+            }
 
             // **And whoever was given a present.** B6 (#72), and it is the
             // second of the two mails a settled gift order sends. **The buyer
@@ -454,7 +481,9 @@ class MarkOrderPaid
         // arrange both. Redemption reaches the same action months later, which
         // is the whole reason it is no longer payment's.
         //
-        // What stays here is what payment itself has to say: the receipt, which
-        // carries the invitation to a password when a pass is what was bought.
+        // What stays here is what payment itself has to say: the receipt, and
+        // ~~the invitation to a password it carries~~ the welcome email
+        // carrying the invitation to a password when a pass is what was
+        // bought (#135).
     }
 }

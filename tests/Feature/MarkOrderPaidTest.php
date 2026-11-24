@@ -17,6 +17,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Support\FrontendUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Mail\Mailable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -39,12 +40,13 @@ function settle(Order $order): bool
 }
 
 /**
- * The text part of a receipt, rendered from the mailable's own content.
+ * The text part of a receipt, rendered from the mailable's own content. Or of
+ * the welcome email, since #135 moved the link there (24 November 2026).
  *
  * Raw, so a `&` in a link is a `&` here. `MailBodyTest` is the authority on
  * what actually leaves on the transport.
  */
-function receiptText(OrderPaid $mail): string
+function receiptText(Mailable $mail): string
 {
     $content = $mail->content();
 
@@ -52,12 +54,13 @@ function receiptText(OrderPaid $mail): string
 }
 
 /**
- * The set-password token a receipt carries, or null when it carries none.
+ * The set-password token a mail carries, or null when it carries none.
  *
- * Read out of the rendered link rather than off a property, so the receipt's
- * internals stay free to change (#108).
+ * Read out of the rendered link rather than off a property, so the mail's
+ * internals stay free to change (#108). ~~A receipt~~ The welcome email since
+ * #135, 24 November 2026; a receipt is still asked, to prove it carries none.
  */
-function claimTokenIn(OrderPaid $mail): ?string
+function claimTokenIn(Mailable $mail): ?string
 {
     if (preg_match('#https://\S+/set-password/\?\S+#', receiptText($mail), $found) !== 1) {
         return null;
@@ -73,7 +76,7 @@ function claimTokenIn(OrderPaid $mail): ?string
  *
  * @return array{token: string, email: string, next: ?string}|null
  */
-function resetLinkIn(OrderPaid $mail): ?array
+function resetLinkIn(Mailable $mail): ?array
 {
     if (preg_match('#https://\S+/reset-password/\?\S+#', receiptText($mail), $found) !== 1) {
         return null;
@@ -212,9 +215,11 @@ it('does nothing at all the second time', function () {
         ->and(settle($order))->toBeFalse()
         ->and(settle($order))->toBeFalse();
 
+    // ~~One message~~ Two since #135 (24 November 2026): the receipt and the
+    // welcome email, each exactly once.
     Mail::assertQueued(OrderPaid::class, 1);
-    Mail::assertNotQueued(SetPasswordLink::class);
-    Mail::assertQueuedCount(1);
+    Mail::assertQueued(SetPasswordLink::class, 1);
+    Mail::assertQueuedCount(2);
 });
 
 it('queues exactly one receipt for a paid pass order', function () {
@@ -294,13 +299,15 @@ it('invites an unclaimed account to choose a password', function () {
     // that is unchanged by which order carries it.
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
-    // **One mail, since #108.** The receipt is the invitation, so there is no
-    // second message to arrive from support@ or anywhere else.
+    // ~~**One mail, since #108.** The receipt is the invitation, so there is no
+    // second message to arrive from support@ or anywhere else.~~ Reversed 24
+    // November 2026, #135: the invitation is the welcome email, beside the
+    // receipt.
     Mail::assertQueued(OrderPaid::class, 1);
-    Mail::assertNotQueued(SetPasswordLink::class);
-    Mail::assertQueuedCount(1);
+    Mail::assertQueued(SetPasswordLink::class, 1);
+    Mail::assertQueuedCount(2);
 
-    Mail::assertQueued(OrderPaid::class, function (OrderPaid $mail): bool {
+    Mail::assertQueued(SetPasswordLink::class, function (SetPasswordLink $mail): bool {
         // The mail is multipart, so `render()` answers the HTML part, where
         // the separator is correctly `&amp;`. The raw `&` lives in the text
         // part, which is rendered here directly.
@@ -328,29 +335,36 @@ it('carries a token the broker accepts, and states the configured lifetime', fun
 
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
-    $token = claimTokenIn(receiptsQueued()[0]);
+    $token = claimTokenIn(welcomesQueued()[0]);
 
     // A token that merely looks right is not one. It has to be the broker's,
     // for this address, and spend as a first password.
     expect($token)->not->toBeNull()
         ->and(Password::broker('customers')->tokenExists($unclaimed, $token))->toBeTrue()
         ->and(config('auth.passwords.customers.expire'))->toBe(60)
-        ->and(receiptText(receiptsQueued()[0]))->toContain('60 minutes')
+        ->and(receiptText(welcomesQueued()[0]))->toContain('60 minutes')
         ->and(app(ClaimAccount::class)($unclaimed->email, $token, 'a-brand-new-password'))
         ->toBe(ClaimOutcome::Claimed);
 });
 
-it('offers the pass buyer a password and no way past it, in the one receipt', function () {
+/**
+ * ~~Offers the pass buyer a password and no way past it, in the one receipt.~~
+ * Reversed 24 November 2026, #135: the receipt sends the buyer into the Viewing
+ * Room, and the welcome email beside it carries the password link.
+ */
+it('gives the pass buyer the Viewing Room in the receipt and the password in the welcome email', function () {
     settle(orderFor(Product::factory()->pass()->create(), Customer::factory()->create(['password' => null])));
 
-    $mail = receiptsQueued()[0];
+    $receipt = receiptsQueued()[0];
+    $welcome = welcomesQueued()[0];
     $viewingRoom = FrontendUrl::viewingRoom();
 
-    expect($mail->render())->toContain('Set your password')
-        ->and($mail->render())->not->toContain('Enter the Viewing Room')
-        ->and($mail->render())->not->toContain('A separate email from us carries the link')
-        ->and(receiptText($mail))->not->toContain($viewingRoom)
-        ->and(receiptText($mail))->not->toContain('A separate email from us carries the link');
+    expect($receipt->render())->toContain('Enter the Viewing Room')
+        ->and($receipt->render())->not->toContain('Set your password')
+        ->and(receiptText($receipt))->toContain($viewingRoom)
+        ->and(claimTokenIn($receipt))->toBeNull()
+        ->and($welcome->render())->toContain('Set your password')
+        ->and(claimTokenIn($welcome))->not->toBeNull();
 });
 
 it('sends no password link of any kind to a claimed account that bought only a reading', function () {
@@ -409,12 +423,14 @@ it('invites the buyer of a pass exactly once', function () {
 
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
-    // **One mail since #108**, and the link is in it. A gate written against
-    // the wrong fulfillment would silence the link as well as the old message.
-    Mail::assertQueuedCount(1);
-    Mail::assertNotQueued(SetPasswordLink::class);
+    // ~~**One mail since #108**, and the link is in it.~~ Two since #135: the
+    // receipt, and the welcome email carrying the link, once each. A gate
+    // written against the wrong fulfillment would silence the welcome.
+    Mail::assertQueuedCount(2);
+    Mail::assertQueued(SetPasswordLink::class, 1);
 
-    expect(claimTokenIn(receiptsQueued()[0]))->not->toBeNull();
+    expect(claimTokenIn(welcomesQueued()[0]))->not->toBeNull()
+        ->and(claimTokenIn(receiptsQueued()[0]))->toBeNull();
 });
 
 it('sends a reading buyer one receipt with no link and no second message', function () {
@@ -467,16 +483,17 @@ it('invites the buyer of an order holding a reading and a pass', function () {
     settle($order);
 
     // It contains a pass, and the pass is what the password is for. The reading
-    // sitting beside it does not withdraw the invitation, and the one receipt
-    // carries the reading's content as well as the link.
+    // sitting beside it does not withdraw the invitation. ~~The one receipt
+    // carries the reading's content as well as the link.~~ Since #135 the
+    // receipt carries the reading and the Viewing Room, the welcome the link.
     Mail::assertQueued(OrderPaid::class, 1);
-    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(SetPasswordLink::class, 1);
 
     $mail = receiptsQueued()[0];
 
-    expect(claimTokenIn($mail))->not->toBeNull()
+    expect(claimTokenIn(welcomesQueued()[0]))->not->toBeNull()
         ->and($mail->render())->toContain('Your Reading')
-        ->and($mail->render())->toContain('Set your password');
+        ->and($mail->render())->toContain('Enter the Viewing Room');
 });
 
 /*
@@ -502,11 +519,12 @@ it('invites a reading buyer the day they come back for the pass, and not before'
 
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
-    // The silence on the first does not spend the link the second owes.
+    // The silence on the first does not spend the link the second owes. One
+    // welcome email, for the pass (#135).
     Mail::assertQueued(OrderPaid::class, 2);
-    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(SetPasswordLink::class, 1);
 
-    expect(claimTokenIn(receiptsQueued()[1]))->not->toBeNull();
+    expect(claimTokenIn(welcomesQueued()[0]))->not->toBeNull();
 });
 
 /*
@@ -526,27 +544,29 @@ it('invites a reading buyer the day they come back for the pass, and not before'
 | link that works for this person is the reset one.
 */
 
-it('sends a claimed account that has just bought a pass a reset link in the one receipt', function () {
+it('sends a claimed account that has just bought a pass a reset link in the welcome email', function () {
     $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
 
     settle(orderFor(Product::factory()->pass()->create(), $claimed));
 
-    // Still one mail per payment, issue #108.
-    Mail::assertNotQueued(SetPasswordLink::class);
+    // ~~Still one mail per payment, issue #108.~~ The receipt and the welcome
+    // email since #135, 24 November 2026. Never the reset mailable itself.
+    Mail::assertQueued(SetPasswordLink::class, 1);
     Mail::assertNotQueued(PasswordResetLink::class);
     Mail::assertQueued(OrderPaid::class, 1);
 
-    $link = resetLinkIn(receiptsQueued()[0]);
+    $link = resetLinkIn(welcomesQueued()[0]);
 
-    // The same email as a first purchase, decided 6 November 2026: "Set your
-    // password" is the only button, and it opens the reset page.
-    expect(claimTokenIn(receiptsQueued()[0]))->toBeNull()
+    // The same email as a first purchase, decided 6 November 2026 and kept by
+    // #135: "Set your password" is the only button, and it opens the reset page.
+    expect(claimTokenIn(welcomesQueued()[0]))->toBeNull()
         ->and($link)->not->toBeNull()
         ->and($link['email'])->toBe($claimed->email)
         ->and($link['next'])->toBe('/viewing-room/')
         ->and(Password::broker('customers')->tokenExists($claimed, $link['token']))->toBeTrue()
-        ->and(receiptsQueued()[0]->render())->toContain('Set your password')
-        ->and(receiptsQueued()[0]->render())->not->toContain('Enter the Viewing Room');
+        ->and(welcomesQueued()[0]->render())->toContain('Set your password')
+        ->and(resetLinkIn(receiptsQueued()[0]))->toBeNull()
+        ->and(receiptsQueued()[0]->render())->toContain('Enter the Viewing Room');
 });
 
 it('gives a claimed pass buyer a reset link that changes the password, and only once', function () {
@@ -554,7 +574,7 @@ it('gives a claimed pass buyer a reset link that changes the password, and only 
 
     settle(orderFor(Product::factory()->pass()->create(), $claimed));
 
-    $link = resetLinkIn(receiptsQueued()[0]);
+    $link = resetLinkIn(welcomesQueued()[0]);
 
     resetThrough($link['email'], $link['token'])->assertOk();
 
@@ -568,12 +588,12 @@ it('gives a claimed pass buyer a reset link that changes the password, and only 
     expect(Hash::check('a-brand-new-password', $claimed->fresh()->password))->toBeTrue();
 });
 
-it('refuses the reset link in a receipt once it has expired', function () {
+it('refuses the reset link in a welcome email once it has expired', function () {
     $claimed = Customer::factory()->create(['password' => 'a-long-enough-password']);
 
     settle(orderFor(Product::factory()->pass()->create(), $claimed));
 
-    $link = resetLinkIn(receiptsQueued()[0]);
+    $link = resetLinkIn(welcomesQueued()[0]);
 
     $this->travel(config('auth.passwords.customers.expire') + 1)->minutes();
 
@@ -592,7 +612,7 @@ it('replaces a reset link the claimed buyer already held, and the new one works'
 
     settle(orderFor(Product::factory()->pass()->create(), $claimed));
 
-    $link = resetLinkIn(receiptsQueued()[0]);
+    $link = resetLinkIn(welcomesQueued()[0]);
 
     // The broker deletes the earlier token when it mints the new one. That is
     // the accepted cost, written down in `MarkOrderPaid::tell()`.
@@ -640,7 +660,7 @@ it('sends a pass buyer a set-password link that lands in the Viewing Room', func
 
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
-    Mail::assertQueued(OrderPaid::class, function (OrderPaid $mail): bool {
+    Mail::assertQueued(SetPasswordLink::class, function (SetPasswordLink $mail): bool {
         return str_contains(receiptText($mail), 'next=%2Fviewing-room%2F')
             && str_contains($mail->render(), 'next=%2Fviewing-room%2F');
     });
@@ -671,8 +691,8 @@ it('still lands in the Viewing Room when the pass was bought beside a reading', 
     settle($order);
 
     Mail::assertQueued(
-        OrderPaid::class,
-        fn (OrderPaid $mail): bool => str_contains(receiptText($mail), 'next=%2Fviewing-room%2F'),
+        SetPasswordLink::class,
+        fn (SetPasswordLink $mail): bool => str_contains(receiptText($mail), 'next=%2Fviewing-room%2F'),
     );
 });
 
@@ -919,14 +939,15 @@ function anOrderGivingAPassAndAPresent(): Order
 it('queues the receipt, the claim link and the gift code when the settlement stands', function () {
     settle(anOrderGivingAPassAndAPresent());
 
-    // The two the test below asserts the absence of. Without this, that one
-    // would pass just as well against an order that sends nothing. The claim
-    // link rides in the receipt since #108, so it is one fewer message.
+    // The three the test below asserts the absence of. Without this, that one
+    // would pass just as well against an order that sends nothing. ~~The claim
+    // link rides in the receipt since #108, so it is one fewer message.~~ It
+    // rides in the welcome email again since #135, 24 November 2026.
     Mail::assertQueued(OrderPaid::class, 1);
     Mail::assertQueued(GiftToRedeem::class);
-    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(SetPasswordLink::class, 1);
 
-    expect(claimTokenIn(receiptsQueued()[0]))->not->toBeNull();
+    expect(claimTokenIn(welcomesQueued()[0]))->not->toBeNull();
 });
 
 it('sends nothing when the transaction wrapped around the settlement rolls back', function () {
@@ -1025,7 +1046,7 @@ function anOrderHolding(string $state): Order
 | mail's link dies, which is the accepted cost. A person reads the latest mail.
 */
 
-it('gives the second receipt a working claim link, and the first one stops working', function () {
+it('gives the second welcome email a working claim link, and the first one stops working', function () {
     $unclaimed = Customer::factory()->create(['password' => null]);
 
     // **One pass, bought on two orders.** There is one Viewing Room row in the
@@ -1038,40 +1059,40 @@ it('gives the second receipt a working claim link, and the first one stops worki
 
     settle(orderFor($pass, $unclaimed));
 
-    $first = claimTokenIn(receiptsQueued()[0]);
+    $first = claimTokenIn(welcomesQueued()[0]);
 
     settle(orderFor($pass, $unclaimed));
 
-    // Still one mail per payment.
+    // A receipt and a welcome email per payment, #135.
     Mail::assertQueued(OrderPaid::class, 2);
-    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(SetPasswordLink::class, 2);
 
-    $second = claimTokenIn(receiptsQueued()[1]);
+    $second = claimTokenIn(welcomesQueued()[1]);
 
     expect($first)->not->toBeNull()
         ->and($second)->not->toBeNull()
         ->and($second)->not->toBe($first)
-        ->and(receiptsQueued()[1]->render())->toContain('Set your password')
+        ->and(welcomesQueued()[1]->render())->toContain('Set your password')
         ->and(app(ClaimAccount::class)($unclaimed->email, $first, 'a-brand-new-password'))
         ->toBe(ClaimOutcome::LinkNotValid)
         ->and(app(ClaimAccount::class)($unclaimed->email, $second, 'a-brand-new-password'))
         ->toBe(ClaimOutcome::Claimed);
 });
 
-it('sends a reset link on the next pass receipt once the account has been claimed', function () {
+it('sends a reset link in the next welcome email once the account has been claimed', function () {
     $customer = Customer::factory()->create(['password' => null]);
     $pass = Product::factory()->pass()->create();
 
     settle(orderFor($pass, $customer));
 
-    expect(app(ClaimAccount::class)($customer->email, claimTokenIn(receiptsQueued()[0]), 'a-brand-new-password'))
+    expect(app(ClaimAccount::class)($customer->email, claimTokenIn(welcomesQueued()[0]), 'a-brand-new-password'))
         ->toBe(ClaimOutcome::Claimed);
 
     settle(orderFor($pass, $customer->fresh()));
 
-    $link = resetLinkIn(receiptsQueued()[1]);
+    $link = resetLinkIn(welcomesQueued()[1]);
 
-    expect(claimTokenIn(receiptsQueued()[1]))->toBeNull()
+    expect(claimTokenIn(welcomesQueued()[1]))->toBeNull()
         ->and($link)->not->toBeNull();
 
     resetThrough($link['email'], $link['token'], 'a-third-password')->assertOk();
@@ -1095,10 +1116,10 @@ it('mints a fresh claim link once the outstanding one has expired', function () 
     settle(orderFor($pass, $unclaimed));
 
     Mail::assertQueued(OrderPaid::class, 2);
-    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(SetPasswordLink::class, 2);
 
-    $first = claimTokenIn(receiptsQueued()[0]);
-    $second = claimTokenIn(receiptsQueued()[1]);
+    $first = claimTokenIn(welcomesQueued()[0]);
+    $second = claimTokenIn(welcomesQueued()[1]);
 
     expect($first)->not->toBeNull()
         ->and($second)->not->toBeNull()
@@ -1114,9 +1135,9 @@ it('still invites somebody whose only outstanding token belongs to another addre
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
     Mail::assertQueued(OrderPaid::class, 1);
-    Mail::assertNotQueued(SetPasswordLink::class);
+    Mail::assertQueued(SetPasswordLink::class, 1);
 
-    expect(claimTokenIn(receiptsQueued()[0]))->not->toBeNull();
+    expect(claimTokenIn(welcomesQueued()[0]))->not->toBeNull();
 });
 
 /**
@@ -1142,7 +1163,7 @@ it('sends nothing and spends nothing when a reset is asked for inside the broker
 
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
-    $claimToken = claimTokenIn(receiptsQueued()[0]);
+    $claimToken = claimTokenIn(welcomesQueued()[0]);
 
     $this->withHeader('Origin', 'http://localhost')
         ->postJson('/api/v1/forgot-password', ['email' => $unclaimed->email])
@@ -1162,7 +1183,7 @@ it('replaces an outstanding claim token once the throttle has passed, and the re
 
     settle(orderFor(Product::factory()->pass()->create(), $unclaimed));
 
-    $claimToken = claimTokenIn(receiptsQueued()[0]);
+    $claimToken = claimTokenIn(welcomesQueued()[0]);
 
     $this->travel(config('auth.passwords.customers.throttle') + 1)->seconds();
 

@@ -167,43 +167,20 @@
                 half Outlook on Windows needs, so a buyer in any client has
                 something to press.
 
-                **One call to action, and which one depends on the token.**
+                ~~**One call to action, and which one depends on the token.**
                 Issue #108. With a token the receipt is the set-password
-                invitation and its button is the only one: the link's `next`
-                lands the buyer in the room afterwards, so a second button
-                would be two doors out of one mail. Without one ~~(claimed
-                customer, or an earlier link still live)~~ (reworded 6 November
-                2026, #114: a claimed customer now gets a reset link under the
-                button, below) the Viewing Room button stays and the password
-                sentence sends an unclaimed buyer to the sign in page,
-                promising no link in another email.
-
-                **A claimed buyer gets the same button, since 6 November 2026,
-                by decision.** ~~A reset link under the Viewing Room button~~
-                (#114) is gone: a repeat pass buyer gets the same email as a
-                first purchase, and `passwordUrl` is the reset page for them
-                because set-password refuses an account with a password.
+                invitation and its button is the only one.~~ ~~**A claimed
+                buyer gets the same button, since 6 November 2026, by
+                decision**~~ (#114). **Both reversed 24 November 2026, #135:**
+                the password link moved to a separate welcome email, so this
+                receipt carries no credential and its one call to action is the
+                Viewing Room, for every pass buyer, claimed or not. ~~"You
+                still need to choose a password"~~ went too: the welcome email
+                arriving next would contradict it.
                 Escaped like everything else here.
               --}}
               <tr><td align="center" class="white body" style="padding:30px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">Your Viewing Room pass is yours for good. Come back to the films whenever you like, on any device.</td></tr>
 
-              @if ($passwordUrl)
-              <tr><td align="center" style="padding:20px 24px 0 24px;">
-              <!--[if mso]>
-              <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ $passwordUrl }}" style="height:49px;v-text-anchor:middle;width:280px;" arcsize="20%" stroke="f" fillcolor="#E4C46A">
-                <w:anchorlock/>
-                <center style="color:#101B2E;font-family:Georgia, 'Times New Roman', Times, serif;font-size:17px;font-weight:normal;letter-spacing:0.08em;">SET YOUR PASSWORD</center>
-              </v:roundrect>
-              <![endif]-->
-              <!--[if !mso]><!-->
-              <table role="presentation" class="btn" width="280" cellpadding="0" cellspacing="0" border="0" align="center" style="width:280px;border-collapse:separate;">
-                <tr><td align="center" bgcolor="#E4C46A" style="background-color:#E4C46A;border-radius:10px;padding:14px 18px;"><a href="{{ $passwordUrl }}" style="display:block;font-family:'Cinzel', 'Cormorant Garamond', Georgia, 'Times New Roman', Times, serif;font-size:17px;line-height:21px;letter-spacing:0.08em;color:#101B2E;text-decoration:none;text-transform:uppercase;">Set your password</a></td></tr>
-              </table>
-              <!--<![endif]-->
-              </td></tr>
-
-              <tr><td align="center" class="white body" style="padding:22px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">This link works for {{ $minutes }} minutes, and only once. If it expires before you get to it, you can ask for a new one from the sign in page at any time.</td></tr>
-              @else
               <tr><td align="center" style="padding:20px 24px 0 24px;">
               <!--[if mso]>
               <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ $viewingRoomUrl }}" style="height:49px;v-text-anchor:middle;width:280px;" arcsize="20%" stroke="f" fillcolor="#E4C46A">
@@ -218,9 +195,5 @@
               <!--<![endif]-->
               </td></tr>
 
-              @if ($needsPassword)
-              <tr><td align="center" class="white body" style="padding:22px 24px 0 24px;font-family:'Gill Sans', 'Gill Sans MT', 'GillSans', Calibri, 'Trebuchet MS', 'Segoe UI', Candara, Arial, sans-serif;font-size:16px;line-height:22px;letter-spacing:0.03em;color:#FFFFFF;">You still need to choose a password. You can ask for a link to set one from the sign in page at any time.</td></tr>
-              @endif
-              @endif
               @endif
 @endsection
